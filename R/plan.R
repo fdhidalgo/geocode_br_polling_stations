@@ -134,62 +134,8 @@ the_plan <-
       mutate(long = ifelse(is.na(longitude_local), long, longitude_local),
              lat = ifelse(is.na(latitude_local), lat, latitude_local)),
 
-    #nd_locais = add_dist_to_saz(geocoded_locais, muni_shp, tract_shp),
 
-
-    # Cisterns ----------------------------------------------------------------
-
-    #cisterns = st_read("./data/cisterns/deidentified_longlat.csv",
-    #                   options = c("X_POSSIBLE_NAMES=lat", "Y_POSSIBLE_NAMES=long"))  %>%
-    #  st_set_crs(4674),
-    #cisterns_setores = st_join(cisterns,
-    #                           filter(tract_shp, code_muni %in% unique(nd_locais$cod_localidade_ibge)),
-    #                           join = st_within, left = TRUE) %>%
-    #  st_drop_geometry() %>%
-    #  rename("urban_rural" = "zone") %>%
-    #  group_by(code_tract, code_muni, urban_rural) %>%
-    #  summarise(num_cisterns = n()) %>%
-    #  filter(!is.na(num_cisterns)),
-
-
-    # Election Results --------------------------------------------------------
-
-    #elec_results18 = target(clean_2018_elec(dir = file_in("./data/elec_results/2018/")),
-     #                       format = "fst_dt"),
-    # elec_results14 = target(clean_2014_elec(dir = file_in("./data/elec_results/2014")),
-    #                         format = "fst_dt"),
-    # elec_results12 = target(clean_2012_elec(dir = file_in("./data/elec_results/2012")),
-    #                         format = "fst_dt"),
-    # elec_results16 = target(clean_2016_elec(dir = file_in("./data/elec_results/2016")),
-    #                         format = "fst_dt"),
-    # ne_incumbs = readr::read_csv(file_in("./data/all_incumbent_prefeitos.csv")) %>%
-    #   janitor::clean_names() %>%
-    #   select(num_titulo_eleitoral_candidato, ano_eleicao = ano_eleicao_x, sigla_ue,
-    #          sigla_uf = sigla_uf_x, descricao_cargo = descricao_cargo_x,
-    #          nome_candidato = nome_candidato_x_x, cpf_candidato, numero_partido, ibge7_code,
-    #          incumbent = incumbent_runs),
-    #
-    # #trained_models = train_models(training_data),
-    #
-    #
-    # # census tract data -------------------------------------------------------
-    #
-    # setor_census_pop = lapply(dir("./data/census_households/", full.names = TRUE), fread) %>%
-    #   rbindlist(fill = TRUE) %>%
-    #   janitor::clean_names() %>%
-    #   select(cod_setor, situacao_setor, households = v002) %>%
-    #   mutate(cod_setor = as.numeric(cod_setor)),
-    #
-    # cisterns_estim_data = make_cisterns_rd_data(cisterns_setores = cisterns_setores,
-    #                                             muni_shp = muni_shp,
-    #                                             tract_centroids = tract_centroids,
-    #                                             setor_census_pop = setor_census_pop),
-    #
-    #
-    # # Outputs -----------------------------------------------------------------
-    #
-    # example_map = tmap_save(create_map_example(muni_shp = muni_shp, nd_locais = nd_locais, cisterns = cisterns),
-    #                         filename = file_out("./doc/example_border_munis.pdf")),
+# Documentation and Writeup -----------------------------------------------
 
         geocode_writeup = target(
           command = {

@@ -1,0 +1,14 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+/data/
+/archive/
+/reference/
+/.drake/
+.DS_Store
+.env
+.lintr
+Icon
+scratch.R
+.projectile

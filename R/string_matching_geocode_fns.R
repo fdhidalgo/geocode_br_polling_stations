@@ -129,38 +129,121 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
 }
 
 get_best_string_match <- function(cnefe_stbairro_match, inep_string_match, schools_cnefe_match,
-                                  agrocnefe_stbairro_match){
-  best_string_match <- left_join(cnefe_stbairro_match, inep_string_match) %>%
-    left_join(schools_cnefe_match) %>%
-    left_join(agrocnefe_stbairro_match) %>%
-    select( local_id, contains("mindist"), contains("match_long"), contains("match_lat")) %>%
-    tidyr::pivot_longer(cols = mindist_st_cnefe:match_lat_bairro_agrocnefe) %>%
-    mutate(match_type = case_when(str_detect(name, "st_cnefe") ~ "6_st_cnefe",
-                                  str_detect(name, "bairro_cnefe") ~ "8_bairro_cnefe",
-                                  str_detect(name, "inep_name") ~ "1_inep_name",
-                                  str_detect(name, "inep_addr") ~ "2_inep_addr",
-                                  str_detect(name, "name_inep") ~ "1_inep_name",
-                                  str_detect(name, "addr_inep") ~ "2_inep_addr",
-                                  str_detect(name, "name_schools_cnefe") ~ "3_name_schools_cnefe",
-                                  str_detect(name, "addr_schools_cnefe") ~ "4_addr_schools_cnefe",
-                                  str_detect(name, "schools_cnefe_name") ~ "3_name_schools_cnefe",
-                                  str_detect(name, "schools_cnefe_addr") ~ "4_addr_schools_cnefe",
-                                  str_detect(name, "st_agrocnefe") ~ "5_st_agrocnefe",
-                                  str_detect(name, "bairro_agrocnefe") ~ "7_bairro_agrocnefe"),
-           variable = case_when(str_detect(name, "mindist") ~ "mindist",
-                                str_detect(name, "long") ~ "long",
-                                str_detect(name, "lat") ~ "lat")) %>%
-    select(-name) %>%
-    tidyr::pivot_wider(names_from = variable, values_from = value) %>%
-    ##The following line sets the minimum distance to 0 for school name matches that are close, but not exact
-    mutate(mindist_match = ifelse(mindist <= .1 &
-                              match_type %in% c("1_inep_name", "2_inep_addr",
-                                                "3_name_schools_cnefe", "4_addr_schools_cnefe"),
-                            0, mindist)) %>%
-    arrange(local_id, mindist_match, match_type) %>%
-    select(-mindist_match) %>%
+                                  agrocnefe_stbairro_match, locais, tsegeocoded_locais18, muni_demo){
+
+  cnefe_stbairro <- cnefe_stbairro_match %>%
+    select(local_id, contains("long"), contains("lat"), contains("mindist")) %>%
+    pivot_longer(-local_id) %>%
+    mutate(var = case_when(grepl("long", name) ~ "long",
+                           grepl("lat", name) ~ "lat",
+                           grepl("mindist", name) ~ "mindist"),
+           type = case_when(grepl("_st_", name) ~ "st_cnefe",
+                            grepl("_bairro_", name) ~ "bairro_cnefe")) %>%
+    pivot_wider(id_cols = c(local_id, type), names_from = var)
+
+  schools_cnefe <- schools_cnefe_match %>%
+    select(local_id, contains("long"), contains("lat"), contains("mindist")) %>%
+    pivot_longer(-local_id) %>%
+    mutate(var = case_when(grepl("long", name) ~ "long",
+                           grepl("lat", name) ~ "lat",
+                           grepl("mindist", name) ~ "mindist"),
+           type = case_when(grepl("_name", name) ~ "schools_cnefe_name",
+                            grepl("_addr", name) ~ "schools_cnefe_addr")) %>%
+    pivot_wider(id_cols = c(local_id, type), names_from = var)
+
+  agrocnefe_stbairro <- agrocnefe_stbairro_match %>%
+    select(local_id, contains("long"), contains("lat"), contains("mindist")) %>%
+    pivot_longer(-local_id) %>%
+    mutate(var = case_when(grepl("long", name) ~ "long",
+                           grepl("lat", name) ~ "lat",
+                           grepl("mindist", name) ~ "mindist"),
+           type = case_when(grepl("_st_", name) ~ "st_agrocnefe",
+                            grepl("_bairro_", name) ~ "bairro_agrocnefe")) %>%
+    pivot_wider(id_cols = c(local_id, type), names_from = var)
+
+  inep <- inep_string_match %>%
+    select(local_id, contains("long"), contains("lat"), contains("mindist")) %>%
+    pivot_longer(-local_id) %>%
+    mutate(var = case_when(grepl("long", name) ~ "long",
+                           grepl("lat", name) ~ "lat",
+                           grepl("mindist", name) ~ "mindist"),
+           type = case_when(grepl("_name", name) ~ "schools_inep_name",
+                            grepl("_addr", name) ~ "schools_inep_addr")) %>%
+    pivot_wider(id_cols = c(local_id, type), names_from = var)
+
+  muni_demo <- muni_demo %>%
+    mutate(logpop = log(pop),
+           pct_rural = 100 * peso_rur / pop) %>%
+    select(cod_localidade_ibge = id_munic_7, rdpc, logpop, pct_rural)
+
+  school_syns <- c("e m e i", "esc inf", "esc mun", "unidade escolar", "centro educacional", "escola municipal",
+                   "colegio estadual", "cmei", "emeif", "grupo escolar", "escola estadual", "erem", "colegio municipal",
+                   "centro de ensino infantil", "escola mul", "e m", "grupo municipal", "e e", "creche", "escola",
+                   "colegio", "em", "de referencia", "centro comunitario", "grupo", "de referencia em ensino medio",
+                   "intermediaria", "ginasio municipal", "ginasio", "emef", "centro de educacao infantil", "esc", "ee",
+                   "e f", "cei", "emei", "ensino fundamental", "ensino medio", "eeief", "eef", "e f", "ens fun",
+                   "eem", "eeem", "est ens med", "est ens fund", "ens fund", "mul", "professora", "professor",
+                   "eepg", "eemg", "prof", "ensino fundamental")
+
+  addr_features <- select(locais, local_id, nm_locvot, ds_endereco, ds_bairro, normalized_addr, normalized_name) %>%
+    mutate(norm_name = stringi::stri_trans_general(nm_locvot, "Latin-ASCII") %>%
+             str_to_lower() %>%
+             str_remove_all("\\.") %>%
+             str_remove_all("[[:punct:]]") %>%
+             str_squish(),
+           centro = ifelse(grepl("\\bcentro\\b", normalized_addr) == TRUE, 1, 0),
+           zona_rural = ifelse(grepl("\\brural\\b", ds_endereco, ignore.case = TRUE) == TRUE |
+                                 grepl("\\brural\\b", ds_bairro, ignore.case = TRUE) == TRUE, 1, 0),
+           school = ifelse(grepl(paste0("\\b", school_syns, "\\b", collapse = "|"), norm_name) == TRUE, 1, 0)) %>%
+    select(local_id, centro, zona_rural, school)
+
+  matching_data <- bind_rows(cnefe_stbairro, schools_cnefe, agrocnefe_stbairro, inep) %>%
+    left_join(select(locais, local_id, ano, cod_localidade_ibge)) %>%
+    filter(!is.na(type) & !is.na(mindist)) %>%
+    mutate(type = as.factor(type)) %>%
+    left_join(muni_demo) %>%
+    left_join(addr_features)
+
+  training_set <- left_join(tsegeocoded_locais18, matching_data) %>%
+    rowwise() %>%
+    mutate(dist = geosphere::distHaversine(p1 = c(long, lat),
+                                           p2 = c(tse_long, tse_lat))/1000) %>%
+    select(-c(nr_zona, nr_locvot, tse_lat, tse_long, long, lat, ano)) %>%
+    filter(!is.na(dist)  & !is.na(rdpc))
+
+  ranger_recipe <-
+    recipe(formula = dist ~ ., data = training_set) %>%
+    update_role(cod_localidade_ibge, new_role = "id variable") %>%
+    update_role(local_id, new_role = "id variable") %>%
+    step_medianimpute(rdpc, logpop, pct_rural)
+
+  ranger_spec <-
+    rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>%
+    set_mode("regression") %>%
+    set_engine("ranger")
+
+  ranger_workflow <-
+    workflow() %>%
+    add_recipe(ranger_recipe) %>%
+    add_model(ranger_spec)
+
+  cvfolds <- vfold_cv(training_set, v = 5)
+
+  ranger_tune <-
+    tune_grid(ranger_workflow, resamples = cvfolds, grid = 5, control = control_grid(verbose = TRUE))
+
+  best_rmse <- select_best(ranger_tune, "rmse")
+
+  final_model <- finalize_workflow(ranger_workflow, best_rmse)
+
+  fitted_model <- fit(final_model, data = training_set)
+
+  matching_data$pred_dist <- predict(fitted_model, matching_data)$.pred
+
+  matching_data %>%
     group_by(local_id) %>%
-    slice(1)
-  as.data.table(best_string_match)
+    arrange(local_id, pred_dist) %>%
+    slice(1) %>%
+    select(local_id, match_type = type, mindist, long, lat, pred_dist)
 }
 

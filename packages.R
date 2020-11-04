@@ -9,8 +9,10 @@ library(sf)
 library(stringr)
 library(rmarkdown)
 
-library(tmap)
+library(tidymodels)
+library(tidyr)
+
 
 conflict_prefer("filter", "dplyr")
-
+conflict_prefer("workflow", "workflows")
 

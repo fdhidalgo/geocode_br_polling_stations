@@ -12,13 +12,17 @@ the_plan <-
     muni_shp = make_muni_shp(muni_shp = readRDS(file_in("./data/muni_shp.rds")),
                              semiarid05_shp = readRDS(file_in("./data/semiarid05_shp.rds"))),
 
+
+  # import municipal demographics -------------------------------------------
+  muni_demo = readxl::read_xlsx("./data/atlas_brasil_census_data.xlsx", sheet = 2) %>%
+    select(id_munic_7 = Codmun7, ANO, POP, pesoRUR, RDPC) %>%
+    janitor::clean_names() %>%
+    filter(ano == 2010) %>% select(-ano),
+
+
     # calculate centroids -----------------------------------------------------
     tract_centroids = make_tract_centroids(tract_shp),
     muni_centroids = make_muni_centroids(readRDS(file_in("./data/muni_shp.rds"))),
-
-    # Import Google Geocoded Data --------------------------------------------------------------
-    google_geocoded_df = fread(file_in("./data/google_geocoded.csv")),
-
 
     # Import and CLean CNEFE data --------------------------------------------------------------
     cnefe = target(clean_cnefe(cnefe = fread(file_in("./data/CNEFE_Universo_07-03-2019.gz"),
@@ -37,14 +41,14 @@ the_plan <-
                              mutate(norm_desc = normalize_school(desc)) %>%
                              as.data.table(),
                            format = "fst_dt"),
-   ### Create dataset of streets in CNEFE
+    ### Create dataset of streets in CNEFE
     cnefe_st = target(cnefe[, .(long = median(cnefe_long, na.rm = TRUE), lat = median(cnefe_lat, na.rm = TRUE), n = .N),
                             by = .(id_munic_7, norm_street)][n > 1], format = "fst_dt"),
-   ###Create dataset of neighborhoods in CNEFE
+    ###Create dataset of neighborhoods in CNEFE
     cnefe_bairro = target(cnefe[, .(long = median(cnefe_long, na.rm = TRUE), lat = mean(cnefe_lat, na.rm = TRUE), n = .N),
                                 by = .(id_munic_7, norm_bairro)][n > 1], format = "fst_dt"),
 
-   ## Import and clean 2017 CNEFE
+    ## Import and clean 2017 CNEFE
     agro_cnefe = target(clean_agro_cnefe(agro_cnefe =  janitor::clean_names(
       rbindlist(lapply(dir("./data/agro_censo/", full.names = TRUE), fread,
                        drop = c("SITUACAO", "NOM_COMP_ELEM1", "COD_DISTRITO",
@@ -62,48 +66,26 @@ the_plan <-
                                          by = .(id_munic_7, norm_bairro)][n > 1], format = "fst_dt"),
 
     # Import and Clean INEP Data ---------------------------------------------------------------
-
     inep_data = clean_inep(inep_data = fread(file_in("./data/inep_catalogo_das_escolas.csv")),
                            inep_codes = inep_codes),
 
     # Import Locais de Votacao Data -------------------------------------------
-
-    locais12 = fread(file_in("./data/secoes/VOTOS_PREFEITO_LOCAL_VOTACAO_2012.csv")) %>%
+    locais = fread("./data/secoes/painel_lv.csv") %>%
       janitor::clean_names() %>%
-      select(uf, cod_mun_tse, cod_mun_tse, cod_mun_ibge, num_zona, num_local_votacao,
-             nome_municipio, nome_local_votacao, descricao_endereco, descricao_bairro) %>%
-      distinct() %>%
-      mutate(normalized_name = normalize_school(nome_local_votacao),
-             normalized_addr = paste(normalize_address(descricao_endereco), normalize_address(descricao_bairro)),
-             normalized_st = normalize_address(descricao_endereco),
-             normalized_bairro = normalize_address(descricao_bairro)),
-
-    locais14 = fread(file_in("./data/secoes/VOTOS_PRESIDENTE_LOCAL_VOTACAO_2014.csv")) %>%
-      janitor::clean_names() %>%
-      select(uf, cod_mun_tse, cod_mun_tse, cod_mun_ibge, num_zona, num_local_votacao,
-             nome_municipio, nome_local_votacao, descricao_endereco, descricao_bairro) %>%
-      distinct() %>%
-      mutate(normalized_name = normalize_school(nome_local_votacao),
-             normalized_addr = paste(normalize_address(descricao_endereco), normalize_address(descricao_bairro)),
-             normalized_st = normalize_address(descricao_endereco),
-             normalized_bairro = normalize_address(descricao_bairro)),
-
-    locais16 = fread(file_in("./data/secoes/locais_voto_2016.csv")) %>%
-      janitor::clean_names() %>%
-      select(sg_uf, cd_localidade_tse, nm_localidade, nr_zona, nr_locvot,
-             nm_locvot, ds_endereco, ds_bairro) %>%
-      distinct() %>%
       mutate(normalized_name = normalize_school(nm_locvot),
              normalized_addr = paste(normalize_address(ds_endereco), normalize_address(ds_bairro)),
              normalized_st = normalize_address(ds_endereco),
-             normalized_bairro = normalize_address(ds_bairro)),
+             normalized_bairro = normalize_address(ds_bairro)) %>%
+      left_join(select(muni_ids, cod_localidade_ibge = id_munic_7, cd_localidade_tse = id_TSE)) %>%
+      filter(!is.na(nm_locvot)) %>%
+      mutate(local_id = 1:n()),
 
-    locais18 = clean_locais18(locais18 = fread(file_in("./data/secoes/local-votacao-08-08-2018.csv")),
-                              muni_ids = muni_ids),
-
-    locais = combine_locais(muni_ids = muni_ids, locais12 = locais12, locais14 = locais14, locais16 = locais16,
-                            locais18 = locais18),
-
+    tsegeocoded_locais18 = clean_locais18(locais18 = fread(file_in("./data/secoes/local-votacao-08-08-2018.csv")),
+                                          muni_ids = muni_ids) %>%
+      select(cod_localidade_ibge, nr_zona = zona, nr_locvot = num_local,
+             tse_lat = latitude_local, tse_long = longitude_local)  %>%
+      filter(!is.na(tse_lat)) %>% mutate(ano = 2018) %>%
+      left_join(select(locais, local_id, ano, cod_localidade_ibge, nr_zona, nr_locvot)),
 
     # String Matching ---------------------------------------------------------
 
@@ -121,27 +103,31 @@ the_plan <-
                                              ~ match_stbairro_agrocnefe_muni(locais_muni = locais[cod_localidade_ibge == .x],
                                                                              agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
                                                                              agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]))),
-    #choose best match
+    # Choose best match
     best_string_match = get_best_string_match(cnefe_stbairro_match = cnefe_stbairro_match,
                                               schools_cnefe_match = schools_cnefe_match,
                                               inep_string_match = inep_string_match,
-                                              agrocnefe_stbairro_match = agrocnefe_stbairro_match),
+                                              agrocnefe_stbairro_match = agrocnefe_stbairro_match,
+                                              locais = locais, tsegeocoded_locais18 = tsegeocoded_locais18,
+                                              muni_demo = muni_demo),
 
+    # Import Google Geocoded Data --------------------------------------------------------------
+    google_geocoded_df = fread(file_in("./data/google_geocoded.csv")),
 
     # Use string matches to geocode -------------------------------------------
-
     geocoded_locais = left_join(locais, best_string_match) %>%
-      mutate(long = ifelse(is.na(longitude_local), long, longitude_local),
-             lat = ifelse(is.na(latitude_local), lat, latitude_local)),
+      left_join(tsegeocoded_locais18), #%>%
+  #    mutate(long = ifelse(is.na(tse_long), long, tse_long),
+  #           lat = ifelse(is.na(tse_lat), lat, tse_lat)),
 
 
-# Documentation and Writeup -----------------------------------------------
+    # Documentation and Writeup -----------------------------------------------
 
-        geocode_writeup = target(
-          command = {
-            rmarkdown::render(knitr_in("doc/geocode_polling_stations/geocode_polling_stations.Rmd"))
-            file_out("doc/geocode_polling_stations/geocode_polling_stations.html")
-          }
+    geocode_writeup = target(
+      command = {
+        rmarkdown::render(knitr_in("doc/geocode_polling_stations/geocode_polling_stations.Rmd"))
+        file_out("doc/geocode_polling_stations/geocode_polling_stations.html")
+      }
     )
   )
 

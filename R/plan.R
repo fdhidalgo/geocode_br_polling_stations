@@ -119,6 +119,7 @@ the_plan <-
       left_join(tsegeocoded_locais18), #%>%
   #    mutate(long = ifelse(is.na(tse_long), long, tse_long),
   #           lat = ifelse(is.na(tse_lat), lat, tse_lat)),
+    geocode_export = readr::write_csv(geocoded_locais, file_out("./geocoded_polliing_stations.csv.gz")),
 
 
     # Documentation and Writeup -----------------------------------------------

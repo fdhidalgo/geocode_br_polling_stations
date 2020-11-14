@@ -8,7 +8,8 @@ match_inep_muni <- function(locais_muni, inep_muni){
   #Match on inep name
   name_inep_dists <- stringdist::stringdistmatrix(locais_muni$normalized_name, inep_muni$norm_school, method = "lv")
   #Normalize for string length
-  name_inep_dists <- name_inep_dists / pmax(nchar(locais_muni$normalized_name), nchar(inep_muni$norm_school))
+  name_inep_dists <- name_inep_dists / outer(nchar(locais_muni$normalized_name), nchar(inep_muni$norm_school), FUN = "pmax")
+
   mindist_name_inep <- apply(name_inep_dists, 1, min)
   match_inep_name <- inep_muni$norm_school[apply(name_inep_dists, 1, which.min)]
   match_long_inep_name <- inep_muni$longitude[apply(name_inep_dists, 1, which.min)]
@@ -17,7 +18,7 @@ match_inep_muni <- function(locais_muni, inep_muni){
   #Match on inep address
   addr_inep_dists <- stringdist::stringdistmatrix(locais_muni$normalized_addr, inep_muni$norm_addr,  method = "lv")
   #Normalize for string length
-  addr_inep_dists <- addr_inep_dists / pmax(nchar(locais_muni$normalized_addr), nchar(inep_muni$norm_addr))
+  addr_inep_dists <- addr_inep_dists / outer(nchar(locais_muni$normalized_addr), nchar(inep_muni$norm_addr), FUN = "pmax")
   mindist_addr_inep <- apply(addr_inep_dists, 1, min)
   match_inep_addr <- inep_muni$norm_addr[apply(addr_inep_dists, 1, which.min)]
   match_long_inep_addr <- inep_muni$longitude[apply(addr_inep_dists, 1, which.min)]
@@ -40,7 +41,8 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni){
   #Match on schools_cnefe name
   name_schools_cnefe_dists <- stringdist::stringdistmatrix(locais_muni$normalized_name, schools_cnefe_muni$norm_desc, method = "lv")
   #Normalize for string length
-  name_schools_cnefe_dists <- name_schools_cnefe_dists / pmax(nchar(locais_muni$normalized_name), nchar(schools_cnefe_muni$norm_desc))
+  name_schools_cnefe_dists <- name_schools_cnefe_dists / outer(nchar(locais_muni$normalized_name), nchar(schools_cnefe_muni$norm_desc), FUN = "pmax")
+
   mindist_name_schools_cnefe <- apply(name_schools_cnefe_dists, 1, min)
   match_schools_cnefe_name <- schools_cnefe_muni$norm_desc[apply(name_schools_cnefe_dists, 1, which.min)]
   match_long_schools_cnefe_name <- schools_cnefe_muni$cnefe_long[apply(name_schools_cnefe_dists, 1, which.min)]
@@ -49,7 +51,8 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni){
   #Match on schools_cnefe address
   addr_schools_cnefe_dists <- stringdist::stringdistmatrix(locais_muni$normalized_addr, schools_cnefe_muni$norm_addr,  method = "lv")
   #Normalize for string length
-  addr_schools_cnefe_dists <- addr_schools_cnefe_dists / pmax(nchar(locais_muni$normalized_addr), nchar(schools_cnefe_muni$norm_addr))
+  addr_schools_cnefe_dists <- addr_schools_cnefe_dists / outer(nchar(locais_muni$normalized_addr), nchar(schools_cnefe_muni$norm_addr), FUN = "pmax")
+
   mindist_addr_schools_cnefe <- apply(addr_schools_cnefe_dists, 1, min)
   match_schools_cnefe_addr <- schools_cnefe_muni$norm_addr[apply(addr_schools_cnefe_dists, 1, which.min)]
   match_long_schools_cnefe_addr <- schools_cnefe_muni$cnefe_long[apply(addr_schools_cnefe_dists, 1, which.min)]
@@ -74,7 +77,7 @@ match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_m
   locais_muni$normalized_st <- str_replace(locais_muni$normalized_st, ",.*$| sn$", "")
   st_cnefe_dists <- stringdist::stringdistmatrix(locais_muni$normalized_st, cnefe_st_muni$norm_street, method = "lv")
   #Normalize for string length
-  st_cnefe_dists <- st_cnefe_dists / pmax(nchar(locais_muni$normalized_st), nchar(cnefe_st_muni$norm_street))
+  st_cnefe_dists <- st_cnefe_dists / outer(nchar(locais_muni$normalized_st), nchar(cnefe_st_muni$norm_street), FUN = "pmax")
 
   mindist_st_cnefe <- apply(st_cnefe_dists, 1, min)
   match_st_cnefe <- cnefe_st_muni$norm_street[apply(st_cnefe_dists, 1, which.min)]
@@ -85,7 +88,8 @@ match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_m
   locais_muni[normalized_bairro == "", normalized_bairro := normalized_st]
   bairro_cnefe_dists <- stringdist::stringdistmatrix(locais_muni$normalized_bairro, cnefe_bairro_muni$norm_bairro, method = "lv")
   #Normalize for string length
-  bairro_cnefe_dists <- bairro_cnefe_dists / pmax(nchar(locais_muni$normalized_bairro), nchar(cnefe_bairro_muni$norm_bairro))
+  bairro_cnefe_dists <- bairro_cnefe_dists / outer(nchar(locais_muni$normalized_bairro), nchar(cnefe_bairro_muni$norm_bairro), FUN = "pmax")
+
   mindist_bairro_cnefe <- apply(bairro_cnefe_dists, 1, min)
   match_bairro_cnefe <- cnefe_bairro_muni$norm_bairro[apply(bairro_cnefe_dists, 1, which.min)]
   match_long_bairro_cnefe <- cnefe_bairro_muni$long[apply(bairro_cnefe_dists, 1, which.min)]
@@ -106,7 +110,7 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
   locais_muni$normalized_st <- str_replace(locais_muni$normalized_st, ",.*$| sn$", "")
   st_agrocnefe_dists <- stringdist::stringdistmatrix(locais_muni$normalized_st, agrocnefe_st_muni$norm_street, method = "lv")
   #Normalize for string length
-  st_agrocnefe_dists <- st_agrocnefe_dists / pmax(nchar(locais_muni$normalized_st), nchar(agrocnefe_st_muni$norm_street))
+  st_agrocnefe_dists <- st_agrocnefe_dists / outer(nchar(locais_muni$normalized_st), nchar(agrocnefe_st_muni$norm_street), FUN = "pmax")
   mindist_st_agrocnefe <- apply(st_agrocnefe_dists, 1, min)
   match_st_agrocnefe <- agrocnefe_st_muni$norm_street[apply(st_agrocnefe_dists, 1, which.min)]
   match_long_st_agrocnefe <- agrocnefe_st_muni$long[apply(st_agrocnefe_dists, 1, which.min)]
@@ -116,7 +120,8 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
   locais_muni[normalized_bairro == "", normalized_bairro := normalized_st]
   bairro_agrocnefe_dists <- stringdist::stringdistmatrix(locais_muni$normalized_bairro, agrocnefe_bairro_muni$norm_bairro, method = "lv")
   #Normalize for string length
-  bairro_agrocnefe_dists <- bairro_agrocnefe_dists / pmax(nchar(locais_muni$normalized_bairro), nchar(agrocnefe_bairro_muni$norm_bairro))
+  bairro_agrocnefe_dists <- bairro_agrocnefe_dists / outer(nchar(locais_muni$normalized_bairro), nchar(agrocnefe_bairro_muni$norm_bairro), FUN = "pmax")
+
   mindist_bairro_agrocnefe <- apply(bairro_agrocnefe_dists, 1, min)
   match_bairro_agrocnefe <- agrocnefe_bairro_muni$norm_bairro[apply(bairro_agrocnefe_dists, 1, which.min)]
   match_long_bairro_agrocnefe <- agrocnefe_bairro_muni$long[apply(bairro_agrocnefe_dists, 1, which.min)]

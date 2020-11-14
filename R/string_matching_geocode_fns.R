@@ -129,7 +129,8 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
 }
 
 get_best_string_match <- function(cnefe_stbairro_match, inep_string_match, schools_cnefe_match,
-                                  agrocnefe_stbairro_match, locais, tsegeocoded_locais18, muni_demo){
+                                  agrocnefe_stbairro_match, locais, tsegeocoded_locais18,
+                                  muni_demo, muni_area){
 
   cnefe_stbairro <- cnefe_stbairro_match %>%
     select(local_id, contains("long"), contains("lat"), contains("mindist")) %>%
@@ -202,7 +203,8 @@ get_best_string_match <- function(cnefe_stbairro_match, inep_string_match, schoo
     filter(!is.na(type) & !is.na(mindist)) %>%
     mutate(type = as.factor(type)) %>%
     left_join(muni_demo) %>%
-    left_join(addr_features)
+    left_join(addr_features) %>%
+    left_join(muni_area)
 
   training_set <- left_join(tsegeocoded_locais18, matching_data) %>%
     rowwise() %>%
@@ -215,7 +217,7 @@ get_best_string_match <- function(cnefe_stbairro_match, inep_string_match, schoo
     recipe(formula = dist ~ ., data = training_set) %>%
     update_role(cod_localidade_ibge, new_role = "id variable") %>%
     update_role(local_id, new_role = "id variable") %>%
-    step_medianimpute(rdpc, logpop, pct_rural)
+    step_medianimpute(rdpc, logpop, pct_rural, area)
 
   ranger_spec <-
     rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>%

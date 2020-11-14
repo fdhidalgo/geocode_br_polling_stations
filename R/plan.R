@@ -13,16 +13,20 @@ the_plan <-
                              semiarid05_shp = readRDS(file_in("./data/semiarid05_shp.rds"))),
 
 
-  # import municipal demographics -------------------------------------------
-  muni_demo = readxl::read_xlsx("./data/atlas_brasil_census_data.xlsx", sheet = 2) %>%
-    select(id_munic_7 = Codmun7, ANO, POP, pesoRUR, RDPC) %>%
-    janitor::clean_names() %>%
-    filter(ano == 2010) %>% select(-ano),
+    # import municipal demographics -------------------------------------------
+    muni_demo = readxl::read_xlsx("./data/atlas_brasil_census_data.xlsx", sheet = 2) %>%
+      select(id_munic_7 = Codmun7, ANO, POP, pesoRUR, RDPC) %>%
+      janitor::clean_names() %>%
+      filter(ano == 2010) %>% select(-ano),
 
 
-    # calculate centroids -----------------------------------------------------
+    # calculate geographic features of municipalities -----------------------------------------------------
     tract_centroids = make_tract_centroids(tract_shp),
     muni_centroids = make_muni_centroids(readRDS(file_in("./data/muni_shp.rds"))),
+    muni_area =  readRDS(file_in("./data/muni_shp.rds")) %>%
+      mutate(area = as.numeric(st_area(.))) %>%
+      st_drop_geometry() %>%
+      select(cod_localidade_ibge = code_muni, area),
 
     # Import and CLean CNEFE data --------------------------------------------------------------
     cnefe = target(clean_cnefe(cnefe = fread(file_in("./data/CNEFE_Universo_07-03-2019.gz"),
@@ -109,7 +113,7 @@ the_plan <-
                                               inep_string_match = inep_string_match,
                                               agrocnefe_stbairro_match = agrocnefe_stbairro_match,
                                               locais = locais, tsegeocoded_locais18 = tsegeocoded_locais18,
-                                              muni_demo = muni_demo),
+                                              muni_demo = muni_demo, muni_area = muni_area),
 
     # Import Google Geocoded Data --------------------------------------------------------------
     google_geocoded_df = fread(file_in("./data/google_geocoded.csv")),
@@ -117,8 +121,8 @@ the_plan <-
     # Use string matches to geocode -------------------------------------------
     geocoded_locais = left_join(locais, best_string_match) %>%
       left_join(tsegeocoded_locais18), #%>%
-  #    mutate(long = ifelse(is.na(tse_long), long, tse_long),
-  #           lat = ifelse(is.na(tse_lat), lat, tse_lat)),
+    #    mutate(long = ifelse(is.na(tse_long), long, tse_long),
+    #           lat = ifelse(is.na(tse_lat), lat, tse_lat)),
     geocode_export = readr::write_csv(geocoded_locais, file_out("./geocoded_polliing_stations.csv.gz")),
 
 

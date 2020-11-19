@@ -15,7 +15,7 @@ the_plan <-
 
     # import municipal demographics -------------------------------------------
     muni_demo = readxl::read_xlsx("./data/atlas_brasil_census_data.xlsx", sheet = 2) %>%
-      select(id_munic_7 = Codmun7, ANO, POP, pesoRUR, RDPC) %>%
+      select(id_munic_7 = Codmun7, ANO, POP, pesoRUR) %>%
       janitor::clean_names() %>%
       filter(ano == 2010) %>% select(-ano),
 

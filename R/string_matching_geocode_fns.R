@@ -180,7 +180,7 @@ get_best_string_match <- function(cnefe_stbairro_match, inep_string_match, schoo
   muni_demo <- muni_demo %>%
     mutate(logpop = log(pop),
            pct_rural = 100 * peso_rur / pop) %>%
-    select(cod_localidade_ibge = id_munic_7, rdpc, logpop, pct_rural)
+    select(cod_localidade_ibge = id_munic_7, logpop, pct_rural)
 
   school_syns <- c("e m e i", "esc inf", "esc mun", "unidade escolar", "centro educacional", "escola municipal",
                    "colegio estadual", "cmei", "emeif", "grupo escolar", "escola estadual", "erem", "colegio municipal",
@@ -216,13 +216,13 @@ get_best_string_match <- function(cnefe_stbairro_match, inep_string_match, schoo
     mutate(dist = geosphere::distHaversine(p1 = c(long, lat),
                                            p2 = c(tse_long, tse_lat))/1000) %>%
     select(-c(nr_zona, nr_locvot, tse_lat, tse_long, long, lat, ano)) %>%
-    filter(!is.na(dist)  & !is.na(rdpc))
+    filter(!is.na(dist))
 
   ranger_recipe <-
     recipe(formula = dist ~ ., data = training_set) %>%
     update_role(cod_localidade_ibge, new_role = "id variable") %>%
     update_role(local_id, new_role = "id variable") %>%
-    step_medianimpute(rdpc, logpop, pct_rural, area)
+    step_medianimpute(logpop, pct_rural, area)
 
   ranger_spec <-
     rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>%

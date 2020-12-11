@@ -11,6 +11,8 @@ normalize_address <- function(x){
     str_replace_all("^av\\b", "avenida") %>%
     str_replace_all("^r\\b", "rua") %>%
     str_replace_all("\\bs n\\b", "sn")%>%
+    #Following removes telephone numbers that are sometimes included
+    str_remove("\\btel\\b.*") %>%
     str_squish()
 
 }
@@ -272,5 +274,3 @@ make_muni_shp <- function(muni_shp, semiarid05_shp){
 
   muni_shp
 }
-
-

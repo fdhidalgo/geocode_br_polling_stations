@@ -84,6 +84,8 @@ the_plan <-
       filter(!is.na(nm_locvot)) %>%
       mutate(local_id = 1:n()),
 
+    panel_ids = create_panel_ids_munis(locais, prop_match_cutoff = .3),
+
     tsegeocoded_locais18 = clean_locais18(locais18 = fread(file_in("./data/secoes/local-votacao-08-08-2018.csv")),
                                           muni_ids = muni_ids) %>%
       select(cod_localidade_ibge, nr_zona = zona, nr_locvot = num_local,
@@ -118,13 +120,14 @@ the_plan <-
     # Import Google Geocoded Data --------------------------------------------------------------
     google_geocoded_df = fread(file_in("./data/google_geocoded.csv")),
 
-    # Use string matches to geocode -------------------------------------------
+    # Use string matches to geocode and add panel ids -------------------------------------------
     geocoded_locais = left_join(locais, best_string_match) %>%
-      left_join(tsegeocoded_locais18), #%>%
+      left_join(tsegeocoded_locais18) %>%
+      left_join(select(panel_ids, panel_id, local_id)) %>%
+      mutate(panel_id = ifelse(is.na(panel_id), local_id, panel_id)), #%>%
     #    mutate(long = ifelse(is.na(tse_long), long, tse_long),
     #           lat = ifelse(is.na(tse_lat), lat, tse_lat)),
     geocode_export = readr::write_csv(geocoded_locais, file_out("./geocoded_polliing_stations.csv.gz")),
-
 
     # Documentation and Writeup -----------------------------------------------
 

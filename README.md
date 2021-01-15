@@ -21,6 +21,7 @@ r_make()
 Required packages that need to be installed can be found in the [`package.R`](./packages.R) file.
 Given the size of some of the data files, you will likely need at least 50GB of RAM to run the code.
 
+
 ## Data Sources
 
 Because of the size of some of the administrative datasets, we cannot host all the data necessary to run the code on Github.
@@ -50,3 +51,4 @@ Thanks to:
 -   Spatial Maps at [http://spatial2.cepesp.io](http://spatial2.cepesp.io)
 
 -   [Pindograma](https://github.com/pindograma/mapa)
+

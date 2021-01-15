@@ -41,7 +41,13 @@ library(gt)
 library(sf)
 ```
 
-This document outlines an approach to geocoding Brazilian polling station that heavily relies on administrative datasets. In addition to detaling our approach, we also provide some evidence on the error of our method and how it compares to the [Google Maps Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview).
+This document outlines an approach to geocoding Brazilian polling station that heavily relies on administrative datasets.
+In addition to detaling our approach, we also provide some evidence on the error of our method and how it compares to the [Google Maps Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview).
+
+Our general approach is to generate a series of candidate coordinates from a variety of administrative datasets.
+We use a machine learning model trained on a subset of the data with coordinates provided by Supreme Electoral Tribunal (*TSE*) to choose among the candidate coordinates.
+Inputs to this model are mostly measures of the quality of string matches between the polling station address and administrative data sources, as well as other characteristics of the address and municipality of the polling station.
+For each polling station, we select the coordinates with the predicted smallest error among the possible coordinates.
 
 ## Data Sources
 
@@ -70,7 +76,8 @@ The INEP data is a catalog of private and public schools with addresses and long
 ## String Matching
 
 To geocode polling stations, we use fuzzy string matching to match polling stations to coordinates in the administrative datasets by name, address, street, or neighborhood.
-This string matching procedure generates several candidate coordinates. To choose among these possible coordinates, we use a Random Forest model trained on a sample of polling stations with coordinates provided by the election authorities.  
+This string matching procedure generates several candidate coordinates.
+To choose among these possible coordinates, we use a Random Forest model trained on a sample of polling stations with coordinates provided by the election authorities.
 
 The general approach is a follows:
 
@@ -97,18 +104,24 @@ The string matching procedure above generates 8 different potential matches.
 
 ### Choosing Among Potential Matches
 
-After string matching, we use a Random Forest model to predict the distance between the possible coordinates and the true coordinates. We treat the coordinates provided by the election authorities as the "ground truth". This distance is modeled as a function of the following set of covariates:
-  
-  - Normalized Levenshtein string distance.
-  - Coordinate data source
-  - Indicator for whether the address mentions the city center ("centro")
-  - Indicator for whether the address mentions being in the countryside  (includes the word "rural")
-  - Indicator for whether the address mentions a school
-  - Log of municipal population
-  - Proportion of the population classified as rural
-  - Area of the municipality 
-  
-We use the implementation of the Random Forest model provided in the `ranger` package. We set the number of trees to 1000 and use five-fold cross-validation to select the number of variables to use in each tree and the minimum number of units in each leaf node. After tuning, we train the model on all polling stations with ground truth coordinates. We then use this model to predict the distance between the true coordinates and the candidate coordinates. For each polling station, we choose the candidate coordinate with the smallest predicted distance.  
+After string matching, we use a Random Forest model to predict the distance between the possible coordinates and the true coordinates.
+We treat the coordinates provided by the election authorities as the "ground truth".
+This distance is modeled as a function of the following set of covariates:
+
+-   Normalized Levenshtein string distance.
+-   Coordinate data source
+-   Indicator for whether the address mentions the city center ("centro")
+-   Indicator for whether the address mentions being in the countryside (includes the word "rural")
+-   Indicator for whether the address mentions a school
+-   Log of municipal population
+-   Proportion of the population classified as rural
+-   Area of the municipality
+
+We use the implementation of the Random Forest model provided in the `ranger` package.
+We set the number of trees to 1000 and use five-fold cross-validation to select the number of variables to use in each tree and the minimum number of units in each leaf node.
+After tuning, we train the model on all polling stations with ground truth coordinates.
+We then use this model to predict the distance between the true coordinates and the candidate coordinates.
+For each polling station, we choose the candidate coordinate with the smallest predicted distance.
 
 ### Example of String Matching
 
@@ -120,7 +133,6 @@ loadd(inep_string_match, cnefe_stbairro_match, schools_cnefe_match,
 To illustrate the string matching procedure, the table below shows shows the string matching procedure for one polling station where the coordinates are known.
 The blue row shows the selected match.
 The last column labeled "Error (km)" is the difference between the known geocoded coordinates and the coordinates from the selected match.
-
 
 ```{r string_match_example}
 example_id <- sample(geocoded_locais$local_id[is.na(geocoded_locais$tse_lat) == FALSE], 1)
@@ -236,11 +248,11 @@ tsegeocoded_locais <- left_join(tsegeocoded_locais, rural_urban)
 ```
 
 To have some sense of the error of our procedure, we use a subset of `r nrow(tsegeocoded_locais)` with coordinates to check the error of the coordinates generated by our procedure.
-We obtained these coordinates from the *Estado de Sāo Paulo*, which used this data for a story entitled "[Como votou sua vizinhança?](https://www.estadao.com.br/infograficos/politica,como-votou-sua-vizinhanca-explore-o-mapa-mais-detalhado-das-eleicoes,935858)". 
-We report the error rate at 3 quantiles: 25th, 50th (the median), and the 75th percentile. 
+These "ground truth" coordinates were provided to the *Estado de Sāo Paulo* by the TSE, which used this data for a story entitled "[Como votou sua vizinhança?](https://www.estadao.com.br/infograficos/politica,como-votou-sua-vizinhanca-explore-o-mapa-mais-detalhado-das-eleicoes,935858)".
+We report the error rate at 3 quantiles: 25th, 50th (the median), and the 75th percentile.
 
 In addition to reporting the error rate for the full sample, we also split the sample into polling stations located in rural census tracts versus urban census tracts.
-Finally, we compare our error rate to coordinates generated using the Google Maps API. 
+Finally, we compare our error rate to coordinates generated using the Google Maps API.
 
 ```{r error_table, message=FALSE, warning=FALSE}
 
@@ -293,7 +305,8 @@ group_by(error, match_type) %>%
   xlab("Median Error")
 ```
 
-The error rate by matching variable is plotted above. As expected, error rate tends to be better when we are able to match to a specific school or address. 
+The error rate by matching variable is plotted above.
+As expected, error rate tends to be better when we are able to match to a specific school or address.
 
 ```{r error_string_distance, warning=FALSE, message=FALSE}
 ggplot(error[error$dist < 100, ], aes(x = mindist, y = dist)) + 
@@ -309,4 +322,4 @@ ggplot(error[error$dist < 100, ], aes(x = mindist, y = dist)) +
 
 As expected, geocoding error is partly a function of string distance.
 When the string distance between the polling station name or address and the school name or address from the administrative data is large, we should expect more geocoding error.
-That said, the relationship is noisy and string distance serves only as a rough guide for error. 
+That said, the relationship is noisy and string distance serves only as a rough guide for error.

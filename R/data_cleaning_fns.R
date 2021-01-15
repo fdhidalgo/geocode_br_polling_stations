@@ -49,18 +49,6 @@ make_tract_centroids <- function(tracts) {
   tracts
 }
 
-make_muni_centroids <- function(munis) {
-  munis$centroid  <- sf::st_transform(munis, 4674) %>%
-    sf::st_centroid() %>%
-    sf::st_geometry()
-  munis$muni_centroid_long <-  sf::st_coordinates(munis$centroid)[,1]
-  munis$muni_centroid_lat <-  sf::st_coordinates(munis$centroid)[,2]
-  munis <- sf::st_drop_geometry(munis)
-  munis <- data.table(munis)[, .(code_muni, muni_centroid_lat, muni_centroid_long)]
-  setnames(munis, "code_muni", "id_munic_7")
-  munis
-}
-
 clean_cnefe <- function(cnefe_file, muni_ids, tract_centroids) {
 
   cnefe <- fread(cnefe_file,
@@ -264,37 +252,6 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids){
 
 }
 
-
-make_muni_shp <- function(muni_shp, semiarid05_shp){
-
-  muni_shp$semiarid05 <- ifelse(muni_shp$code_muni %in% semiarid05_shp$code_muni,
-                                TRUE, FALSE)
-  #create a dummy for neihboring semi arid zone
-  muni_shp$semiarid05_nbr <- ifelse(sapply(st_intersects(muni_shp, semiarid05_shp),
-                                           length) > 0 & muni_shp$semiarid05 == FALSE,
-                                    TRUE, FALSE)
-  #create a dummy for being on the border of the semi-arid zone
-  semiarid05_shp$semiarid05_brdr <- ifelse(sapply(st_intersects(semiarid05_shp,
-                                                                filter(muni_shp, semiarid05 == FALSE)),
-                                                  length) > 0, TRUE,FALSE)
-
-  muni_shp$semiarid05_brdr <- ifelse(muni_shp$code_muni %in%
-                                       semiarid05_shp$code_muni[semiarid05_shp$semiarid05_brdr == TRUE],
-                                     TRUE, FALSE)
-
-  #create factor variable for semi-arid status
-  muni_shp$sample_status <- case_when(
-    muni_shp$semiarid05_brdr == TRUE ~ "Semi-Arid Border",
-    muni_shp$semiarid05_nbr == TRUE ~ "Semi-Arid Neighbor",
-    muni_shp$semiarid05 == TRUE & muni_shp$semiarid05_brdr == FALSE ~ "Semi-Arid",
-    TRUE ~ "Not Semi-Arid"
-  )
-
-  #Remove Fernando de Noronha
-  muni_shp <- filter(muni_shp, code_muni != 2605459)
-
-  muni_shp
-}
 
 import_muni_demo <- function(file){
   readxl::read_xlsx(file, sheet = 2) %>%

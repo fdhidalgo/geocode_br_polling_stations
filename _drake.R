@@ -2,7 +2,7 @@
 source("./packages.R")
 
 ## Load your R files
-lapply(list.files("./R", full.names = TRUE), source)
+lapply(list.files("./R", full.names = TRUE, pattern = "fns|plan"), source)
 
 ## _drake.R must end with a call to drake_config().
 ## The arguments to drake_config() are basically the same as those to make().
@@ -10,11 +10,12 @@ lapply(list.files("./R", full.names = TRUE), source)
 ## culprits of this seem to be interactive graphics e.g. plotly and mapdeck.
 
 
-#all_cores <- parallel::detectCores(logical = FALSE)
-#doFuture::registerDoFuture()
-#cl <- parallel::makeCluster(all_cores - 4)
-#future::plan(future::cluster, workers = cl)
-
+all_cores <- parallel::detectCores(logical = FALSE) - 1
+library(doFuture)
+library(parallel)
+registerDoFuture()
+cl <- makeCluster(all_cores)
+future::plan(cluster, workers = cl)
 
 #make(the_plan, lock_envir = FALSE, memory_strategy = "lookahead",
 #     garbage_collection = TRUE)

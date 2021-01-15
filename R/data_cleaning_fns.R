@@ -1,6 +1,6 @@
 
 ##normalize addresses
-normalize_address <- function(x){
+normalize_address <- function(x) {
   stringi::stri_trans_general(x, "Latin-ASCII") %>%
     str_to_lower() %>%
     str_remove_all("[[:punct:]]") %>%
@@ -10,7 +10,7 @@ normalize_address <- function(x){
     str_remove_all("\\.|\\/") %>%
     str_replace_all("^av\\b", "avenida") %>%
     str_replace_all("^r\\b", "rua") %>%
-    str_replace_all("\\bs n\\b", "sn")%>%
+    str_replace_all("\\bs n\\b", "sn") %>%
     #Following removes telephone numbers that are sometimes included
     str_remove("\\btel\\b.*") %>%
     str_squish()
@@ -19,7 +19,7 @@ normalize_address <- function(x){
 
 
 ##normalize school names
-normalize_school <- function(x){
+normalize_school <- function(x) {
   school_syns <- c("e m e i", "esc inf", "esc mun", "unidade escolar", "centro educacional", "escola municipal",
                    "colegio estadual", "cmei", "emeif", "grupo escolar", "escola estadual", "erem", "colegio municipal",
                    "centro de ensino infantil", "escola mul", "e m", "grupo municipal", "e e", "creche", "escola",
@@ -41,15 +41,15 @@ make_tract_centroids <- function(tracts) {
   tracts$centroid  <- sf::st_transform(tracts, 4674) %>%
     sf::st_centroid() %>%
     sf::st_geometry()
-  tracts$tract_centroid_long <-  sf::st_coordinates(tracts$centroid)[,1]
-  tracts$tract_centroid_lat <-  sf::st_coordinates(tracts$centroid)[,2]
+  tracts$tract_centroid_long <-  sf::st_coordinates(tracts$centroid)[, 1]
+  tracts$tract_centroid_lat <-  sf::st_coordinates(tracts$centroid)[, 2]
   tracts <- sf::st_drop_geometry(tracts)
   tracts <- data.table(tracts)[, .(code_tract, zone, tract_centroid_lat, tract_centroid_long)]
   setnames(tracts, "code_tract", "setor_code")
   tracts
 }
 
-make_muni_centroids <- function(munis){
+make_muni_centroids <- function(munis) {
   munis$centroid  <- sf::st_transform(munis, 4674) %>%
     sf::st_centroid() %>%
     sf::st_geometry()
@@ -61,8 +61,17 @@ make_muni_centroids <- function(munis){
   munis
 }
 
-clean_cnefe <- function(cnefe, muni_ids, tract_centroids){
+clean_cnefe <- function(cnefe_file, muni_ids, tract_centroids) {
 
+  cnefe <- fread(cnefe_file,
+                 drop = c("SITUACAO_SETOR", "NOM_COMP_ELEM1",
+                          "VAL_COMP_ELEM1", "NOM_COMP_ELEM2",
+                          "VAL_COMP_ELEM2", "NOM_COMP_ELEM3",
+                          "VAL_COMP_ELEM3", "NOM_COMP_ELEM4",
+                          "VAL_COMP_ELEM4", "NOM_COMP_ELEM5",
+                          "VAL_COMP_ELEM5", "INDICADOR_ENDERECO",
+                          "NUM_QUADRA", "NUM_FACE", "CEP_FACE",
+                          "COD_UNICO_ENDERECO"))
   setnames(cnefe, names(cnefe),
            janitor::make_clean_names(names(cnefe))) #make nicer names
 
@@ -173,7 +182,7 @@ clean_inep <- function(inep_data, inep_codes){
 
 }
 
-clean_locais18 <- function(locais18, muni_ids){
+clean_locais18 <- function(locais18, muni_ids, locais){
 
   locais18 <- janitor::clean_names(locais18)
 
@@ -198,11 +207,23 @@ clean_locais18 <- function(locais18, muni_ids){
 
   #  locais18[, latitude_local := NULL]
   #  locais18[, longitude_local := NULL]
-  locais18
+  locais18  %>%
+      select(cod_localidade_ibge, nr_zona = zona, nr_locvot = num_local,
+             tse_lat = latitude_local, tse_long = longitude_local)  %>%
+      filter(!is.na(tse_lat)) %>% mutate(ano = 2018) %>%
+      left_join(select(locais, local_id, ano, cod_localidade_ibge, nr_zona, nr_locvot))
 }
 
-clean_agro_cnefe <- function(agro_cnefe, muni_ids){
-
+clean_agro_cnefe <- function(agro_cnefe_files, muni_ids){
+ agro_cnefe <- janitor::clean_names(
+      rbindlist(lapply(agro_cnefe_files, fread,
+                       drop = c("SITUACAO", "NOM_COMP_ELEM1", "COD_DISTRITO",
+                                "VAL_COMP_ELEM1", "NOM_COMP_ELEM2",
+                                "VAL_COMP_ELEM2", "NOM_COMP_ELEM3",
+                                "VAL_COMP_ELEM3", "NOM_COMP_ELEM4",
+                                "VAL_COMP_ELEM4", "NOM_COMP_ELEM5",
+                                "VAL_COMP_ELEM5",  "ALTITUDE", "COD_ESPECIE",
+                                "CEP"))))
   ##Pad administrative codes to proper length
   agro_cnefe[, cod_municipio := str_pad(cod_municipio,
                                         width = 5, side = "left", pad = "0")]
@@ -274,3 +295,30 @@ make_muni_shp <- function(muni_shp, semiarid05_shp){
 
   muni_shp
 }
+
+import_muni_demo <- function(file){
+  readxl::read_xlsx(file, sheet = 2) %>%
+    select(id_munic_7 = Codmun7, ANO, POP, pesoRUR) %>%
+    janitor::clean_names() %>%
+    filter(ano == 2010) %>% select(-ano)
+}
+
+calc_muni_area <- function(muni_shp){
+  muni_shp %>%
+  mutate(area = as.numeric(st_area(.))) %>%
+    st_drop_geometry() %>%
+    select(cod_localidade_ibge = code_muni, area)
+}
+
+import_locais <- function(locais_file, muni_ids) {
+  fread(locais_file) %>%
+  janitor::clean_names() %>%
+      mutate(normalized_name = normalize_school(nm_locvot),
+             normalized_addr = paste(normalize_address(ds_endereco), normalize_address(ds_bairro)),
+             normalized_st = normalize_address(ds_endereco),
+             normalized_bairro = normalize_address(ds_bairro)) %>%
+      left_join(select(muni_ids, cod_localidade_ibge = id_munic_7, cd_localidade_tse = id_TSE)) %>%
+      filter(!is.na(nm_locvot)) %>%
+      mutate(local_id = 1:n())
+}
+

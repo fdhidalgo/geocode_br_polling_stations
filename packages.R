@@ -15,4 +15,5 @@ library(tidyr)
 
 conflict_prefer("filter", "dplyr")
 conflict_prefer("workflow", "workflows")
+conflict_prefer("first", "dplyr")
 

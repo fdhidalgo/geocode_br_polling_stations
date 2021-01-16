@@ -9,7 +9,7 @@ The dataset of geocoded polling stations can be found in this [compressed csv fi
 
 ## Code
 
-We used the open source language *R* (version 4.0.3) to process the filesand geocode the pollin stations.
+We used the open source language *R* (version 4.0.3) to process the files and geocode the polling stations.
 We use the [`drake`](https://github.com/ropensci/drake) package to create a pipeline to import and process all the data.
 Assuming all the relevant data is in the `./data` folder, you can reconstruct the dataset using the following code:
 
@@ -25,7 +25,7 @@ Given the size of some of the data files, you will likely need at least 50GB of 
 ## Data Sources
 
 Because of the size of some of the administrative datasets, we cannot host all the data necessary to run the code on Github.
-Datasets marked with a \* can be found at the associated link in the table below.
+Datasets marked with a \* can be found at the associated link in the table below but not in this Github repo.
 All other data can be found in the `data` folder.
 
 | Data                             | Source                                                                                                                                                                                                 |

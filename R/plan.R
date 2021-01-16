@@ -61,7 +61,7 @@ the_plan <-
                                                         inep_muni = inep_data[id_munic_7 == .x]))),
     schools_cnefe_match = rbindlist(map(unique(locais$cod_localidade_ibge),
                                         ~ match_schools_cnefe_muni(locais_muni = locais[cod_localidade_ibge == .x],
-                                                                   cnefe_agrocenso2017schools_cnefe_muni = schools_cnefe[id_munic_7 == .x]))),
+                                                                   schools_cnefe_muni = schools_cnefe[id_munic_7 == .x]))),
     cnefe_stbairro_match = rbindlist(map(unique(locais$cod_localidade_ibge),
                                          ~ match_stbairro_cnefe_muni(locais_muni = locais[cod_localidade_ibge == .x],
                                                                      cnefe_st_muni = cnefe_st[id_munic_7 == .x],

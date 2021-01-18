@@ -4,12 +4,7 @@ source("./packages.R")
 ## Load your R files
 lapply(list.files("./R", full.names = TRUE, pattern = "fns|plan"), source)
 
-## _drake.R must end with a call to drake_config().
-## The arguments to drake_config() are basically the same as those to make().
-## lock_envir allows functions that alter the random seed to be used. The biggest
-## culprits of this seem to be interactive graphics e.g. plotly and mapdeck.
-
-
+##Setup parallel processing
 all_cores <- parallel::detectCores(logical = FALSE) - 1
 library(doFuture)
 library(parallel)
@@ -17,8 +12,7 @@ registerDoFuture()
 cl <- makeCluster(all_cores)
 future::plan(cluster, workers = cl)
 
-#make(the_plan, lock_envir = FALSE, memory_strategy = "lookahead",
-#     garbage_collection = TRUE)
+renv::restore()
 
 drake_config(the_plan,
              lock_envir = FALSE, memory_strategy = "lookahead",

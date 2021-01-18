@@ -6,7 +6,6 @@
 /archive/
 /reference/
 /.drake/
-/R/geocode_api_calls/
 .DS_Store
 .env
 .lintr

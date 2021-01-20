@@ -71,7 +71,7 @@ the_plan <-
                                                                              agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
                                                                              agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]))),
     # Choose best match
-    best_string_match = get_best_string_match(cnefe_stbairro_match = cnefe_stbairro_match,
+    string_match = predict_distance(cnefe_stbairro_match = cnefe_stbairro_match,
                                               schools_cnefe_match = schools_cnefe_match,
                                               inep_string_match = inep_string_match,
                                               agrocnefe_stbairro_match = agrocnefe_stbairro_match,
@@ -82,9 +82,9 @@ the_plan <-
     google_geocoded_df = fread(file_in("./data/google_geocoded.csv")),
 
     # Use string matches to geocode and add panel ids -------------------------------------------
-    geocoded_locais = finalize_coords(locais, best_string_match, tsegeocoded_locais18,
+    geocoded_locais = finalize_coords(locais, string_match, tsegeocoded_locais18,
                                       panel_ids),
-    #geocode_export = readr::write_csv(geocoded_locais, file_out("./geocoded_polliing_stations.csv.gz")),
+    geocode_export = readr::write_csv(geocoded_locais, file_out("./output/geocoded_polliing_stations.csv.gz")),
 
     # Documentation and Writeup -----------------------------------------------
     #geocode_writeup = target(

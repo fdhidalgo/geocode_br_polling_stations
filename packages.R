@@ -12,6 +12,7 @@ library(recipes)
 library(parsnip)
 library(workflows)
 library(tune)
+library(rsample)
 
 conflict_prefer("filter", "dplyr")
 conflict_prefer("workflow", "workflows")

@@ -133,7 +133,7 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
 
 }
 
-get_best_string_match <- function(cnefe_stbairro_match, inep_string_match, schools_cnefe_match,
+predict_distance <- function(cnefe_stbairro_match, inep_string_match, schools_cnefe_match,
                                   agrocnefe_stbairro_match, locais, tsegeocoded_locais18,
                                   muni_demo, muni_area){
 
@@ -250,7 +250,6 @@ get_best_string_match <- function(cnefe_stbairro_match, inep_string_match, schoo
   matching_data %>%
     group_by(local_id) %>%
     arrange(local_id, pred_dist) %>%
-    slice(1) %>%
     select(local_id, match_type = type, mindist, long, lat, pred_dist)
 }
 

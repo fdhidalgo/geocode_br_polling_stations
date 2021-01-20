@@ -127,7 +127,30 @@ For each polling station, we choose the candidate coordinate with the smallest p
 
 ```{r load_data}
 loadd(inep_string_match, cnefe_stbairro_match, schools_cnefe_match,
-      agrocnefe_stbairro_match, locais, geocoded_locais)
+      agrocnefe_stbairro_match, locais, string_match,
+      tsegeocoded_locais18, panel_ids)
+
+  best_string_match <- string_match %>%
+    group_by(local_id) %>%
+    arrange(local_id, pred_dist) %>%
+    slice(1)
+
+geocoded_locais <- left_join(locais, best_string_match) %>%
+    rename("pred_long" = "long", "pred_lat" = "lat") %>%
+    left_join(select(tsegeocoded_locais18, local_id, tse_lat, tse_long)) %>%
+    ##if we have ground truth distance from TSE, then assign ground truth
+    mutate(long = ifelse(is.na(tse_long), pred_long, tse_long),
+           lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
+           pred_dist = ifelse(is.na(tse_lat), pred_dist, 0 )) %>%
+    left_join(select(panel_ids, panel_id, local_id)) %>%
+    mutate(panel_id = ifelse(is.na(panel_id), local_id, panel_id)) %>%
+    arrange(panel_id, pred_dist) %>%
+    group_by(panel_id) %>%
+    mutate(panel_lat = first(lat),
+           panel_long = first(long)) %>%
+    relocate(local_id, panel_id, ano, sg_uf, cd_localidade_tse, cod_localidade_ibge,
+             .before = everything())
+
 ```
 
 To illustrate the string matching procedure, the table below shows shows the string matching procedure for one polling station where the coordinates are known.

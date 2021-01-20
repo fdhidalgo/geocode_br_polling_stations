@@ -82,23 +82,15 @@ the_plan <-
     google_geocoded_df = fread(file_in("./data/google_geocoded.csv")),
 
     # Use string matches to geocode and add panel ids -------------------------------------------
-    geocoded_locais = left_join(locais, best_string_match) %>%
-      left_join(tsegeocoded_locais18) %>%
-      left_join(select(panel_ids, panel_id, local_id)) %>%
-      mutate(panel_id = ifelse(is.na(panel_id), local_id, panel_id)) %>%
-      arrange(panel_id, pred_dist) %>%
-      group_by(panel_id) %>%
-      mutate(panel_lat = first(lat),
-             panel_long = first(long)), #%>%
-    #    mutate(long = ifelse(is.na(tse_long), long, tse_long),
-    #           lat = ifelse(is.na(tse_lat), lat, tse_lat)),
-    geocode_export = readr::write_csv(geocoded_locais, file_out("./geocoded_polliing_stations.csv.gz")),
+    geocoded_locais = finalize_coords(locais, best_string_match, tsegeocoded_locais18,
+                                      panel_ids),
+    #geocode_export = readr::write_csv(geocoded_locais, file_out("./geocoded_polliing_stations.csv.gz")),
 
     # Documentation and Writeup -----------------------------------------------
-    geocode_writeup = target(
-      command = {
-        rmarkdown::render(knitr_in("doc/geocode_polling_stations/geocode_polling_stations.Rmd"))
-        file_out("doc/geocode_polling_stations/geocode_polling_stations.html")
-      }
-    )
+    #geocode_writeup = target(
+    #  command = {
+    #    rmarkdown::render(knitr_in("doc/geocode_polling_stations/geocode_polling_stations.Rmd"))
+    #    file_out("doc/geocode_polling_stations/geocode_polling_stations.html")
+     # }
+    #)
   )

@@ -12,6 +12,7 @@ registerDoFuture()
 cl <- makeCluster(all_cores)
 future::plan(cluster, workers = cl)
 
+##Synchronize package library
 renv::restore()
 
 drake_config(the_plan,

@@ -279,3 +279,22 @@ import_locais <- function(locais_file, muni_ids) {
       mutate(local_id = 1:n())
 }
 
+finalize_coords <- function(locais, best_string_match, tsegeocoded_locais18,
+                            panel_ids){
+  geocoded_locais = left_join(locais, best_string_match) %>%
+    select(-normalized_name, -normalized_addr, -normalized_st, -normalized_bairro) %>%
+    rename("pred_long" = "long", "pred_lat" = "lat") %>%
+    left_join(select(tsegeocoded_locais18, local_id, tse_lat, tse_long)) %>%
+    ##if we have ground truth distance from TSE, then assign ground truth
+    mutate(long = ifelse(is.na(tse_long), pred_long, tse_long),
+           lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
+           pred_dist = ifelse(is.na(tse_lat), pred_dist, 0 )) %>%
+    left_join(select(panel_ids, panel_id, local_id)) %>%
+    mutate(panel_id = ifelse(is.na(panel_id), local_id, panel_id)) %>%
+    arrange(panel_id, pred_dist) %>%
+    group_by(panel_id) %>%
+    mutate(panel_lat = first(lat),
+           panel_long = first(long))
+}
+
+

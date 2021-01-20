@@ -5,7 +5,7 @@ We leverage administrative datasets, as well as open-source geocode APIs, to geo
 
 We detail our methodology and limitations of our method in this [document](https://rawcdn.githack.com/fdhidalgo/geocode_br_polling_stations/f701cfe790128ed4d62967258336dc71ab769c4c/doc/geocode_polling_stations/geocode_polling_stations.html).
 
-The dataset of geocoded polling stations can be found in this [compressed csv file](./geocoded_polling_stations.csv.gz).
+The dataset of geocoded polling stations can be found in this [compressed csv file](./output/geocoded_polling_stations.csv.gz).
 
 ## Code
 

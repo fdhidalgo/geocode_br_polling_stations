@@ -82,7 +82,7 @@ All other data can be found in the `data` folder.
 
 | Data                             | Source                                                                                                                                                                                                 |
 |----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 2010 CNEFE\*                     | [IBGE FTP Server](ftp://ftp.ibge.gov.br/Censos/Censo_Demografico_2010/Cadastro_Nacional_de_Enderecos_Fins_Estatisticos/)                                                                               |
+| 2010 CNEFE\*                     | [IBGE FTP Server](https://ftp.ibge.gov.br/Censos/Censo_Demografico_2010/Cadastro_Nacional_de_Enderecos_Fins_Estatisticos/)                                                                               |
 | 2017 CNEFE\*                     | [IBGE Website](https://www.ibge.gov.br/estatisticas/economicas/agricultura-e-pecuaria/21814-2017-censo-agropecuario.html?edicao=23751&t=resultados)                                                    |
 | INEP School Catalog              | [INEP Website](https://inepdata.inep.gov.br/analytics/saw.dll?dashboard&NQUser=inepdata&NQPassword=Inep2014&PortalPath=%2Fshared%2FCenso%20da%20Educação%20Básica%2F_portal%2FCatálogo%20de%20Escolas) |
 | Polling Stations Geocoded by TSE | [Estado de Sāo Paulo Github](https://github.com/estadao/como-votou-sua-vizinhanca/blob/master/data/locais/local-votacao-08-08-2018.csv)                                                                |

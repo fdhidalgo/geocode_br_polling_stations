@@ -2,7 +2,11 @@
 .Rhistory
 .RData
 .Ruserdata
-/data/
+/data/CNEFE_combined.gz
+/data/census_tracts2010_shp.rds
+/data/opencage_geocodes.csv.gz
+/data/google_geocoded.csv
+/data/agro_censo/
 /archive/
 /reference/
 /.drake/

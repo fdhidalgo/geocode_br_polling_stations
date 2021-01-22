@@ -13,8 +13,7 @@ library(gt)
 library(sf)
 ```
 
-This document outlines an approach to geocoding Brazilian polling station that heavily relies on administrative datasets.
-In addition to detailing our approach, we also provide some evidence on the error of our method and how it compares to the [Google Maps Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview).
+This document outlines an approach to geocoding Brazilian polling station that heavily relies on administrative datasets. In addition to detailing our approach, we also provide some evidence on the error of our method and how it compares to the [Google Maps Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview).
 
 Our general approach is to generate a series of potential coordinates from a variety of administrative datasets.
 We use a machine learning model trained on a subset of the data with coordinates provided by Supreme Electoral Tribunal (*TSE*) to choose among the candidate coordinates.

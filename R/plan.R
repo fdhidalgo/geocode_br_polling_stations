@@ -78,19 +78,16 @@ the_plan <-
                                               locais = locais, tsegeocoded_locais18 = tsegeocoded_locais18,
                                               muni_demo = muni_demo, muni_area = muni_area),
 
-    # Import Google Geocoded Data --------------------------------------------------------------
-    google_geocoded_df = fread(file_in("./data/google_geocoded.csv")),
-
     # Use string matches to geocode and add panel ids -------------------------------------------
     geocoded_locais = finalize_coords(locais, string_match, tsegeocoded_locais18,
                                       panel_ids),
     geocode_export = readr::write_csv(geocoded_locais, file_out("./output/geocoded_polliing_stations.csv.gz")),
 
     # Documentation and Writeup -----------------------------------------------
-    #geocode_writeup = target(
-    #  command = {
-    #    rmarkdown::render(knitr_in("doc/geocode_polling_stations/geocode_polling_stations.Rmd"))
-    #    file_out("doc/geocode_polling_stations/geocode_polling_stations.html")
-     # }
-    #)
+    geocode_writeup = target(
+      command = {
+        rmarkdown::render(knitr_in("doc/geocoding_procedure.Rmd"))
+        file_out("doc/geocoding_procedure.html")
+     }
+    )
   )

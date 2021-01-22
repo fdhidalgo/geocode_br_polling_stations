@@ -2,7 +2,7 @@
 
 This repository contains the code to geocode polling stations in Brazil. We leverage administrative datasets, as well as open-source geocode APIs, to geocode all polling stations used in elections from 2006 to 2018.
 
-We detail our methodology and limitations of our method in this [document](https://rawcdn.githack.com/fdhidalgo/geocode_br_polling_stations/e0d472c4eaefab877d2949890158365666135886/doc/geocoding_procedure.html). As we detail in that document, our method performs better than commercial solutions like the [Google Maps Geocoding Service](https://developers.google.com/maps/documentation/geocoding/overview), particularly in rural areas.
+We detail our methodology and limitations of our method in this [document](https://raw.githack.com/fdhidalgo/geocode_br_polling_stations/master/doc/geocoding_procedure.html). As we detail in that document, our method performs better than commercial solutions like the [Google Maps Geocoding Service](https://developers.google.com/maps/documentation/geocoding/overview), particularly in rural areas.
 
 The dataset of geocoded polling stations can be found in this [compressed csv file](./output/geocoded_polling_stations.csv.gz).
 

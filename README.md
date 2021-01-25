@@ -71,7 +71,7 @@ renv::restore() #to install necessary packages
 drake::r_make() # to run pipepeline
 ```
 
-Options to modify how the pipeline runs (e.g. parallel processing options) can be found in the [`_drake.R`](./_drake.R) file. The pipeline is in the [`plan.R`](./plan.R) file. We use the [`renv`](https://rstudio.github.io/renv/index.html) package to manage package dependencies. To ensure that you are using the right package versions, invoke `renv::restore()` when the working directory is set to the github repo directory.
+Options to modify how the pipeline runs (e.g. parallel processing options) can be found in the [`_drake.R`](./_drake.R) file. The pipeline is in the [`plan.R`](./R/plan.R) file. We use the [`renv`](https://rstudio.github.io/renv/index.html) package to manage package dependencies. To ensure that you are using the right package versions, invoke `renv::restore()` when the working directory is set to the github repo directory.
 
 Given the size of some of the data files, you will likely need at least 50GB of RAM to run the code.
 

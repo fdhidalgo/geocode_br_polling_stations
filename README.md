@@ -12,7 +12,7 @@ The dataset contains the following variables:
 
 -   `local_id`: Unique identifier for the polling station in a given election. This will vary across time, even for polling stations that are active in multiple elections.
 
--   `panel_id`: Unique identifier for a polling station that is contant across time. We describe below this variable is constructed.
+-   `panel_id`: Unique identifier for a polling station that is constant across time. We describe below this variable is constructed.
 
 -   `ano`: Election year
 

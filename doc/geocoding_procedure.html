@@ -221,8 +221,6 @@ summary {
 <li><p>Compute the string distance between the address of polling stations and address of schools in INPE and 2010 CNEFE data.</p></li>
 <li><p>Compute the string distance between the street name and neighborhood name of the polling station and street and neighborhood names from the CNEFE datasets.</p></li>
 </ol>
-<p>These are very common, yet not used consistently and as a result, are relatively uninformative.</p>
-<p>We found that removing them improves matching performance.</p>
 <p>The string matching procedure above generates 8 different potential matches.</p>
 <div id="choosing-among-potential-matches" class="section level3">
 <h3>Choosing Among Potential Matches</h3>
@@ -1084,7 +1082,7 @@ summary {
 <ol>
 <li id="fn1"><p>Details on the 2017 CNEFE can be found at this <a href="https://biblioteca.ibge.gov.br/visualizacao/livros/liv101638_notas_tecnicas.pdf">link</a><a href="#fnref1" class="footnote-back">↩︎</a></p></li>
 <li id="fn2"><p>The data can be found at this <a href="https://inepdata.inep.gov.br/analytics/saw.dll?dashboard">link</a><a href="#fnref2" class="footnote-back">↩︎</a></p></li>
-<li id="fn3"><p>We remove common, but uninformative words, such as “povado” and “localidade”. We standardize common street abbreviations such as replacing “Av” with “Avenida”. Finally, for polling station names, we remove words most common in school names, such as “unidade escolar” and “colegio estadual”.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>We remove common, but uninformative words, such as “povado” and “localidade”. We standardize common street abbreviations such as replacing “Av” with “Avenida”. Finally, for polling station names, we remove words most common in school names, such as “unidade escolar” and “colegio estadual”. These are very common, yet not used consistently and as a result, are relatively uninformative. We found that removing them improves matching performance.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
 </ol>
 </div>
 

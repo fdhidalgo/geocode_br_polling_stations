@@ -64,11 +64,7 @@ The general approach is a follows:
 
 6.  Compute the string distance between the street name and neighborhood name of the polling station and street and neighborhood names from the CNEFE datasets.
 
-[^3]: We remove common, but uninformative words, such as "povado" and "localidade". We standardize common street abbreviations such as replacing "Av" with "Avenida". Finally, for polling station names, we remove words most common in school names, such as "unidade escolar" and "colegio estadual".
-
-These are very common, yet not used consistently and as a result, are relatively uninformative.
-
-We found that removing them improves matching performance.
+[^3]: We remove common, but uninformative words, such as "povado" and "localidade". We standardize common street abbreviations such as replacing "Av" with "Avenida". Finally, for polling station names, we remove words most common in school names, such as "unidade escolar" and "colegio estadual". These are very common, yet not used consistently and as a result, are relatively uninformative. We found that removing them improves matching performance.
 
 The string matching procedure above generates 8 different potential matches.
 

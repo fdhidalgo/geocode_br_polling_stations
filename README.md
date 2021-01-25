@@ -20,7 +20,7 @@ The dataset contains the following variables:
 
 -   `cd_localidade_tse`: Municipal identifier used by the TSE.
 
--   `cd_localidade_ibge`: Municipal identiier used by the IBGE
+-   `cd_localidade_ibge`: Municipal identifier used by the IBGE
 
 -   `nr_zona`: Electoral zone number
 

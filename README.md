@@ -97,6 +97,7 @@ Thanks to:
 -   [Yuri Kasahara](https://www.researchgate.net/profile/Yuri_Kasahara2) for ideas and assistance in debugging
 
 -   George Avelino, Mauricio Izumi, Gabriel Caseiro, and Daniel Travassos Ferreira at [FGV/CEPESP](https://www.cepespdata.io) for data and advice
+-  Marco Antonio Faganello for excellent assitance at the early stages of the project. 
 
 ## Other Approaches
 

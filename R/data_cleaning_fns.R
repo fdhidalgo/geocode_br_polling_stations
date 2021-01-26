@@ -170,37 +170,28 @@ clean_inep <- function(inep_data, inep_codes){
 
 }
 
-clean_locais18 <- function(locais18, muni_ids, locais){
 
+clean_locais18 <- function(locais18, muni_ids, locais){
   locais18 <- janitor::clean_names(locais18)
 
+  locais18 <- unique(locais18[sg_uf != "ZZ", .(aa_eleicao, sg_uf, cd_municipio, nm_municipio, nr_zona,
+                                               nr_local_votacao, nm_local_votacao,
+                                               ds_endereco, nm_bairro, nr_cep, nr_latitude, nr_longitude)])
+  locais18[, nr_latitude := ifelse(nr_latitude == -1, NA, nr_latitude)]
+  locais18[, nr_longitude := ifelse(nr_longitude == -1, NA, nr_longitude)]
+  locais18 <- locais18[!is.na(nr_latitude)]
 
-  locais18 <- unique(locais18[, .(sgl_uf, cod_localidade_ibge, zona, num_local, local_votacao,
-                                  endereco, bairro_local_vot, latitude_local, longitude_local)])
-  locais18[, local_id := 1:nrow(locais18)]
-  #Normaize name and address
-  locais18[, normalized_name := normalize_school(local_votacao)]
-  locais18[, normalized_addr := paste(normalize_address(endereco), normalize_address(bairro_local_vot))]
-  locais18[, normalized_st := normalize_address(endereco)]
-  locais18[, normalized_bairro := normalize_address(bairro_local_vot)]
+  locais18 <- merge(locais18, muni_ids[, .(id_munic_7, id_TSE)], by.x = c("cd_municipio"),
+                    by.y = c("id_TSE"), all.x = TRUE)
 
-  #Merge in municipality name
-  locais18 <- left_join(locais18, select(muni_ids, id_munic_7, municipio),
-                        by = c("cod_localidade_ibge" = "id_munic_7"))
-
-  locais18 <- locais18[sgl_uf != "ZZ"]
-  locais18[, latitude_local := as.numeric(str_replace(latitude_local, ",", "."))]
-  locais18[, longitude_local := as.numeric(str_replace(longitude_local, ",", "."))]
-
-
-  #  locais18[, latitude_local := NULL]
-  #  locais18[, longitude_local := NULL]
   locais18  %>%
-      select(cod_localidade_ibge, nr_zona = zona, nr_locvot = num_local,
-             tse_lat = latitude_local, tse_long = longitude_local)  %>%
-      filter(!is.na(tse_lat)) %>% mutate(ano = 2018) %>%
-      left_join(select(locais, local_id, ano, cod_localidade_ibge, nr_zona, nr_locvot))
+    select(cod_localidade_ibge = id_munic_7, nr_zona , nr_locvot = nr_local_votacao,
+           tse_lat = nr_latitude, tse_long = nr_longitude)  %>%
+    mutate(ano = 2018) %>%
+    left_join(select(locais, local_id, ano, cod_localidade_ibge, nr_zona, nr_locvot)) %>%
+    filter(!is.na(local_id))
 }
+
 
 clean_agro_cnefe <- function(agro_cnefe_files, muni_ids){
  agro_cnefe <- janitor::clean_names(

@@ -52,7 +52,8 @@ the_plan <-
     panel_ids = create_panel_ids_munis(locais, prop_match_cutoff = .3),
 
     # Import geocoded polling stations from TSE for ground truth --------------
-    tsegeocoded_locais18 = clean_locais18(locais18 = fread(file_in("./data/local-votacao-08-08-2018.csv.gz")),
+    tsegeocoded_locais18 = clean_locais18(locais18 = fread(file_in("./data/eleitorado_local_votacao_2018.csv.gz"),
+                                                           encoding = "Latin-1"),
                                           muni_ids = muni_ids, locais = locais),
 
     # String Matching ---------------------------------------------------------

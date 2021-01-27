@@ -234,7 +234,8 @@ predict_distance <- function(cnefe_stbairro_match, inep_string_match, schools_cn
     add_recipe(ranger_recipe) %>%
     add_model(ranger_spec)
 
-  cvfolds <- vfold_cv(training_set, v = 5)
+  cvfolds <- group_vfold_cv(training_set, group = "cod_localidade_ibge",
+                            v = 5)
 
   ranger_tune <-
     tune_grid(ranger_workflow, resamples = cvfolds, grid = 5, control = control_grid(verbose = TRUE))

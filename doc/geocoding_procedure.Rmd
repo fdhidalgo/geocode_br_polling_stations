@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, cache = TRUE, dpi=300)
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, dpi=300)
 library(tidyverse)
 library(drake)
 library(gt)
@@ -217,7 +217,8 @@ table_data %>%
 ```{r gen_error_rate_data, warning=FALSE, message=FALSE}
 loadd(geocoded_locais, tract_shp)
 google_geocoded_df <- read_csv("../data/google_geocoded.csv") %>% select(local_id, google_long,                                                                            google_lat) %>%
-  left_join(filter(geocoded_locais, ano == 2018))
+  left_join(filter(geocoded_locais, ano == 2018)) %>%
+  filter(!is.na(tse_lat))
 
 
 rural_urban <-  st_as_sf(filter(google_geocoded_df, !is.na(long)), coords = c("tse_long", "tse_lat"), crs = 4674)%>%

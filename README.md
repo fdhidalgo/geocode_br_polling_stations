@@ -12,8 +12,6 @@ The dataset contains the following variables:
 
 -   `local_id`: Unique identifier for the polling station in a given election. This will vary across time, even for polling stations that are active in multiple elections.
 
--   `panel_id`: Unique identifier for a polling station that is constant across time. We describe below this variable is constructed.
-
 -   `ano`: Election year
 
 -   `sg_uf`: State abbreviation
@@ -50,12 +48,6 @@ The dataset contains the following variables:
 
 -   `lat`: Latitude as predicted by the model or provided by the TSE.
 
--   `panel_lat`: Time-invariant latitude. This is constant for polling stations that share a common `panel_id`.
-
--   `panel_long`: Time-invariant longitude. This is constant for polling stations that share a common `panel_id`.
-
-
-**Note on Panel IDs:** The Supreme Electoral Tribunal (TSE) does not provide a unique id that can be used to track polling stations across time. To create the `panel_id` variable, I used string matching, which matched polling stations in the same municipality across time by partial matches in the words comprising the name or address of the polling station. This means that there will be some error in the construction of the panel identifiers. To construct the `panel_lat` and `panel_long` variables, we assigned the `long` and `lat` for the polling station with the smallest predicted distance (`pred_dist`) among the polling stations with the same `panel_id`.
 
 ## Code
 ### Running the Geocoding Pipeline

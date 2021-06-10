@@ -80,8 +80,7 @@ the_plan <-
                                               muni_demo = muni_demo, muni_area = muni_area),
 
     # Use string matches to geocode and add panel ids -------------------------------------------
-    geocoded_locais = finalize_coords(locais, string_match, tsegeocoded_locais18,
-                                      panel_ids),
+    geocoded_locais = finalize_coords(locais, string_match, tsegeocoded_locais18),
     geocode_export = readr::write_csv(geocoded_locais, file_out("./output/geocoded_polliing_stations.csv.gz")),
 
     # Documentation and Writeup -----------------------------------------------

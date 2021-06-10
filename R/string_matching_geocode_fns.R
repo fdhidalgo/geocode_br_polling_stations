@@ -127,15 +127,18 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
   match_long_bairro_agrocnefe <- agrocnefe_bairro_muni$long[apply(bairro_agrocnefe_dists, 1, which.min)]
   match_lat_bairro_agrocnefe <- agrocnefe_bairro_muni$lat[apply(bairro_agrocnefe_dists, 1, which.min)]
 
-  data.table(local_id, mindist_st_agrocnefe, match_st_agrocnefe, match_long_st_agrocnefe, match_lat_st_agrocnefe,
-             mindist_bairro_agrocnefe, match_bairro_agrocnefe, match_long_bairro_agrocnefe, match_lat_bairro_agrocnefe)
+  data.table(local_id, mindist_st_agrocnefe, match_st_agrocnefe,
+             match_long_st_agrocnefe, match_lat_st_agrocnefe,
+             mindist_bairro_agrocnefe, match_bairro_agrocnefe,
+             match_long_bairro_agrocnefe, match_lat_bairro_agrocnefe)
 
 
 }
 
 predict_distance <- function(cnefe_stbairro_match, inep_string_match, schools_cnefe_match,
-                                  agrocnefe_stbairro_match, locais, tsegeocoded_locais18,
-                                  muni_demo, muni_area){
+                             agrocnefe_stbairro_match, opencage_data,
+                             locais, tsegeocoded_locais18,
+                             muni_demo, muni_area){
 
   cnefe_stbairro <- cnefe_stbairro_match %>%
     select(local_id, contains("long"), contains("lat"), contains("mindist")) %>%
@@ -177,6 +180,18 @@ predict_distance <- function(cnefe_stbairro_match, inep_string_match, schools_cn
                             grepl("_addr", name) ~ "schools_inep_addr")) %>%
     pivot_wider(id_cols = c(local_id, type), names_from = var)
 
+  opencage <- left_join(opencage_data,
+            distinct(select(locais, local_id, nm_locvot,
+                            ds_endereco, ds_bairro, nm_localidade, sg_uf))) %>%
+    distinct() %>%
+    select(local_id, lat = opencage_lat,
+           long = opencage_long, mindist = confidence) %>%
+    filter(!is.na(local_id)) %>%
+    arrange(local_id) %>%
+    mutate(mindist = abs(mindist - 10) / 10,
+           type = "opencage") %>%
+    select(local_id, type, long, lat, mindist)
+
   muni_demo <- muni_demo %>%
     mutate(logpop = log(pop),
            pct_rural = 100 * peso_rur / pop) %>%
@@ -203,7 +218,7 @@ predict_distance <- function(cnefe_stbairro_match, inep_string_match, schools_cn
            school = ifelse(grepl(paste0("\\b", school_syns, "\\b", collapse = "|"), norm_name) == TRUE, 1, 0)) %>%
     select(local_id, centro, zona_rural, school)
 
-  matching_data <- bind_rows(cnefe_stbairro, schools_cnefe, agrocnefe_stbairro, inep) %>%
+  matching_data <- bind_rows(cnefe_stbairro, schools_cnefe, agrocnefe_stbairro, inep, opencage) %>%
     left_join(select(locais, local_id, ano, cod_localidade_ibge)) %>%
     filter(!is.na(type) & !is.na(mindist)) %>%
     mutate(type = as.factor(type)) %>%

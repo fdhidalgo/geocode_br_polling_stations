@@ -14,10 +14,10 @@ the_plan <-
     tract_centroids = make_tract_centroids(tract_shp),
     muni_area =  calc_muni_area(readRDS(file_in("./data/muni_shp.rds"))),
 
-    # Import and Clean CNEFE data --------------------------------------------------------------
+    # Import and CLean CNEFE data --------------------------------------------------------------
     cnefe = target(clean_cnefe(cnefe_file = "./data/CNEFE_combined.gz",
-                               muni_ids = muni_ids, tract_centroids = tract_centroids),
-                   format = "fst_dt"),
+                                             muni_ids = muni_ids, tract_centroids = tract_centroids),
+                               format = "fst_dt"),
     ### Subset on schools in CNEFE
     schools_cnefe = target(dplyr::filter(cnefe, especie_lab == "estabelecimento de ensino") %>%
                              mutate(norm_desc = normalize_school(desc)) %>%
@@ -32,7 +32,7 @@ the_plan <-
 
     ## Import and clean 2017 CNEFE
     agro_cnefe = target(clean_agro_cnefe(agro_cnefe_files =  (dir("./data/agro_censo/",
-                                                                  full.names = TRUE)), muni_ids = muni_ids), format = "fst_dt"),
+                        full.names = TRUE)), muni_ids = muni_ids), format = "fst_dt"),
     agrocnefe_st = target(agro_cnefe[, .(long = median(longitude, na.rm = TRUE),
                                          lat = median(latitude, na.rm = TRUE), n = .N),
                                      by = .(id_munic_7, norm_street)][n > 1], format = "fst_dt"),
@@ -44,9 +44,6 @@ the_plan <-
     # Import and Clean INEP Data ---------------------------------------------------------------
     inep_data = clean_inep(inep_data = fread(file_in("./data/inep_catalogo_das_escolas.csv.gz")),
                            inep_codes = inep_codes),
-
-    # Import and Clean Open Cage Data ---------------------------------------------------------------
-    opencage_data = clean_opencage(file = file_in("./data/opencage_geocodes.csv.gz")),
 
     # Import Locais de Votacao Data -------------------------------------------
     locais = import_locais(file_in("./data/polling_stations_2006_2018.csv.gz"), muni_ids = muni_ids),
@@ -76,12 +73,11 @@ the_plan <-
                                                                              agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]))),
     # Choose best match
     string_match = predict_distance(cnefe_stbairro_match = cnefe_stbairro_match,
-                                    schools_cnefe_match = schools_cnefe_match,
-                                    inep_string_match = inep_string_match,
-                                    agrocnefe_stbairro_match = agrocnefe_stbairro_match,
-                                    opencage_data = opencage_data,
-                                    locais = locais, tsegeocoded_locais18 = tsegeocoded_locais18,
-                                    muni_demo = muni_demo, muni_area = muni_area),
+                                              schools_cnefe_match = schools_cnefe_match,
+                                              inep_string_match = inep_string_match,
+                                              agrocnefe_stbairro_match = agrocnefe_stbairro_match,
+                                              locais = locais, tsegeocoded_locais18 = tsegeocoded_locais18,
+                                              muni_demo = muni_demo, muni_area = muni_area),
 
     # Use string matches to geocode and add panel ids -------------------------------------------
     geocoded_locais = finalize_coords(locais, string_match, tsegeocoded_locais18,
@@ -93,6 +89,6 @@ the_plan <-
       command = {
         rmarkdown::render(knitr_in("doc/geocoding_procedure.Rmd"))
         file_out("doc/geocoding_procedure.html")
-      }
+     }
     )
   )

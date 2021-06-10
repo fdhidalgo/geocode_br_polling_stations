@@ -243,14 +243,6 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids){
 
 }
 
-clean_opencage <- function(file) {
-  opencage_geocodes <- fread(file)
-  opencage_clean <- opencage_geocodes[!is.na(opencage_lat) & !is.na(ds_endereco),
-                                      .(nm_locvot, ds_endereco, ds_bairro,
-                                        nm_localidade, sg_uf, confidence,
-                                        opencage_lat, opencage_long)]
-  opencage_clean
-}
 
 import_muni_demo <- function(file){
   readxl::read_xlsx(file, sheet = 2) %>%

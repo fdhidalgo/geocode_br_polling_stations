@@ -221,7 +221,7 @@ google_geocoded_df <- read_csv("../data/google_geocoded.csv") %>% select(local_i
   filter(!is.na(tse_lat))
 
 
-rural_urban <-  st_as_sf(filter(google_geocoded_df, !is.na(long)), coords = c("tse_long", "tse_lat"), crs = 4674)%>%
+rural_urban <-  st_as_sf(filter(google_geocoded_df, !is.na(long)), coords = c("tse_long", "tse_lat"), crs = 4674) %>%
   st_join(tract_shp, left = TRUE, largest = TRUE) %>%
   st_drop_geometry()  %>%
   as_tibble() %>%

@@ -8,7 +8,7 @@ The latest dataset of geocoded polling stations can be found in the compressed c
 
 ## Data
 
-The dataset contains the following variables:
+The dataset (`geocoded_polliing_stations.csv.gz`) contains the following variables:
 
 -   `local_id`: Unique identifier for the polling station in a given election. This will vary across time, even for polling stations that are active in multiple elections.
 
@@ -48,6 +48,14 @@ The dataset contains the following variables:
 
 -   `lat`: Latitude as predicted by the model or provided by the TSE.
 
+We also created panel identifiers that track a given polling station over time. Note to construct this, we had to use fuzzy string matching of address and polling station name. The dataset `panel_ids.csv.gz` has the following variables:
+
+- `ano`: year
+- `panel_id`: unique panel identifier. Units with the same `panel_id` are classified to be the same polling station in two different election years according to our fuzzy matching procedure. 
+- `local_id`: polling station identifier. Use this variable to merge with the coordinates data. 
+- `panel_match_prop`: this variable measures the quality of the match. This is the proportion of words in the pollling station name and address that are exactly the same across years.  A 1 indicates a perfect match between polling station name and address. 
+
+Note that for a small number of cases, a given polling station can be matched to multiple polling stations from an earlier year. This occurs when a later potential match is the best match for multiple polling stations in an earlier election. 
 
 ## Code
 ### Running the Geocoding Pipeline

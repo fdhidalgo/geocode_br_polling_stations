@@ -76,9 +76,9 @@ Options to modify how the pipeline runs (e.g. parallel processing options) can b
 Given the size of some of the data files, you will likely need at least 50GB of RAM to run the code.
 
 ### Merging Coordinates with Electoral Data
-While one can get disaggregated electoral data directly from the TSE I recommend getting polling station-level data from  [CEPESP DATA](https://www.cepespdata.io), as it has been cleaned, aggregated, and standardized. 
+While one can get disaggregated electoral data directly from the TSE, I recommend obtaining polling station-level data from  [CEPESP DATA](https://www.cepespdata.io), as it has been cleaned, aggregated, and standardized. 
 
-For merging with electoral data provided by the TSE, you will typically have to work with data reported at the "seção" level, which is below the polling station level. Generally, one will need to aggregate the "seção"-level data to the polling station level data, using municipality code, electoral zone code, and polling station code. Once aggregated, you can then merge with the coordinates data provided here. 
+For merging with electoral data provided by the TSE, you will typically have to work with data reported at the "seção" level, which is below the polling station level. Generally, one will need to aggregate the "seção"-level data to the polling station level, using municipality code, electoral zone code, and polling station code. Once aggregated, you can then merge with the coordinates data provided here. 
 
 As an example, I provide code for merging the [2018 electorate data](https://dadosabertos.tse.jus.br/dataset/eleitorado-2018/resource/368612e7-fa5d-420a-9013-7ee9d1dbd16a), which is reported at the "seção" level, with the coordinates data.
 

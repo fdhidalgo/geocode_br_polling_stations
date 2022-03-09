@@ -10,43 +10,43 @@ The latest dataset of geocoded polling stations can be found in the compressed c
 
 The dataset (`geocoded_polliing_stations.csv.gz`) contains the following variables:
 
--   `local_id`: Unique identifier for the polling station in a given election. This will vary across time, even for polling stations that are active in multiple elections.
+- `local_id`: Unique identifier for the polling station in a given election. This will vary across time, even for polling stations that are active in multiple elections.
 
--   `ano`: Election year
+- `ano`: Election year
 
--   `sg_uf`: State abbreviation
+- `sg_uf`: State abbreviation
 
--   `cd_localidade_tse`: Municipal identifier used by the TSE.
+- `cd_localidade_tse`: Municipal identifier used by the TSE.
 
--   `cd_localidade_ibge`: Municipal identifier used by the IBGE
+- `cd_localidade_ibge`: Municipal identifier used by the IBGE
 
--   `nr_zona`: Electoral zone number
+- `nr_zona`: Electoral zone number
 
--   `nr_locvot`: Polling station number
+- `nr_locvot`: Polling station number
 
--   `nr_cep`: Brazilian postal code
+- `nr_cep`: Brazilian postal code
 
--   `nm_localidade`: Municipality
+- `nm_localidade`: Municipality
 
--   `nm_locvot`: Name of polling station
+- `nm_locvot`: Name of polling station
 
--   `ds_endereco`: Street address
+- `ds_endereco`: Street address
 
--   `ds_bairro`: neighborhood
+- `ds_bairro`: neighborhood
 
--   `pred_long`: Longitude as selected by our model.
+- `pred_long`: Longitude as selected by our model.
 
--   `pred_lat`: Latitude as selected by our model
+- `pred_lat`: Latitude as selected by our model
 
--   `pred_dist`: Predicted distance between chosen longitude and latitude and true longitude and latitude. This variable can be used to filter coordinates based on their likely accuracy.
+- `pred_dist`: Predicted distance between chosen longitude and latitude and true longitude and latitude. This variable can be used to filter coordinates based on their likely accuracy.
 
--   `tse_lat`: Latitude provided by the TSE. This is only available for a small subset of data.
+- `tse_lat`: Latitude provided by the TSE. This is only available for a small subset of data.
 
--   `tse_long`: Longitude provided by the TSE. This is only available for a small subset of data.
+- `tse_long`: Longitude provided by the TSE. This is only available for a small subset of data.
 
--   `long`: Longitude as predicted by the model or provided by the TSE.
+- `long`: Longitude as predicted by the model or provided by the TSE.
 
--   `lat`: Latitude as predicted by the model or provided by the TSE.
+- `lat`: Latitude as predicted by the model or provided by the TSE.
 
 We also created panel identifiers that track a given polling station over time. Note to construct this, we had to use fuzzy string matching of address and polling station name. The dataset `panel_ids.csv.gz` has the following variables:
 
@@ -75,6 +75,36 @@ Options to modify how the pipeline runs (e.g. parallel processing options) can b
 
 Given the size of some of the data files, you will likely need at least 50GB of RAM to run the code.
 
+### Merging Coordinates with Electoral Data
+While one can get disaggregated electoral data directly from the TSE I recommend getting polling station-level data from  [CEPESP DATA](https://www.cepespdata.io), as it has been cleaned, aggregated, and standardized. 
+
+For merging with electoral data provided by the TSE, you will typically have to work with data reported at the "seção" level, which is below the polling station level. Generally, one will need to aggregate the "seção"-level data to the polling station level data, using municipality code, electoral zone code, and polling station code. Once aggregated, you can then merge with the coordinates data provided here. 
+
+As an example, I provide code for merging the [2018 electorate data](https://dadosabertos.tse.jus.br/dataset/eleitorado-2018/resource/368612e7-fa5d-420a-9013-7ee9d1dbd16a), which is reported at the "seção" level, with the coordinates data.
+
+``` r
+library(data.table) #for importing and aggregating data
+
+polling_coord <- fread("geocoded_polling_stations.csv.gz")
+#Subset on 2018 polling stations
+coord_2018 <- polling_coord[ano == 2018, ]
+
+#import 2018 electorate data from TSE
+electorate_2018 <- fread("eleitorado_local_votacao_2018.csv", encoding = "Latin-1")
+
+#aggregate data to the polling station level
+electorate_local18 <- electorate_2018[, .(electorate = sum(QT_ELEITOR)),
+        by = c("CD_MUNICIPIO", "NR_ZONA", "NR_LOCAL_VOTACAO")
+]
+
+#merge by municipality, zone, and polling station identifier
+coord_electorate18 <- merge(coord_2018, electorate_local18,
+        by.x = c("cd_localidade_tse", "nr_zona", "nr_locvot"),
+        by.y = c("CD_MUNICIPIO", "NR_ZONA", "NR_LOCAL_VOTACAO")
+)
+```
+
+
 ## Data Sources
 Because of the size of some of the administrative datasets, we cannot host all the data necessary to run the code on Github.
 Datasets marked with a \* can be found at the associated link in the table below but not in this Github repo.
@@ -94,13 +124,13 @@ All other data can be found in the `data` folder.
 
 Thanks to:
 
--   [Yuri Kasahara](https://www.researchgate.net/profile/Yuri_Kasahara2) for ideas and assistance in debugging
+- [Yuri Kasahara](https://www.researchgate.net/profile/Yuri_Kasahara2) for ideas and assistance in debugging
 
--   George Avelino, Mauricio Izumi, Gabriel Caseiro, and Daniel Travassos Ferreira at [FGV/CEPESP](https://www.cepespdata.io) for data and advice
--  Marco Antonio Faganello for excellent assistance at the early stages of the project. 
+- George Avelino, Mauricio Izumi, Gabriel Caseiro, and Daniel Travassos Ferreira at [FGV/CEPESP](https://www.cepespdata.io) for data and advice
+- Marco Antonio Faganello for excellent assistance at the early stages of the project. 
 
 ## Other Approaches
 
--   Spatial Maps at <http://spatial2.cepesp.io>
+- Spatial Maps at <http://spatial2.cepesp.io>
 
--   [Pindograma](https://github.com/pindograma/mapa)
+- [Pindograma](https://github.com/pindograma/mapa)

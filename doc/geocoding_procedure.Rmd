@@ -6,11 +6,12 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, cache = FALSE, dpi=300)
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, dpi = 300)
 library(tidyverse)
 library(drake)
 library(gt)
 library(sf)
+sf::sf_use_s2(FALSE)
 ```
 
 This document outlines an approach to geocoding Brazilian polling station that heavily relies on administrative datasets. In addition to detailing our approach, we also provide some evidence on the error of our method and how it compares to the [Google Maps Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview).
@@ -92,31 +93,37 @@ For each polling station, we choose the candidate coordinate with the smallest p
 ### Example of String Matching
 
 ```{r load_data, message=FALSE, warning=FALSE}
-loadd(inep_string_match, cnefe_stbairro_match, schools_cnefe_match,
-      agrocnefe_stbairro_match, locais, string_match,
-      tsegeocoded_locais18, panel_ids)
+loadd(
+  inep_string_match, cnefe_stbairro_match, schools_cnefe_match,
+  agrocnefe_stbairro_match, locais, string_match,
+  tsegeocoded_locais18, panel_ids
+)
 
-  best_string_match <- string_match %>%
-    group_by(local_id) %>%
-    arrange(local_id, pred_dist) %>%
-    slice(1)
+best_string_match <- string_match %>%
+  group_by(local_id) %>%
+  arrange(local_id, pred_dist) %>%
+  slice(1)
 
 geocoded_locais <- left_join(locais, best_string_match) %>%
-    rename("pred_long" = "long", "pred_lat" = "lat") %>%
-    left_join(select(tsegeocoded_locais18, local_id, tse_lat, tse_long)) %>%
-    ##if we have ground truth distance from TSE, then assign ground truth
-    mutate(long = ifelse(is.na(tse_long), pred_long, tse_long),
-           lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
-           pred_dist = ifelse(is.na(tse_lat), pred_dist, 0 )) %>%
-    left_join(select(panel_ids, panel_id, local_id)) %>%
-    mutate(panel_id = ifelse(is.na(panel_id), local_id, panel_id)) %>%
-    arrange(panel_id, pred_dist) %>%
-    group_by(panel_id) %>%
-    mutate(panel_lat = first(lat),
-           panel_long = first(long)) %>%
-    relocate(local_id, panel_id, ano, sg_uf, cd_localidade_tse, cod_localidade_ibge,
-             .before = everything())
-
+  rename("pred_long" = "long", "pred_lat" = "lat") %>%
+  left_join(select(tsegeocoded_locais18, local_id, tse_lat, tse_long)) %>%
+  ## if we have ground truth distance from TSE, then assign ground truth
+  mutate(
+    long = ifelse(is.na(tse_long), pred_long, tse_long),
+    lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
+    pred_dist = ifelse(is.na(tse_lat), pred_dist, 0)
+  ) %>%
+  left_join(select(panel_ids, panel_id, local_id)) %>%
+  mutate(panel_id = ifelse(is.na(panel_id), local_id, panel_id)) %>%
+  arrange(panel_id, pred_dist) %>%
+  group_by(panel_id) %>%
+  mutate(
+    panel_lat = first(lat),
+    panel_long = first(long)
+  ) %>%
+  relocate(local_id, panel_id, ano, sg_uf, cd_localidade_tse, cod_localidade_ibge,
+    .before = everything()
+  )
 ```
 
 To illustrate the string matching procedure, the table below shows shows the string matching procedure for one polling station where the coordinates are known.
@@ -133,77 +140,100 @@ example_inep <- filter(inep_string_match, local_id == example_id)
 example_cnfe_schools <- filter(schools_cnefe_match, local_id == example_id)
 example_agrocnefe <- filter(agrocnefe_stbairro_match, local_id == example_id)
 example_cnefe <- filter(cnefe_stbairro_match, local_id == example_id)
-example_string_match <- tibble(match_type = c("schools_inep_name", "schools_inep_addr", 
-                                              "schools_cnefe_name", "schools_cnefe_addr", 
-                                              "st_agrocnefe", "st_cnefe", "bairro_agrocnefe",
-                                              "bairro_cnefe")) %>%
+example_string_match <- tibble(match_type = c(
+  "schools_inep_name", "schools_inep_addr",
+  "schools_cnefe_name", "schools_cnefe_addr",
+  "st_agrocnefe", "st_cnefe", "bairro_agrocnefe",
+  "bairro_cnefe"
+)) %>%
   left_join(filter(string_match, local_id == example_id))
-  
 
-table_data <- tibble(Data = c("INEP School Name", "INEP School Address",
-                "2010 CNEFE School Name", "2010 CNEFE School Address",
-                "2017 CNEFE Street", "2010 CNEFE Street",
-                "2017 CNEFE Neighborhood", "2010 CNEFE Neighborhood"),
-  `Polling Station String` = c(example_polling_station$normalized_name, 
-                               example_polling_station$normalized_addr, 
-                               example_polling_station$normalized_name,
-                               example_polling_station$normalized_addr,
-                               example_polling_station$normalized_st,
-                               example_polling_station$normalized_st,
-                               example_polling_station$normalized_bairro,
-                               example_polling_station$normalized_bairro), 
-  Match = c(example_inep$match_inep_name, 
-            example_inep$match_inep_addr,
-            example_cnfe_schools$match_schools_cnefe_name,
-            example_cnfe_schools$match_schools_cnefe_addr,
-            example_agrocnefe$match_st_agrocnefe,
-            example_cnefe$match_st_cnefe,
-            example_agrocnefe$match_bairro_agrocnefe,
-            example_cnefe$match_bairro_cnefe), 
-  `String Distance` =  c(example_inep$mindist_name_inep, 
-                         example_inep$mindist_addr_inep, 
-                         example_cnfe_schools$mindist_name_schools_cnefe,
-                         example_cnfe_schools$mindist_addr_schools_cnefe,
-                         example_agrocnefe$mindist_st_agrocnefe,
-                         example_cnefe$mindist_st_cnefe,
-                         example_agrocnefe$mindist_bairro_agrocnefe,
-                         example_cnefe$mindist_bairro_cnefe),
-  `Predicted Error (km)` =example_string_match$pred_dist,
-  long = c(example_inep$match_long_inep_name, 
-                         example_inep$match_long_inep_addr, 
-                         example_cnfe_schools$match_long_schools_cnefe_name,
-                         example_cnfe_schools$match_long_schools_cnefe_addr,
-                         example_agrocnefe$match_long_st_agrocnefe,
-                         example_cnefe$match_long_st_cnefe,
-                         example_agrocnefe$match_long_bairro_agrocnefe,
-                         example_cnefe$match_long_bairro_cnefe),
-  lat = c(example_inep$match_lat_inep_name, 
-                         example_inep$match_lat_inep_addr, 
-                         example_cnfe_schools$match_lat_schools_cnefe_name,
-                         example_cnfe_schools$match_lat_schools_cnefe_addr,
-                         example_agrocnefe$match_lat_st_agrocnefe,
-                         example_cnefe$match_lat_st_cnefe,
-                         example_agrocnefe$match_lat_bairro_agrocnefe,
-                         example_cnefe$match_lat_bairro_cnefe)) %>%
+
+table_data <- tibble(
+  Data = c(
+    "INEP School Name", "INEP School Address",
+    "2010 CNEFE School Name", "2010 CNEFE School Address",
+    "2017 CNEFE Street", "2010 CNEFE Street",
+    "2017 CNEFE Neighborhood", "2010 CNEFE Neighborhood"
+  ),
+  `Polling Station String` = c(
+    example_polling_station$normalized_name,
+    example_polling_station$normalized_addr,
+    example_polling_station$normalized_name,
+    example_polling_station$normalized_addr,
+    example_polling_station$normalized_st,
+    example_polling_station$normalized_st,
+    example_polling_station$normalized_bairro,
+    example_polling_station$normalized_bairro
+  ),
+  Match = c(
+    example_inep$match_inep_name,
+    example_inep$match_inep_addr,
+    example_cnfe_schools$match_schools_cnefe_name,
+    example_cnfe_schools$match_schools_cnefe_addr,
+    example_agrocnefe$match_st_agrocnefe,
+    example_cnefe$match_st_cnefe,
+    example_agrocnefe$match_bairro_agrocnefe,
+    example_cnefe$match_bairro_cnefe
+  ),
+  `String Distance` = c(
+    example_inep$mindist_name_inep,
+    example_inep$mindist_addr_inep,
+    example_cnfe_schools$mindist_name_schools_cnefe,
+    example_cnfe_schools$mindist_addr_schools_cnefe,
+    example_agrocnefe$mindist_st_agrocnefe,
+    example_cnefe$mindist_st_cnefe,
+    example_agrocnefe$mindist_bairro_agrocnefe,
+    example_cnefe$mindist_bairro_cnefe
+  ),
+  `Predicted Error (km)` = example_string_match$pred_dist,
+  long = c(
+    example_inep$match_long_inep_name,
+    example_inep$match_long_inep_addr,
+    example_cnfe_schools$match_long_schools_cnefe_name,
+    example_cnfe_schools$match_long_schools_cnefe_addr,
+    example_agrocnefe$match_long_st_agrocnefe,
+    example_cnefe$match_long_st_cnefe,
+    example_agrocnefe$match_long_bairro_agrocnefe,
+    example_cnefe$match_long_bairro_cnefe
+  ),
+  lat = c(
+    example_inep$match_lat_inep_name,
+    example_inep$match_lat_inep_addr,
+    example_cnfe_schools$match_lat_schools_cnefe_name,
+    example_cnfe_schools$match_lat_schools_cnefe_addr,
+    example_agrocnefe$match_lat_st_agrocnefe,
+    example_cnefe$match_lat_st_cnefe,
+    example_agrocnefe$match_lat_bairro_agrocnefe,
+    example_cnefe$match_lat_bairro_cnefe
+  )
+) %>%
   mutate(rank = rank(`Predicted Error (km)`, ties.method = "first")) %>%
   rowwise() %>%
   mutate(
-    `True Error (km)` = geosphere::distHaversine(p1 = c(example_polling_station$long,
-                                                   example_polling_station$lat),
-                                    p2 = c(long, lat))/1000 
+    `True Error (km)` = geosphere::distHaversine(
+      p1 = c(
+        example_polling_station$long,
+        example_polling_station$lat
+      ),
+      p2 = c(long, lat)
+    ) / 1000
   ) %>%
   select(!long & !lat)
 
 
 table_data %>%
-  gt() %>% 
+  gt() %>%
   cols_hide(vars(rank)) %>%
-  fmt_number(matches("String Distance|Error"), 
-             decimals = 2) %>%
-   tab_header(
+  fmt_number(matches("String Distance|Error"),
+    decimals = 2
+  ) %>%
+  tab_header(
     title = "Example of String Matching",
-    subtitle = paste0("Polling Station Name is ", example_polling_station$nm_locvot, 
-                      ". Polling Station Address is ", example_polling_station$ds_endereco)
+    subtitle = paste0(
+      "Polling Station Name is ", example_polling_station$nm_locvot,
+      ". Polling Station Address is ", example_polling_station$ds_endereco
+    )
   ) %>%
   tab_style(
     style = cell_fill(color = "lightcyan"),
@@ -216,19 +246,21 @@ table_data %>%
 
 ```{r gen_error_rate_data, warning=FALSE, message=FALSE}
 loadd(geocoded_locais, tract_shp)
-google_geocoded_df <- read_csv("../data/google_geocoded.csv") %>% select(local_id, google_long,                                                                            google_lat) %>%
+google_geocoded_df <- read_csv("../data/google_geocoded.csv") %>%
+  select(local_id, google_long, google_lat) %>%
   left_join(filter(geocoded_locais, ano == 2018)) %>%
   filter(!is.na(tse_lat))
 
 
-rural_urban <-  st_as_sf(filter(google_geocoded_df, !is.na(long)), coords = c("tse_long", "tse_lat"), crs = 4674) %>%
+rural_urban <- st_as_sf(filter(google_geocoded_df, !is.na(long)),
+  coords = c("tse_long", "tse_lat"), crs = 4674
+) %>%
   st_join(tract_shp, left = TRUE, largest = TRUE) %>%
-  st_drop_geometry()  %>%
+  st_drop_geometry() %>%
   as_tibble() %>%
   select(local_id, zone)
 
 google_geocoded_df <- left_join(google_geocoded_df, rural_urban)
-
 ```
 
 To estimate the accuracy of our procedure, we use a subset of `r format(nrow(google_geocoded_df), nsmall=1, big.mark=",")` polling stations with coordinates to check the error of the coordinates generated by our procedure.  These "ground truth" coordinates were provided by the TSE, which for 2018 has coordinates for `r format(sum(geocoded_locais$ano == 2018 & !is.na(geocoded_locais$tse_long)), nsmall=1, big.mark = ",")`. We used the Google Maps API to geocode a large subset of these polling stations to compare our error rate to theirs.  We report the error rate at 3 quantiles: 25th, 50th (the median), and the 75th percentile.
@@ -237,33 +269,46 @@ In addition to reporting the error rate for the full sample, we also split the s
 Finally, we compare our error rate to coordinates generated using the Google Maps [API](https://developers.google.com/maps/documentation/geocoding/overview).
 
 ```{r error_table, message=FALSE, warning=FALSE}
-error <-  google_geocoded_df %>%
+error <- google_geocoded_df %>%
   rowwise() %>%
-  mutate(dist = geosphere::distHaversine(p1 = c(pred_long, pred_lat),
-                                         p2 = c(tse_long, tse_lat))/1000,
-         google_dist = geosphere::distHaversine(p1 = c(tse_long, tse_lat),
-                                         p2 = c(google_long, google_lat))/1000)
-tibble(Quantile = c("25th", "Median", "75th"),
-       `Full Sample` = quantile(error$dist, probs = c(.25, .5, .75), na.rm = TRUE),
-       `Urban` = quantile(error$dist[error$zone == "URBANO"], probs = c(.25, .5, .75), na.rm = TRUE),
-       `Rural` = quantile(error$dist[error$zone == "RURAL"], probs = c(.25, .5, .75), na.rm = TRUE),
-       full_samp_gmaps = quantile(error$google_dist, probs = c(.25, .5, .75), na.rm = TRUE),
-       urban_gmaps = quantile(error$google_dist[error$zone == "URBANO"], probs = c(.25, .5, .75), na.rm = TRUE),
-       rural_gmaps = quantile(error$google_dist[error$zone == "RURAL"], probs = c(.25, .5, .75), na.rm = TRUE),
-       )%>%
+  mutate(
+    dist = geosphere::distHaversine(
+      p1 = c(pred_long, pred_lat),
+      p2 = c(tse_long, tse_lat)
+    ) / 1000,
+    google_dist = geosphere::distHaversine(
+      p1 = c(tse_long, tse_lat),
+      p2 = c(google_long, google_lat)
+    ) / 1000
+  )
+tibble(
+  Quantile = c("25th", "Median", "75th"),
+  `Full Sample` = quantile(error$dist, probs = c(.25, .5, .75), na.rm = TRUE),
+  `Urban` = quantile(error$dist[error$zone == "URBANO"], probs = c(.25, .5, .75), na.rm = TRUE),
+  `Rural` = quantile(error$dist[error$zone == "RURAL"], probs = c(.25, .5, .75), na.rm = TRUE),
+  full_samp_gmaps = quantile(error$google_dist, probs = c(.25, .5, .75), na.rm = TRUE),
+  urban_gmaps = quantile(error$google_dist[error$zone == "URBANO"], probs = c(.25, .5, .75), na.rm = TRUE),
+  rural_gmaps = quantile(error$google_dist[error$zone == "RURAL"], probs = c(.25, .5, .75), na.rm = TRUE),
+) %>%
   gt() %>%
-  fmt_number(2:7, 
-             decimals = 2) %>%
-  tab_spanner(label = "String Matching", 
-              columns = 2:4) %>%
-  tab_spanner(label = "Google Maps", 
-              columns = 5:7) %>%
-  cols_label(full_samp_gmaps = "Full Sample",
-             urban_gmaps = "Urban", 
-             rural_gmaps = "Rural") %>%
+  fmt_number(2:7,
+    decimals = 2
+  ) %>%
+  tab_spanner(
+    label = "String Matching",
+    columns = 2:4
+  ) %>%
+  tab_spanner(
+    label = "Google Maps",
+    columns = 5:7
+  ) %>%
+  cols_label(
+    full_samp_gmaps = "Full Sample",
+    urban_gmaps = "Urban",
+    rural_gmaps = "Rural"
+  ) %>%
   tab_header(title = "Geocoding Error") %>%
   tab_source_note("Error in kilometers.")
-
 ```
 
 As can be seen in the above table, the median error for our method is about `r round(median(error$dist, na.rm = TRUE), 2)` km.

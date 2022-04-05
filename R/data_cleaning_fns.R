@@ -184,12 +184,17 @@ clean_locais18 <- function(locais18, muni_ids, locais){
   locais18 <- merge(locais18, muni_ids[, .(id_munic_7, id_TSE)], by.x = c("cd_municipio"),
                     by.y = c("id_TSE"), all.x = TRUE)
 
-  locais18  %>%
+  locais18 <- locais18  %>%
     select(cod_localidade_ibge = id_munic_7, nr_zona , nr_locvot = nr_local_votacao,
            tse_lat = nr_latitude, tse_long = nr_longitude)  %>%
     mutate(ano = 2018) %>%
     left_join(select(locais, local_id, ano, cod_localidade_ibge, nr_zona, nr_locvot)) %>%
     filter(!is.na(local_id))
+
+  locais18 <- unique(locais18)
+  locais18 <- group_by(locais18, local_id) %>%
+    slice(1)
+  locais18
 }
 
 

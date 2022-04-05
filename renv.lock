@@ -373,14 +373,6 @@
       "Hash": "022c42d49c28e95d69ca60446dbabf88",
       "Requirements": []
     },
-    "data.table": {
-      "Package": "data.table",
-      "Version": "1.14.3",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "a20969e09c722b6ee98c9ba72de56390",
-      "Requirements": []
-    },
     "dbplyr": {
       "Package": "dbplyr",
       "Version": "2.1.1",

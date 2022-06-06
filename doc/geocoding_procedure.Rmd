@@ -3,12 +3,14 @@ title: "Geocoding Brazilian Polling Stations with Administrative Data Sets"
 author: "F. Daniel Hidalgo"
 date: "1/22/2021"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, cache = FALSE, dpi = 300)
 library(tidyverse)
-library(drake)
+library(targets)
 library(gt)
 library(sf)
 sf::sf_use_s2(FALSE)
@@ -93,10 +95,10 @@ For each polling station, we choose the candidate coordinate with the smallest p
 ### Example of String Matching
 
 ```{r load_data, message=FALSE, warning=FALSE}
-loadd(
-  inep_string_match, cnefe_stbairro_match, schools_cnefe_match,
+tar_load(
+  c(inep_string_match, cnefe_stbairro_match, schools_cnefe_match,
   agrocnefe_stbairro_match, locais, string_match,
-  tsegeocoded_locais18, panel_ids
+  tsegeocoded_locais18, panel_ids)
 )
 
 best_string_match <- string_match %>%
@@ -245,8 +247,8 @@ table_data %>%
 ## Estimating Geocoding Error
 
 ```{r gen_error_rate_data, warning=FALSE, message=FALSE}
-loadd(geocoded_locais, tract_shp)
-google_geocoded_df <- read_csv("../data/google_geocoded.csv") %>%
+tar_load(c(geocoded_locais, tract_shp))
+google_geocoded_df <- read_csv("./data/google_geocoded.csv") %>%
   select(local_id, google_long, google_lat) %>%
   left_join(filter(geocoded_locais, ano == 2018)) %>%
   filter(!is.na(tse_lat))
@@ -315,4 +317,4 @@ As can be seen in the above table, the median error for our method is about `r r
 This median error is *lower* than the median error of coordinates produced by the Google Maps Geocoding API, which is `r round(median(error$google_dist, na.rm = TRUE), 2)` km.
 
 When we separate the sample by rural or urban, we see that our method is more accurate for both types of polling station.
-The difference is particularly large for rural polling stations, where our median error rate is `r round(median(error$dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km and the Google median error rate is `r round(median(error$google_dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km, about a 10 fold difference.
+The difference is particularly large for rural polling stations, where our median error rate is `r round(median(error$dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km and the Google median error rate is `r round(median(error$google_dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km, more than a 10 fold difference.

@@ -60,7 +60,7 @@ Note that for a small number of cases, a given polling station can be matched to
 ## Code
 ### Running the Geocoding Pipeline
 
-We used the open source language *R* (version 4.0.3) to process the files and geocode the polling stations. To manage the pipeline that imports and processes all the data, we use the [`drake`](https://github.com/ropensci/drake) package.
+We used the open source language *R* (version 4.0.3) to process the files and geocode the polling stations. To manage the pipeline that imports and processes all the data, we use the [`targets`](https://github.com/ropensci/targets) package.
 
 Assuming all the relevant data is in the `./data` folder, you can reconstruct the dataset using the following code:
 
@@ -68,10 +68,10 @@ Assuming all the relevant data is in the `./data` folder, you can reconstruct th
 #Set working directory to project directory
 setwd(".")
 renv::restore() #to install necessary packages
-drake::r_make() # to run pipepeline
+targets::tar_make() # to run pipepeline
 ```
 
-Options to modify how the pipeline runs (e.g. parallel processing options) can be found in the [`_drake.R`](./_drake.R) file. The pipeline is in the [`plan.R`](./R/plan.R) file. We use the [`renv`](https://rstudio.github.io/renv/index.html) package to manage package dependencies. To ensure that you are using the right package versions, invoke `renv::restore()` when the working directory is set to the github repo directory.
+Options to modify how the pipeline runs (e.g. parallel processing options) can be found in the [`_targets.R`](./_targets.R) file. The pipeline is in the [`targets.R`](./targets.R) file as well. We use the [`renv`](https://rstudio.github.io/renv/index.html) package to manage package dependencies. To ensure that you are using the right package versions, invoke `renv::restore()` when the working directory is set to the github repo directory.
 
 Given the size of some of the data files, you will likely need at least 50GB of RAM to run the code.
 

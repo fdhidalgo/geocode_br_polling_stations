@@ -383,20 +383,21 @@
     },
     "dbplyr": {
       "Package": "dbplyr",
-      "Version": "2.1.1",
+      "Version": "2.2.0",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "1f37fa4ab2f5f7eded42f78b9a887182",
+      "Hash": "a6e4cc7b658d043806bc559ef42a1d2a",
       "Requirements": [
         "DBI",
         "R6",
         "assertthat",
         "blob",
+        "cli",
         "dplyr",
-        "ellipsis",
         "glue",
         "lifecycle",
         "magrittr",
+        "pillar",
         "purrr",
         "rlang",
         "tibble",
@@ -462,23 +463,6 @@
         "rlang",
         "tibble",
         "tidyselect",
-        "vctrs"
-      ]
-    },
-    "drake": {
-      "Package": "drake",
-      "Version": "7.13.3",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "0c7f735ec457ec8d499be5c1ea5a647d",
-      "Requirements": [
-        "base64url",
-        "digest",
-        "igraph",
-        "rlang",
-        "storr",
-        "tidyselect",
-        "txtq",
         "vctrs"
       ]
     },
@@ -552,14 +536,6 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "77bd60a6157420d4ffa93b27cf6a58b8",
-      "Requirements": []
-    },
-    "filelock": {
-      "Package": "filelock",
-      "Version": "1.0.2",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "38ec653c2613bed60052ba3787bd8a2c",
       "Requirements": []
     },
     "forcats": {
@@ -1353,10 +1329,10 @@
     },
     "raster": {
       "Package": "raster",
-      "Version": "3.5-15",
+      "Version": "3.5-9",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "70cf51235e017702ed77427797572ef0",
+      "Hash": "43e3d05ce0266c336afab6bf17cde70c",
       "Requirements": [
         "Rcpp",
         "sp",
@@ -1444,10 +1420,10 @@
     },
     "renv": {
       "Package": "renv",
-      "Version": "0.15.4",
+      "Version": "0.15.5",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "c1078316e1d4f70275fc1ea60c0bc431",
+      "Hash": "6a38294e7d12f5d8e656b08c5bd8ae34",
       "Requirements": []
     },
     "reprex": {
@@ -1652,17 +1628,6 @@
         "lattice"
       ]
     },
-    "storr": {
-      "Package": "storr",
-      "Version": "1.2.5",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "96034207276a46a44dc81b8d43397602",
-      "Requirements": [
-        "R6",
-        "digest"
-      ]
-    },
     "stringdist": {
       "Package": "stringdist",
       "Version": "0.9.8",
@@ -1693,10 +1658,10 @@
     },
     "survival": {
       "Package": "survival",
-      "Version": "3.2-13",
+      "Version": "3.3-1",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "6f0a0fadc63bc6570fe172770f15bbc4",
+      "Hash": "f6189c70451d3d68e0d571235576e833",
       "Requirements": [
         "Matrix"
       ]
@@ -1729,10 +1694,10 @@
     },
     "targets": {
       "Package": "targets",
-      "Version": "0.12.0",
+      "Version": "0.12.1",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "197fd95f9f9c6ac7e0be2d0ffbdd932f",
+      "Hash": "e3c201e69f4ca0e4e50fde1cd0aa3137",
       "Requirements": [
         "R6",
         "base64url",
@@ -1753,10 +1718,10 @@
     },
     "terra": {
       "Package": "terra",
-      "Version": "1.5-21",
+      "Version": "1.4-22",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "a713f0d9f9a2b68af112a991adbfe5d5",
+      "Hash": "7fe33699810538d4a17e954edf3ef84a",
       "Requirements": [
         "Rcpp"
       ]
@@ -1896,18 +1861,6 @@
         "withr",
         "workflows",
         "yardstick"
-      ]
-    },
-    "txtq": {
-      "Package": "txtq",
-      "Version": "0.2.4",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "47bc241ac3efaa6b75109c00ad708448",
-      "Requirements": [
-        "R6",
-        "base64url",
-        "filelock"
       ]
     },
     "tzdb": {

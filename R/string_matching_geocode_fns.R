@@ -134,8 +134,8 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
 }
 
 predict_distance <- function(cnefe_stbairro_match, inep_string_match, schools_cnefe_match,
-                                  agrocnefe_stbairro_match, locais, tsegeocoded_locais18,
-                                  muni_demo, muni_area){
+                                  agrocnefe_stbairro_match, locais, tsegeocoded_locais,
+                                  muni_demo, muni_area, folds = 5, grid_n = 5){
 
   cnefe_stbairro <- cnefe_stbairro_match %>%
     select(local_id, contains("long"), contains("lat"), contains("mindist")) %>%
@@ -211,7 +211,7 @@ predict_distance <- function(cnefe_stbairro_match, inep_string_match, schools_cn
     left_join(addr_features) %>%
     left_join(muni_area)
 
-  training_set <- left_join(tsegeocoded_locais18, matching_data) %>%
+  training_set <- left_join(tsegeocoded_locais, matching_data) %>%
     rowwise() %>%
     mutate(dist = geosphere::distHaversine(p1 = c(long, lat),
                                            p2 = c(tse_long, tse_lat))/1000) %>%
@@ -222,7 +222,7 @@ predict_distance <- function(cnefe_stbairro_match, inep_string_match, schools_cn
     recipe(formula = dist ~ ., data = training_set) %>%
     update_role(cod_localidade_ibge, new_role = "id variable") %>%
     update_role(local_id, new_role = "id variable") %>%
-    step_medianimpute(logpop, pct_rural, area)
+    step_impute_median(logpop, pct_rural, area)
 
   ranger_spec <-
     rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>%
@@ -235,10 +235,10 @@ predict_distance <- function(cnefe_stbairro_match, inep_string_match, schools_cn
     add_model(ranger_spec)
 
   cvfolds <- group_vfold_cv(training_set, group = "cod_localidade_ibge",
-                            v = 5)
+                            v = folds)
 
   ranger_tune <-
-    tune_grid(ranger_workflow, resamples = cvfolds, grid = 5, control = control_grid(verbose = TRUE))
+    tune_grid(ranger_workflow, resamples = cvfolds, grid = grid_n, control = control_grid(verbose = TRUE))
 
   best_rmse <- select_best(ranger_tune, "rmse")
 

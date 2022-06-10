@@ -190,7 +190,7 @@ list(
   ## Import Locais de Votação Data
   tar_target(
     name = locais_file,
-    command = "./data/polling_stations_2006_2018.csv.gz",
+    command = "./data/polling_stations_2006_2020.csv.gz",
     format = "file"
   ),
   tar_target(
@@ -208,27 +208,34 @@ list(
 
   ## Import geocoded polling stations from TSE for ground truth
   tar_target(
-    name = tse_file,
+    name = tse_file18,
     command = "./data/eleitorado_local_votacao_2018.csv.gz",
     format = "file"
   ),
   tar_target(
-    name = tsegeocoded_locais18,
-    command = clean_locais18(fread(tse_file, encoding = "Latin-1"),
+    name = tse_file20,
+    command = "./data/eleitorado_local_votacao_2020.csv.gz",
+    format = "file"
+  ),
+
+  tar_target(
+    name = tsegeocoded_locais,
+    command = clean_tsegeocoded_locais(locais18 = fread(tse_file18, encoding = "Latin-1"),
+                                       secc20 = fread(tse_file20),
       muni_ids = muni_ids, locais = locais
     ),
   ),
-  ## String Matching
-  tar_target(
-    name = inep_string_match,
-    command = rbindlist(map(
-      unique(locais$cod_localidade_ibge),
-      ~ match_inep_muni(
-        locais_muni = locais[cod_localidade_ibge == .x],
-        inep_muni = inep_data[id_munic_7 == .x]
-      )
-    ))
-  ),
+# String Matching
+ tar_target(
+   name = inep_string_match,
+   command = rbindlist(map(
+     unique(locais$cod_localidade_ibge),
+    ~ match_inep_muni(
+      locais_muni = locais[cod_localidade_ibge == .x],
+      inep_muni = inep_data[id_munic_7 == .x]
+    )
+  ))
+),
   tar_target(
     name = schools_cnefe_match,
     command = rbindlist(map(
@@ -238,7 +245,7 @@ list(
         schools_cnefe_muni = schools_cnefe[id_munic_7 == .x]
       )
     ))
-  ),
+  ) ,
   tar_target(
     name = cnefe_stbairro_match,
     command = rbindlist(map(
@@ -249,7 +256,7 @@ list(
         cnefe_bairro_muni = cnefe_bairro[id_munic_7 == .x]
       )
     ))
-  ),
+  ) ,
   tar_target(
     name = agrocnefe_stbairro_match,
     command = rbindlist(map(
@@ -262,38 +269,39 @@ list(
     ))
   ),
 
-  # Choose best match
-  tar_target(
-    name = string_match,
-    command = predict_distance(
-      cnefe_stbairro_match = cnefe_stbairro_match,
-      schools_cnefe_match = schools_cnefe_match,
-      inep_string_match = inep_string_match,
-      agrocnefe_stbairro_match = agrocnefe_stbairro_match,
-      locais = locais, tsegeocoded_locais18 = tsegeocoded_locais18,
-      muni_demo = muni_demo, muni_area = muni_area
-    )
-  ),
+  # # Choose best match
+   tar_target(
+     name = string_match,
+     command = predict_distance(
+       cnefe_stbairro_match = cnefe_stbairro_match,
+       schools_cnefe_match = schools_cnefe_match,
+       inep_string_match = inep_string_match,
+       agrocnefe_stbairro_match = agrocnefe_stbairro_match,
+       locais = locais, tsegeocoded_locais = tsegeocoded_locais,
+       muni_demo = muni_demo, muni_area = muni_area,
+       folds = 5, grid_n = 5
+     )
+   ) ,
 
-  # Use string matches to geocode and add panel ids
+  # # Use string matches to geocode and add panel ids
   tar_target(
     name = geocoded_locais,
-    command = finalize_coords(locais, string_match, tsegeocoded_locais18)
-  ),
-  tar_target(
-    name = geocoded_export,
-    command = export_geocoded_locais(geocoded_locais),
-    format = "file"
-  ),
-  tar_target(
-    name = panelid_export,
-    command = export_panel_ids(panel_ids),
-    format = "file"
-  ),
-
-  ##Methodology and Evaluation
-  tar_render(
-    name = geocode_writeup,
-    path = "./doc/geocoding_procedure.Rmd"
-  )
+    command = finalize_coords(locais, string_match, tsegeocoded_locais)
+  ) ,
+   tar_target(
+     name = geocoded_export,
+     command = export_geocoded_locais(geocoded_locais),
+     format = "file"
+   ) ,
+   tar_target(
+     name = panelid_export,
+     command = export_panel_ids(panel_ids),
+     format = "file"
+   ),
+ #
+   ##Methodology and Evaluation
+   tar_render(
+     name = geocode_writeup,
+     path = "./doc/geocoding_procedure.Rmd"
+   )
 )

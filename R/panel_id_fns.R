@@ -84,6 +84,6 @@ create_panel_ids_munis <- function(locais, prop_match_cutoff) {
     mc.cores = parallel::detectCores() - 2
   ) %>%
     bind_rows() %>%
-    filter(panel_match_prop >= prop_match_cutoff)
+    filter(panel_match_prop >= prop_match_cutoff | panel_id == local_id)
   panel_ids
 }

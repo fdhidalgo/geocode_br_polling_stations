@@ -29,3 +29,4 @@ scratch.R
 
 # R Environment Variables
 .Renviron
+_targets/meta/meta

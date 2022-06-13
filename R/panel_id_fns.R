@@ -50,7 +50,7 @@ gen_panel_ids <- function(muni_data, year) {
     arrange(local_id, ano)
 }
 
-create_panel_ids <- function(muni_data) {
+create_panel_ids <- function(muni_data, prop_match_cutoff) {
   # This operates on a single municipality
   # This function starts at earliest year, creates panel identifiers and then proceeds to subsequent years.
   # Only locais with at least one match in subsequent years are returned, so locais with no matches are not part of output
@@ -59,13 +59,15 @@ create_panel_ids <- function(muni_data) {
   for (i in sort(unique(muni_data$ano))) {
     if (i == max(unique(muni_data$ano))) break
     if (exists("panel_ids") == FALSE) {
-      panel_ids <- gen_panel_ids(muni_data, i)
+      panel_ids <- gen_panel_ids(muni_data, i) %>%
+        filter(panel_match_prop >= prop_match_cutoff | panel_id == local_id)
       unmatched_locais <- filter(muni_data, local_id %in% panel_ids$local_id == FALSE & ano > i)
       if (nrow(unmatched_locais) <= 1 | length(unique(unmatched_locais$ano)) == 1) break
     }
     if (exists("panel_ids") == TRUE) {
       if (i %in% unmatched_locais$ano == FALSE) next
-      panel_ids <- bind_rows(panel_ids, gen_panel_ids(unmatched_locais, i))
+      panel_ids <- bind_rows(panel_ids, gen_panel_ids(unmatched_locais, i)) %>%
+        filter(panel_match_prop >= prop_match_cutoff | panel_id == local_id)
       unmatched_locais <- filter(muni_data, local_id %in% panel_ids$local_id == FALSE & ano > i)
       if (nrow(unmatched_locais) <= 1 | length(unique(unmatched_locais$ano)) == 1) break
     }
@@ -79,7 +81,7 @@ create_panel_ids <- function(muni_data) {
 create_panel_ids_munis <- function(locais, prop_match_cutoff) {
   panel_ids <- parallel::mclapply(unique(locais$cod_localidade_ibge),
     function(x) {
-      create_panel_ids(filter(locais, cod_localidade_ibge == x))
+      create_panel_ids(filter(locais, cod_localidade_ibge == x), prop_match_cutoff)
     },
     mc.cores = parallel::detectCores() - 2
   ) %>%

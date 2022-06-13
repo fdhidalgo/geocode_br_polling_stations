@@ -10,7 +10,6 @@
 /data/agro_censo/
 /archive/
 /reference/
-/.drake/
 /R/geocode_api_calls/
 .DS_Store
 .env
@@ -30,3 +29,4 @@ scratch.R
 # R Environment Variables
 .Renviron
 _targets/meta/meta
+_targets/

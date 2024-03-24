@@ -5,38 +5,33 @@
 
 # Load packages required to define the pipeline:
 library(targets)
-library(tarchetypes) # Load other packages as needed. # nolint
+library(tarchetypes)
 library(conflicted)
 
 # Set target options:
 tar_option_set(
   packages = c(
-    "conflicted", "targets", "data.table", "dplyr", "purrr",
-    "sf", "stringr", "tidyr", "recipes", "parsnip",
-    "workflows", "tune", "rsample"
+    "conflicted", "targets", "data.table", "purrr",
+    "sf", "stringr"
   ), # packages that your targets need to run
   format = "rds" # default storage format
   # Set other options as needed.
 )
 
 ## Setup parallel processing
-all_cores <- parallel::detectCores(logical = FALSE) - 1
-data.table::setDTthreads(all_cores)
-library(doFuture)
-library(parallel)
-registerDoFuture()
-cl <- makeCluster(all_cores)
-future::plan(cluster, workers = cl)
-
-conflict_prefer("filter", "dplyr")
-conflict_prefer("workflow", "workflows")
-conflict_prefer("first", "dplyr")
+all_cores <- parallel::detectCores(logical = FALSE)
+data.table::setDTthreads(all_cores - 1)
+# library(doFuture)
+# library(parallel)
+# registerDoFuture()
+# cl <- makeCluster(all_cores)
+# future::plan(cluster, workers = cl)
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
 
 ## Do not use s2 spherical geometry package
-sf::sf_use_s2(FALSE)
+# sf::sf_use_s2(FALSE)
 
 # Replace the target list below with your own:
 list(
@@ -67,7 +62,7 @@ list(
   ),
   tar_target(
     name = tract_shp,
-    command = readRDS(tract_shp_file)
+    command = sf::st_make_valid(readRDS(tract_shp_file))
   ),
   tar_target(
     name = muni_shp_file,
@@ -76,19 +71,19 @@ list(
   ),
   tar_target(
     name = muni_shp,
-    command = readRDS(muni_shp_file)
+    command = st_make_valid(readRDS(muni_shp_file))
   ),
   ## import municipal demographic data
   tar_target(
     name = muni_demo_file,
-    command = "./data/atlas_brasil_census_data.xlsx",
+    command = "./data/atlas_brasil_census_data.csv.gz",
     format = "file"
   ),
   tar_target(
     name = muni_demo,
-    command = import_muni_demo(muni_demo_file)
+    command = fread(muni_demo_file)
   ),
-  ## calculate geographic features of municipalities
+  #  calculate geographic features of municipalities
   tar_target(
     name = tract_centroids,
     command = make_tract_centroids(tract_shp)
@@ -103,205 +98,205 @@ list(
     name = cnefe_file,
     command = "./data/CNEFE_combined.gz",
     format = "file"
-  ),
-  tar_target(
-    name = cnefe,
-    command = clean_cnefe(
-      cnefe_file = cnefe_file,
-      muni_ids = muni_ids, tract_centroids = tract_centroids
-    ),
-    format = "fst_dt"
-  ),
-  ## Subset on schools in CNEFE
-  tar_target(
-    name = schools_cnefe,
-    command = dplyr::filter(cnefe, especie_lab == "estabelecimento de ensino") %>%
-      mutate(norm_desc = normalize_school(desc)) %>%
-      as.data.table(),
-    format = "fst_dt"
-  ),
-  ## Create a dataset of streets in CNEFE
-  tar_target(
-    name = cnefe_st,
-    command = cnefe[, .(long = median(cnefe_long, na.rm = TRUE), lat = median(cnefe_lat, na.rm = TRUE), n = .N),
-      by = .(id_munic_7, norm_street)
-    ][n > 1],
-    format = "fst_dt"
-  ),
-  ## Create a dataset of neighborhoods in CNEFE
-  tar_target(
-    name = cnefe_bairro,
-    command = cnefe[, .(long = median(cnefe_long, na.rm = TRUE), lat = median(cnefe_lat, na.rm = TRUE), n = .N),
-      by = .(id_munic_7, norm_bairro)
-    ][n > 1],
-    format = "fst_dt"
-  ),
-  ## Import and clean 2017 CNEFE
-  tar_target(
-    name = agro_cnefe_files,
-    command = (dir("./data/agro_censo/",
-      full.names = TRUE
-    )),
-    format = "file"
-  ),
-  tar_target(
-    name = agro_cnefe,
-    command = clean_agro_cnefe(
-      agro_cnefe_files = agro_cnefe_files,
-      muni_ids = muni_ids
-    ),
-    format = "fst_dt"
-  ),
-  ## Create a dataset of streets in 2017 CNEFE
-  tar_target(
-    name = agrocnefe_st,
-    command = agro_cnefe[, .(
-      long = median(longitude, na.rm = TRUE),
-      lat = median(latitude, na.rm = TRUE), n = .N
-    ),
-    by = .(id_munic_7, norm_street)
-    ][n > 1],
-    format = "fst_dt"
-  ),
-  ## Create a dataset of neighborhoods in 2017 CNEFE
-  tar_target(
-    name = agrocnefe_bairro,
-    command = agro_cnefe[, .(
-      long = median(longitude, na.rm = TRUE),
-      lat = median(latitude, na.rm = TRUE), n = .N
-    ),
-    by = .(id_munic_7, norm_bairro)
-    ][n > 1],
-    format = "fst_dt"
-  ),
-  ## Import and clean INEP data
-  tar_target(
-    name = inep_file,
-    command = "./data/inep_catalogo_das_escolas.csv.gz",
-    format = "file"
-  ),
-  tar_target(
-    name = inep_data,
-    command = clean_inep(
-      inep_data = fread(inep_file),
-      inep_codes = inep_codes
-    )
-  ),
-  ## Import Locais de Votação Data
-  tar_target(
-    name = locais_file,
-    command = "./data/polling_stations_2006_2020.csv.gz",
-    format = "file"
-  ),
-  tar_target(
-    name = locais,
-    command = import_locais(
-      locais_file = locais_file,
-      muni_ids = muni_ids
-    )
-  ),
-  ## Create panel ids to track polling stations across time
-  tar_target(
-    name = panel_ids,
-    command = create_panel_ids_munis(locais, prop_match_cutoff = .3)
-  ),
-
-  ## Import geocoded polling stations from TSE for ground truth
-  tar_target(
-    name = tse_file18,
-    command = "./data/eleitorado_local_votacao_2018.csv.gz",
-    format = "file"
-  ),
-  tar_target(
-    name = tse_file20,
-    command = "./data/eleitorado_local_votacao_2020.csv.gz",
-    format = "file"
-  ),
-
-  tar_target(
-    name = tsegeocoded_locais,
-    command = clean_tsegeocoded_locais(locais18 = fread(tse_file18, encoding = "Latin-1"),
-                                       secc20 = fread(tse_file20),
-      muni_ids = muni_ids, locais = locais
-    ),
-  ),
-# String Matching
- tar_target(
-   name = inep_string_match,
-   command = rbindlist(map(
-     unique(locais$cod_localidade_ibge),
-    ~ match_inep_muni(
-      locais_muni = locais[cod_localidade_ibge == .x],
-      inep_muni = inep_data[id_munic_7 == .x]
-    )
-  ))
-),
-  tar_target(
-    name = schools_cnefe_match,
-    command = rbindlist(map(
-      unique(locais$cod_localidade_ibge),
-      ~ match_schools_cnefe_muni(
-        locais_muni = locais[cod_localidade_ibge == .x],
-        schools_cnefe_muni = schools_cnefe[id_munic_7 == .x]
-      )
-    ))
-  ) ,
-  tar_target(
-    name = cnefe_stbairro_match,
-    command = rbindlist(map(
-      unique(locais$cod_localidade_ibge),
-      ~ match_stbairro_cnefe_muni(
-        locais_muni = locais[cod_localidade_ibge == .x],
-        cnefe_st_muni = cnefe_st[id_munic_7 == .x],
-        cnefe_bairro_muni = cnefe_bairro[id_munic_7 == .x]
-      )
-    ))
-  ) ,
-  tar_target(
-    name = agrocnefe_stbairro_match,
-    command = rbindlist(map(
-      unique(locais$cod_localidade_ibge),
-      ~ match_stbairro_agrocnefe_muni(
-        locais_muni = locais[cod_localidade_ibge == .x],
-        agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
-        agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
-      )
-    ))
-  ),
-
-  # # Choose best match
-   tar_target(
-     name = string_match,
-     command = predict_distance(
-       cnefe_stbairro_match = cnefe_stbairro_match,
-       schools_cnefe_match = schools_cnefe_match,
-       inep_string_match = inep_string_match,
-       agrocnefe_stbairro_match = agrocnefe_stbairro_match,
-       locais = locais, tsegeocoded_locais = tsegeocoded_locais,
-       muni_demo = muni_demo, muni_area = muni_area,
-       folds = 5, grid_n = 5
-     )
-   ) ,
-
-  # # Use string matches to geocode and add panel ids
-  tar_target(
-    name = geocoded_locais,
-    command = finalize_coords(locais, string_match, tsegeocoded_locais)
-  ) ,
-   tar_target(
-     name = geocoded_export,
-     command = export_geocoded_locais(geocoded_locais),
-     format = "file"
-   ) ,
-   tar_target(
-     name = panelid_export,
-     command = export_panel_ids(panel_ids),
-     format = "file"
-   ),
- #
-   ##Methodology and Evaluation
-   tar_render(
-     name = geocode_writeup,
-     path = "./doc/geocoding_procedure.Rmd"
-   )
+  ) # ,
+  #   tar_target(
+  #     name = cnefe,
+  #     command = clean_cnefe(
+  #       cnefe_file = cnefe_file,
+  #       muni_ids = muni_ids, tract_centroids = tract_centroids
+  #     ),
+  #     format = "fst_dt"
+  #   ),
+  #   ## Subset on schools in CNEFE
+  #   tar_target(
+  #     name = schools_cnefe,
+  #     command = dplyr::filter(cnefe, especie_lab == "estabelecimento de ensino") |>
+  #       mutate(norm_desc = normalize_school(desc)) |>
+  #       as.data.table(),
+  #     format = "fst_dt"
+  #   ),
+  #   ## Create a dataset of streets in CNEFE
+  #   tar_target(
+  #     name = cnefe_st,
+  #     command = cnefe[, .(long = median(cnefe_long, na.rm = TRUE), lat = median(cnefe_lat, na.rm = TRUE), n = .N),
+  #       by = .(id_munic_7, norm_street)
+  #     ][n > 1],
+  #     format = "fst_dt"
+  #   ),
+  #   ## Create a dataset of neighborhoods in CNEFE
+  #   tar_target(
+  #     name = cnefe_bairro,
+  #     command = cnefe[, .(long = median(cnefe_long, na.rm = TRUE), lat = median(cnefe_lat, na.rm = TRUE), n = .N),
+  #       by = .(id_munic_7, norm_bairro)
+  #     ][n > 1],
+  #     format = "fst_dt"
+  #   ),
+  #   ## Import and clean 2017 CNEFE
+  #   tar_target(
+  #     name = agro_cnefe_files,
+  #     command = (dir("./data/agro_censo/",
+  #       full.names = TRUE
+  #     )),
+  #     format = "file"
+  #   ),
+  #   tar_target(
+  #     name = agro_cnefe,
+  #     command = clean_agro_cnefe(
+  #       agro_cnefe_files = agro_cnefe_files,
+  #       muni_ids = muni_ids
+  #     ),
+  #     format = "fst_dt"
+  #   ),
+  #   ## Create a dataset of streets in 2017 CNEFE
+  #   tar_target(
+  #     name = agrocnefe_st,
+  #     command = agro_cnefe[, .(
+  #       long = median(longitude, na.rm = TRUE),
+  #       lat = median(latitude, na.rm = TRUE), n = .N
+  #     ),
+  #     by = .(id_munic_7, norm_street)
+  #     ][n > 1],
+  #     format = "fst_dt"
+  #   ),
+  #   ## Create a dataset of neighborhoods in 2017 CNEFE
+  #   tar_target(
+  #     name = agrocnefe_bairro,
+  #     command = agro_cnefe[, .(
+  #       long = median(longitude, na.rm = TRUE),
+  #       lat = median(latitude, na.rm = TRUE), n = .N
+  #     ),
+  #     by = .(id_munic_7, norm_bairro)
+  #     ][n > 1],
+  #     format = "fst_dt"
+  #   ),
+  #   ## Import and clean INEP data
+  #   tar_target(
+  #     name = inep_file,
+  #     command = "./data/inep_catalogo_das_escolas.csv.gz",
+  #     format = "file"
+  #   ),
+  #   tar_target(
+  #     name = inep_data,
+  #     command = clean_inep(
+  #       inep_data = fread(inep_file),
+  #       inep_codes = inep_codes
+  #     )
+  #   ),
+  #   ## Import Locais de Votação Data
+  #   tar_target(
+  #     name = locais_file,
+  #     command = "./data/polling_stations_2006_2020.csv.gz",
+  #     format = "file"
+  #   ),
+  #   tar_target(
+  #     name = locais,
+  #     command = import_locais(
+  #       locais_file = locais_file,
+  #       muni_ids = muni_ids
+  #     )
+  #   ),
+  #   ## Create panel ids to track polling stations across time
+  #   tar_target(
+  #     name = panel_ids,
+  #     command = create_panel_ids_munis(locais, prop_match_cutoff = .3)
+  #   ),
+  #
+  #   ## Import geocoded polling stations from TSE for ground truth
+  #   tar_target(
+  #     name = tse_file18,
+  #     command = "./data/eleitorado_local_votacao_2018.csv.gz",
+  #     format = "file"
+  #   ),
+  #   tar_target(
+  #     name = tse_file20,
+  #     command = "./data/eleitorado_local_votacao_2020.csv.gz",
+  #     format = "file"
+  #   ),
+  #
+  #   tar_target(
+  #     name = tsegeocoded_locais,
+  #     command = clean_tsegeocoded_locais(locais18 = fread(tse_file18, encoding = "Latin-1"),
+  #                                        secc20 = fread(tse_file20),
+  #       muni_ids = muni_ids, locais = locais
+  #     ),
+  #   ),
+  # # String Matching
+  #  tar_target(
+  #    name = inep_string_match,
+  #    command = rbindlist(map(
+  #      unique(locais$cod_localidade_ibge),
+  #     ~ match_inep_muni(
+  #       locais_muni = locais[cod_localidade_ibge == .x],
+  #       inep_muni = inep_data[id_munic_7 == .x]
+  #     )
+  #   ))
+  # ),
+  #   tar_target(
+  #     name = schools_cnefe_match,
+  #     command = rbindlist(map(
+  #       unique(locais$cod_localidade_ibge),
+  #       ~ match_schools_cnefe_muni(
+  #         locais_muni = locais[cod_localidade_ibge == .x],
+  #         schools_cnefe_muni = schools_cnefe[id_munic_7 == .x]
+  #       )
+  #     ))
+  #   ) ,
+  #   tar_target(
+  #     name = cnefe_stbairro_match,
+  #     command = rbindlist(map(
+  #       unique(locais$cod_localidade_ibge),
+  #       ~ match_stbairro_cnefe_muni(
+  #         locais_muni = locais[cod_localidade_ibge == .x],
+  #         cnefe_st_muni = cnefe_st[id_munic_7 == .x],
+  #         cnefe_bairro_muni = cnefe_bairro[id_munic_7 == .x]
+  #       )
+  #     ))
+  #   ) ,
+  #   tar_target(
+  #     name = agrocnefe_stbairro_match,
+  #     command = rbindlist(map(
+  #       unique(locais$cod_localidade_ibge),
+  #       ~ match_stbairro_agrocnefe_muni(
+  #         locais_muni = locais[cod_localidade_ibge == .x],
+  #         agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
+  #         agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
+  #       )
+  #     ))
+  #   ),
+  #
+  #   # # Choose best match
+  #    tar_target(
+  #      name = string_match,
+  #      command = predict_distance(
+  #        cnefe_stbairro_match = cnefe_stbairro_match,
+  #        schools_cnefe_match = schools_cnefe_match,
+  #        inep_string_match = inep_string_match,
+  #        agrocnefe_stbairro_match = agrocnefe_stbairro_match,
+  #        locais = locais, tsegeocoded_locais = tsegeocoded_locais,
+  #        muni_demo = muni_demo, muni_area = muni_area,
+  #        folds = 5, grid_n = 5
+  #      )
+  #    ) ,
+  #
+  #   # # Use string matches to geocode and add panel ids
+  #   tar_target(
+  #     name = geocoded_locais,
+  #     command = finalize_coords(locais, string_match, tsegeocoded_locais)
+  #   ) ,
+  #    tar_target(
+  #      name = geocoded_export,
+  #      command = export_geocoded_locais(geocoded_locais),
+  #      format = "file"
+  #    ) ,
+  #    tar_target(
+  #      name = panelid_export,
+  #      command = export_panel_ids(panel_ids),
+  #      format = "file"
+  #    ),
+  #
+  ## Methodology and Evaluation
+  #   tar_render(
+  #     name = geocode_writeup,
+  #     path = "./doc/geocoding_procedure.Rmd"
+  #   )
 )

@@ -98,90 +98,100 @@ list(
     name = cnefe_file,
     command = "./data/CNEFE_combined.gz",
     format = "file"
+  ),
+  tar_target(
+    name = cnefe,
+    command = clean_cnefe(
+      cnefe_file = cnefe_file,
+      muni_ids = muni_ids,
+      tract_centroids = tract_centroids
+    ),
+    format = "fst_dt"
+  ),
+  ## Subset on schools in CNEFE
+  tar_target(
+    name = schools_cnefe,
+    command =
+      cnefe[especie_lab == "estabelecimento de ensino"][
+        ,
+        norm_desc := normalize_school(desc)
+      ],
+    format = "fst_dt"
+  ),
+  ## Create a dataset of streets in CNEFE
+  tar_target(
+    name = cnefe_st,
+    command = cnefe[, .(
+      long = median(cnefe_long, na.rm = TRUE),
+      lat = median(cnefe_lat, na.rm = TRUE),
+      n = .N
+    ),
+    by = .(id_munic_7, norm_street)
+    ][n > 1],
+    format = "fst_dt"
+  ),
+  ## Create a dataset of neighborhoods in CNEFE
+  tar_target(
+    name = cnefe_bairro,
+    command = cnefe[, .(
+      long = median(cnefe_long, na.rm = TRUE),
+      lat = median(cnefe_lat, na.rm = TRUE),
+      n = .N
+    ),
+    by = .(id_munic_7, norm_bairro)
+    ][n > 1],
+    format = "fst_dt"
+  ),
+  ## Import and clean 2017 CNEFE
+  tar_target(
+    name = agro_cnefe_files,
+    command = dir("./data/agro_censo/",
+      full.names = TRUE
+    )
+  ),
+  tar_target(
+    name = agro_cnefe,
+    command = clean_agro_cnefe(
+      agro_cnefe_files = agro_cnefe_files,
+      muni_ids = muni_ids
+    ),
+    format = "fst_dt"
+  ),
+  ## Create a dataset of streets in 2017 CNEFE
+  tar_target(
+    name = agrocnefe_st,
+    command = agro_cnefe[, .(
+      long = median(longitude, na.rm = TRUE),
+      lat = median(latitude, na.rm = TRUE), n = .N
+    ),
+    by = .(id_munic_7, norm_street)
+    ][n > 1],
+    format = "fst_dt"
+  ),
+  ## Create a dataset of neighborhoods in 2017 CNEFE
+  tar_target(
+    name = agrocnefe_bairro,
+    command = agro_cnefe[, .(
+      long = median(longitude, na.rm = TRUE),
+      lat = median(latitude, na.rm = TRUE), n = .N
+    ),
+    by = .(id_munic_7, norm_bairro)
+    ][n > 1],
+    format = "fst_dt"
+  ),
+  ## Import and clean INEP data
+  tar_target(
+    name = inep_file,
+    command = "./data/inep_catalogo_das_escolas.csv.gz",
+    format = "file"
+  ),
+  tar_target(
+    name = inep_data,
+    command = clean_inep(
+      inep_data = fread(inep_file),
+      inep_codes = inep_codes
+    )
   ) # ,
-  #   tar_target(
-  #     name = cnefe,
-  #     command = clean_cnefe(
-  #       cnefe_file = cnefe_file,
-  #       muni_ids = muni_ids, tract_centroids = tract_centroids
-  #     ),
-  #     format = "fst_dt"
-  #   ),
-  #   ## Subset on schools in CNEFE
-  #   tar_target(
-  #     name = schools_cnefe,
-  #     command = dplyr::filter(cnefe, especie_lab == "estabelecimento de ensino") |>
-  #       mutate(norm_desc = normalize_school(desc)) |>
-  #       as.data.table(),
-  #     format = "fst_dt"
-  #   ),
-  #   ## Create a dataset of streets in CNEFE
-  #   tar_target(
-  #     name = cnefe_st,
-  #     command = cnefe[, .(long = median(cnefe_long, na.rm = TRUE), lat = median(cnefe_lat, na.rm = TRUE), n = .N),
-  #       by = .(id_munic_7, norm_street)
-  #     ][n > 1],
-  #     format = "fst_dt"
-  #   ),
-  #   ## Create a dataset of neighborhoods in CNEFE
-  #   tar_target(
-  #     name = cnefe_bairro,
-  #     command = cnefe[, .(long = median(cnefe_long, na.rm = TRUE), lat = median(cnefe_lat, na.rm = TRUE), n = .N),
-  #       by = .(id_munic_7, norm_bairro)
-  #     ][n > 1],
-  #     format = "fst_dt"
-  #   ),
-  #   ## Import and clean 2017 CNEFE
-  #   tar_target(
-  #     name = agro_cnefe_files,
-  #     command = (dir("./data/agro_censo/",
-  #       full.names = TRUE
-  #     )),
-  #     format = "file"
-  #   ),
-  #   tar_target(
-  #     name = agro_cnefe,
-  #     command = clean_agro_cnefe(
-  #       agro_cnefe_files = agro_cnefe_files,
-  #       muni_ids = muni_ids
-  #     ),
-  #     format = "fst_dt"
-  #   ),
-  #   ## Create a dataset of streets in 2017 CNEFE
-  #   tar_target(
-  #     name = agrocnefe_st,
-  #     command = agro_cnefe[, .(
-  #       long = median(longitude, na.rm = TRUE),
-  #       lat = median(latitude, na.rm = TRUE), n = .N
-  #     ),
-  #     by = .(id_munic_7, norm_street)
-  #     ][n > 1],
-  #     format = "fst_dt"
-  #   ),
-  #   ## Create a dataset of neighborhoods in 2017 CNEFE
-  #   tar_target(
-  #     name = agrocnefe_bairro,
-  #     command = agro_cnefe[, .(
-  #       long = median(longitude, na.rm = TRUE),
-  #       lat = median(latitude, na.rm = TRUE), n = .N
-  #     ),
-  #     by = .(id_munic_7, norm_bairro)
-  #     ][n > 1],
-  #     format = "fst_dt"
-  #   ),
-  #   ## Import and clean INEP data
-  #   tar_target(
-  #     name = inep_file,
-  #     command = "./data/inep_catalogo_das_escolas.csv.gz",
-  #     format = "file"
-  #   ),
-  #   tar_target(
-  #     name = inep_data,
-  #     command = clean_inep(
-  #       inep_data = fread(inep_file),
-  #       inep_codes = inep_codes
-  #     )
-  #   ),
   #   ## Import Locais de Votação Data
   #   tar_target(
   #     name = locais_file,

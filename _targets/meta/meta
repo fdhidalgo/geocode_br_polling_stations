@@ -1,26 +1,27 @@
 name|type|data|command|depend|seed|path|time|size|bytes|format|repository|iteration|parent|children|seconds|warnings|error
-.Random.seed|object|9d3968b639b135c6|||||||||||||||
-agro_cnefe|stem|3d25a74f50b3ab0b|82addf9d6887a749|5e98667b52b9033b|605344239||t19146.7333984295s|a78853f5d50feb46|572578818|fst_dt|local|vector|||189.346||
+.Random.seed|object|0899827f28b5f1f1|||||||||||||||
+agro_cnefe|stem|e9c87d8c3a91a77a|82addf9d6887a749|871da31f01b9fa63|-277957313||t19808.6972813502s|ae2bb59f51c846ff|572578729|fst_dt|local|vector|||136.699||
 agro_cnefe_bairro|stem|62864f30324ac2d3|8824c6b609cefefc|9fa63b93be5afc99|70504006||t19146.7348465972s|bf4a747239958497|10985613|fst_dt|local|vector|||0.297||
-agro_cnefe_files|stem|2f285aca573c0323|04c1970287f0ae6d|fa831e78b9566a40|1452245996|./data/agro_censo//11_RONDONIA.csv.gz*./data/agro_censo//12_ACRE.csv.gz*./data/agro_censo//13_AMAZONAS.csv.gz*./data/agro_censo//14_RORAIMA.csv.gz*./data/agro_censo//15_PARA.csv.gz*./data/agro_censo//16_AMAPA.csv.gz*./data/agro_censo//17_TOCANTINS.csv.gz*./data/agro_censo//21_MARANHAO.csv.gz*./data/agro_censo//22_PIAUI.csv.gz*./data/agro_censo//23_CEARA.csv.gz*./data/agro_censo//24_RIO_GRANDE_DO_NORTE.csv.gz*./data/agro_censo//25_PARAIBA.csv.gz*./data/agro_censo//26_PERNAMBUCO.csv.gz*./data/agro_censo//27_ALAGOAS.csv.gz*./data/agro_censo//28_SERGIPE.csv.gz*./data/agro_censo//29_BAHIA.csv.gz*./data/agro_censo//31_MINAS_GERAIS.csv.gz*./data/agro_censo//32_ESPIRITO_SANTO.csv.gz*./data/agro_censo//33_RIO_DE_JANEIRO.csv.gz*./data/agro_censo//35_SAO_PAULO.csv.gz*./data/agro_censo//41_PARANA.csv.gz*./data/agro_censo//42_SANTA_CATARINA.csv.gz*./data/agro_censo//43_RIO_GRANDE_DO_SUL.csv.gz*./data/agro_censo//50_MATO_GROSSO_DO_SUL.csv.gz*./data/agro_censo//51_MATO_GROSSO.csv.gz*./data/agro_censo//52_GOIAS.csv.gz*./data/agro_censo//53_DISTRITO_FEDERAL.csv.gz|t17942.9637962963s|24f835fd0f180ad4|88231722|file|local|vector|||1.132||
+agro_cnefe_files|stem|fdb2f4f301c19131|7f8b2fed2e88475d|ef46db3751d8e999|691532735||t19808.6955151959s|c047e2a96adccb67|386|rds|local|vector|||0.27||
 agro_cnefe_st|stem|6bd52c976cc18f29|f10d30d8430cfb4b|977c1dd554667dce|1181594336||t19146.7340241787s|524636a0a5fbb0fa|18834000|fst_dt|local|vector|||0.378||
-agrocnefe_bairro|stem|62864f30324ac2d3|8824c6b609cefefc|9fa63b93be5afc99|1744485491||t19146.8274915039s|bf4a747239958497|10985613|fst_dt|local|vector|||0.291||
-agrocnefe_st|stem|6bd52c976cc18f29|f10d30d8430cfb4b|977c1dd554667dce|-38152424||t19146.8267730221s|524636a0a5fbb0fa|18834000|fst_dt|local|vector|||0.368||
+agrocnefe_bairro|stem|97a1b4571f2b7577|8824c6b609cefefc|5109365e96fe103a|-1627956262||t19808.7007375347s|8327c115f5232729|10985619|fst_dt|local|vector|||0.517||
+agrocnefe_st|stem|87994a08e3fabee5|f10d30d8430cfb4b|5109365e96fe103a|791332163||t19808.7007208859s|d282abf72fb83144|18834013|fst_dt|local|vector|||1.031||
 agrocnefe_stbairro_match|stem|b88e21dbc78d565b|933e835c898b24b0|1a9ce3b25a83c870|-717121631||t19152.0241729552s|a4fe00251288d7a4|8406429|rds|local|vector|||91.003||
 all_cores|object|5535d94b1040df13|||||||||||||||
 calc_muni_area|function|080b759bb4cc7100|||||||||||||||
 calc_shared_words|function|0b73f5bca7b9f93b|||||||||||||||
 cl|object|84bf88d4010df7fe|||||||||||||||
-clean_agro_cnefe|function|f84b53ad426b0e4a|||||||||||||||
-clean_cnefe|function|c8491b49a5ea2a8a|||||||||||||||
-clean_inep|function|ad84a6595e58bff9|||||||||||||||
+clean_agro_cnefe|function|6846be7e9262a73b|||||||||||||||
+clean_cnefe|function|fcb363054af52dfa|||||||||||||||
+clean_inep|function|df0159de6123f473|||||||||||||||
 clean_locais18|function|9af6570b08c4b417|||||||||||||||
 clean_tsegeocoded_locais|function|f68b47d2e88100a1|||||||||||||||
-cnefe|stem|b86599d4e913d590|d522317e079f9da7|fc3efb91ca8bdd97|-51631423||t19146.7120617529s|b60d79af9e6d56ea|5083609211|fst_dt|local|vector|||2762.163|Found and resolved improper quoting outofsample. First healed line 1524053 1302603050801611ALAMEDASANTOS DUMONT256APARTAMENTO4BAIRRO DA PAZ1152690490002793662. If the fields are not quoted e.g. field separator does not appear within any field, try quote to avoid this warning.|
-cnefe_bairro|stem|c0be0bb7f31134d5|dec48e5893cd38f7|d9a9f78ae0ddfc95|-792717122||t19146.7310686296s|85737bcfa62e1942|15713093|fst_dt|local|vector|||15.366||
+cnefe|stem|6bf0332dd37560a4|d522317e079f9da7|8d619fe384ad98c3|-151011993||t19808.6840203354s|b9ed63f550de3ca6|5083621530|fst_dt|local|vector|||2595.79|Found and resolved improper quoting outofsample. First healed line 1524053 1302603050801611ALAMEDASANTOS DUMONT256APARTAMENTO4BAIRRO DA PAZ1152690490002793662. If the fields are not quoted e.g. field separator does not appear within any field, try quote to avoid this warning.|
+cnefe_bairro|stem|6c0787f09175706d|dec48e5893cd38f7|565bdd3364a5b01c|-1217510651||t19808.6843224113s|f7ff4bf423e04a22|15713262|fst_dt|local|vector|||2.823||
 cnefe_file|stem|9d8c627a24ef1f82|22fd9bf5c39eca44|ef46db3751d8e999|-749412955|./data/CNEFE_combined.gz|t18464.721099537s|2432acdc7923447d|1032675030|file|local|vector|||0.223||
-cnefe_st|stem|f97a81aee06a6903|426cce5962abfde0|5e17e7ff9e6dc7f6|-1755200924||t19146.7257968455s|2f4e8b1786b559a8|73474064|fst_dt|local|vector|||17.081||
+cnefe_st|stem|b2f7074157bcb0eb|426cce5962abfde0|565bdd3364a5b01c|1461650681||t19808.6846272331s|17df032590846467|73472242|fst_dt|local|vector|||5.656||
 cnefe_stbairro_match|stem|7b89d09c0b4184cc|26508816bd413efd|b9b19b929fcbb062|229369658||t19151.9005344311s|3b0fe536f29a2f13|9191209|rds|local|vector|||682.644||
+convert_coord|function|112dfcf00262808d|||||||||||||||
 create_panel_ids|function|43057b064a34b2ed|||||||||||||||
 create_panel_ids_munis|function|1d2e2218563c8286|||||||||||||||
 data|stem|1614bae96c10d858|43fae4011a0626f4|136bf5e07fbd9b1c|1588979285||t19146.6507203135s|fbe3be1ee613161a|1749|rds|local|vector|||1.305||
@@ -35,8 +36,8 @@ import_locais|function|610e74498c52d45c|||||||||||||||
 import_muni_demo|function|2f417359a74eca9b|||||||||||||||
 inep_codes|stem|2c647c93f03b9d6a|a9f03ac6fc6d8b98|2b09246612e7c2a7|-587016137||t19806.4534126192s|9d6b9285ea2050b6|1086703|rds|local|vector|||0.007||
 inep_codes_file|stem|81e3537cbdd85b64|03c4ce85ae94cc42|ef46db3751d8e999|1036858206|./data/inep_codes.csv|t18439.7597569444s|4336335a198e1bce|4862261|file|local|vector|||0||
-inep_data|stem|4317302c425153ab|462bb7ac644b599b|5382845bf41f26f8|-308475621||t19146.7406050544s|8f02eaafdb797049|9892893|rds|local|vector|||9.488||
-inep_file|stem|6d11e5325a7518ec|0d567a46f740bbfb|ef46db3751d8e999|-2115907186|./data/inep_catalogo_das_escolas.csv.gz|t18265.0068865741s|e75deddb8e125dfd|11916267|file|local|vector|||1.108||
+inep_data|stem|d1c9ad6f7d72286b|462bb7ac644b599b|3f484352364fd6ca|360710129||t19808.7657054666s|c703e810cf19f33d|9892885|rds|local|vector|||6.449||
+inep_file|stem|6d11e5325a7518ec|0d567a46f740bbfb|ef46db3751d8e999|2079126509|./data/inep_catalogo_das_escolas.csv.gz|t18265.0068865741s|e75deddb8e125dfd|11916267|file|local|vector|||0.281||
 inep_string_match|stem|7d53f6239a81fda7|2b16cac49e56a974|ffe9339c930c090b|2086258778||t19151.8901945148s|936914ee5f942757|10646757|rds|local|vector|||327.596||
 locais|stem|0eb0449f8ca08dd6|55cc0b0421d155ff|7a9fc396d1dd4799|-1937036606||t19151.8719723992s|0b832f380819b963|25428337|rds|local|vector|||49.914||
 locais_file|stem|487f8c27eb063cd0|c3c1fe4f2e1afcc9|ef46db3751d8e999|287561900|./data/polling_stations_2006_2020.csv.gz|t19151.7977430556s|1cb09438052c032e|23549272|file|local|vector|||1.1||
@@ -54,12 +55,12 @@ muni_ids|stem|62f43ffb4f3bab65|7493a5dfe2f68fd9|d1f203ad33bf27c0|-1248827711||t1
 muni_ids_file|stem|96b1ec8dd1aaf6af|567624449e6282b1|ef46db3751d8e999|191880342|./data/muni_identifiers.csv|t18288.8422916667s|3823a692b7d13813|460279|file|local|vector|||0.267||
 muni_shp|stem|91dc6d3469141e9d|c23bd6f7c2860470|c7b9c8d04ab791d7|-832370484||t19806.4836059698s|c3ed5fb08c4b4995|15200886|rds|local|vector|||2.289||
 muni_shp_file|stem|4bfd582b7f8fa4cf|2e7b3fff3f5dc0fb|ef46db3751d8e999|104875724|./data/muni_shp.rds|t18488.8516666667s|726ecc0185e76dd2|15651518|file|local|vector|||0||
-normalize_address|function|6455261f5b2dc78c|||||||||||||||
-normalize_school|function|043a8e168a3dc9a5|||||||||||||||
+normalize_address|function|e2e9bb9f48c5c20a|||||||||||||||
+normalize_school|function|cafb8af97a01b414|||||||||||||||
 panel_ids|stem|0c7dec1177ee4b38|853edd8f86141131|b5800c660b2ff6f5|-1047068481||t19156.7829672044s|c462913349cb4a3c|2863693|rds|local|vector|||1578.445||
 panelid_export|stem|2d3b7f7e2d274789|e806352b0a56a2b0|46515680a9565b0b|1813259325|./output/panel_ids.csv.gz|t19156.7829695192s|cb4955690a10a163|4230723|file|local|vector|||0.182||
 predict_distance|function|183a2da3c72768bc|||||||||||||||
-schools_cnefe|stem|feb0a67428c2a420|5b4cd35e707c1c6c|b0a06c93729d0931|1952950759||t19146.7223650399s|6cf7952b7500c161|42872705|fst_dt|local|vector|||6.791||
+schools_cnefe|stem|71108d52d86841ba|7b81aaa163ce1aef|245784f2616ec25d|-1469211591||t19808.684901987s|37a788f24505adc3|42872601|fst_dt|local|vector|||2.519||
 schools_cnefe_match|stem|31e7ad9865c8c7d4|00272341cd0c3583|3d13d44ffd86f389|1762603789||t19151.8926083919s|15b703674fc0ec8e|9914375|rds|local|vector|||199.69||
 string_match|stem|52ac01d4ea7e6146|93f3a19a9a47c8ab|18cc744af9f0a389|-1854359766||t19152.8268981481s|d28a75f14047ab7d|94176191|rds|local|vector|||8329.65||
 tract_centroids|stem|1ef4d767cdd48631|35758c4c3fcf127d|ca2c1b8e5b3e8373|-99067914||t19806.4790884738s|be2cb5993cf247ad|5252972|rds|local|vector|||16.492|st_centroid assumes attributes are constant over geometries|

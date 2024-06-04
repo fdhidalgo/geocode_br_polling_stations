@@ -30,3 +30,4 @@ scratch.R
 .Renviron
 _targets/meta/meta
 _targets/
+_targets/meta

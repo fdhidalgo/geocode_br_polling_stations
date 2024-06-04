@@ -95,14 +95,14 @@ list(
 
   ## import and clean CNEFE data
   tar_target(
-    name = cnefe_file,
+    name = cnefe10_file,
     command = "./data/CNEFE_combined.gz",
     format = "file"
   ),
   tar_target(
-    name = cnefe,
-    command = clean_cnefe(
-      cnefe_file = cnefe_file,
+    name = cnefe10,
+    command = clean_cnefe10(
+      cnefe_file = cnefe10_file,
       muni_ids = muni_ids,
       tract_centroids = tract_centroids
     ),
@@ -110,18 +110,18 @@ list(
   ),
   ## Subset on schools in CNEFE
   tar_target(
-    name = schools_cnefe,
+    name = schools_cnefe10,
     command =
-      cnefe[especie_lab == "estabelecimento de ensino"][
+      cnefe10[especie_lab == "estabelecimento de ensino"][
         ,
         norm_desc := normalize_school(desc)
       ],
     format = "fst_dt"
   ),
-  ## Create a dataset of streets in CNEFE
+  ## Create a dataset of streets in 2010 CNEFE
   tar_target(
-    name = cnefe_st,
-    command = cnefe[, .(
+    name = cnefe10_st,
+    command = cnefe10[, .(
       long = median(cnefe_long, na.rm = TRUE),
       lat = median(cnefe_lat, na.rm = TRUE),
       n = .N
@@ -130,10 +130,10 @@ list(
     ][n > 1],
     format = "fst_dt"
   ),
-  ## Create a dataset of neighborhoods in CNEFE
+  ## Create a dataset of neighborhoods in 2010 CNEFE
   tar_target(
-    name = cnefe_bairro,
-    command = cnefe[, .(
+    name = cnefe10_bairro,
+    command = cnefe10[, .(
       long = median(cnefe_long, na.rm = TRUE),
       lat = median(cnefe_lat, na.rm = TRUE),
       n = .N

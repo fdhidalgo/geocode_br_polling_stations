@@ -69,7 +69,7 @@ convert_coord <- function(coord) {
         return(decimal_degrees)
 }
 
-clean_cnefe <- function(cnefe_file, muni_ids, tract_centroids) {
+clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids) {
         cnefe <- fread(cnefe_file,
                 drop = c(
                         "SITUACAO_SETOR", "NOM_COMP_ELEM1",

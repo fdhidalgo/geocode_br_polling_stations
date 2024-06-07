@@ -6,11 +6,13 @@
 /data/census_tracts2010_shp.rds
 /data/opencage_geocodes.csv.gz
 /data/google_geocoded.csv
-/data/eleitorado_local_votacao_2018.csv.gz
+/data/cnefe22.csv.gz
+data/eleitorado_local_votacao_2018.csv.gz
 /data/agro_censo/
 /archive/
 /reference/
 /R/geocode_api_calls/
+/lucas
 .DS_Store
 .env
 .lintr

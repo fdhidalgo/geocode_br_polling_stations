@@ -137,6 +137,7 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids) {
         cnefe[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
 
         ## Add municipality code and identifiers
+
         cnefe[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
         cnefe <- muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)][cnefe, on = "id_munic_7"]
 
@@ -196,6 +197,125 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids) {
 
         addr
 }
+
+clean_cnefe22 <- function(cnefe22_file, muni_ids) {
+  cnefe22 <- fread(cnefe22_file,
+                   drop = c(
+                     "NOM_COMP_ELEM1",
+                     "VAL_COMP_ELEM1", "NOM_COMP_ELEM2",
+                     "VAL_COMP_ELEM2", "NOM_COMP_ELEM3",
+                     "VAL_COMP_ELEM3", "NOM_COMP_ELEM4",
+                     "VAL_COMP_ELEM4", "NOM_COMP_ELEM5",
+                     "VAL_COMP_ELEM5", "NUM_QUADRA", "NUM_FACE",
+                     "COD_UNICO_ENDERECO"
+                   )
+  )
+
+  setnames(
+    cnefe22, names(cnefe22),
+    tolower(names(cnefe22))
+  ) # make nicer names
+
+  ## Create address variable
+  cnefe22[, num_endereco_char := fifelse(
+    num_endereco == 0,
+    dsc_modificador, as.character(num_endereco)
+  )]
+  ##Remove SN designation
+  cnefe22[, num_endereco_char := str_remove(num_endereco_char, "SN")]
+  cnefe22[, dsc_modificador_nosn := fifelse(dsc_modificador != "SN", dsc_modificador, "")]
+
+  cnefe22[, address := str_squish(paste(
+    nom_tipo_seglogr,
+    nom_titulo_seglogr,
+    nom_seglogr,
+    num_endereco_char,
+    dsc_modificador_nosn
+  ))]
+  cnefe22[, street := str_squish(paste(
+    nom_tipo_seglogr,
+    nom_titulo_seglogr,
+    nom_seglogr
+  ))]
+  cnefe22[, c(
+    "nom_tipo_seglogr", "nom_titulo_seglogr",
+    "num_endereco_char", "num_endereco", "nom_seglogr",
+    "dsc_modificador_nosn", "dsc_modificador"
+  ) := NULL]
+
+  ## ADD NAs where data is missing
+  cnefe22[dsc_estabelecimento == "", dsc_estabelecimento := NA]
+  ## Remove extraneous white space from dsc_estabelecimento
+  cnefe22[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
+
+  setnames(cnefe22, "cod_municipio", "id_munic_7")
+  cnefe22 <- merge(
+    cnefe22,
+    muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)],
+    by.x = "id_munic_7",
+    by.y = "id_munic_7",
+    all.x = TRUE
+  )
+  ## Merge in especie labels
+  especie_labs <- data.table(
+    cod_especie = 1:8,
+    especie_lab = c(
+      "domicílio particular", "domicílio coletivo",
+      "estabeleciemento agropecuário",
+      "estabelecimento de ensino",
+      "estabelecimento de saúde",
+      "estabeleciemento de outras finalidades",
+      "edificação em construção ou reforma",
+      "estabeleciemento religioso"
+
+    )
+  )
+
+  cnefe22 <- merge(
+    cnefe22,
+    especie_labs,
+    by = "cod_especie",
+    all.x = TRUE
+  )
+
+  ## Merge in geocoding labels
+  nv_geo_coord_labs <- data.table(
+    nv_geo_coord = 1:6,
+    nv_geo_coord_lab = c(
+      "Endereço - coordenada original do Censo 2022",
+      "Endereço - coordenada modificada (apartamentos em um mesmo número no logradouro)",
+      "Endereço - coordenada estimada (endereços originalmente sem coordenadas ou coordenadas inválidas)",
+      "Face de quadra",
+      "Localidade",
+      "Setor censitário"
+    )
+  )
+
+  cnefe22 <- merge(
+    cnefe22,
+    nv_geo_coord_labs,
+    by = "nv_geo_coord",
+    all.x = TRUE
+  )
+
+  cnefe22 <- cnefe22[, .(
+    id_munic_7, id_TSE, municipio, cod_setor, especie_lab, street,
+    address, dsc_localidade, dsc_estabelecimento, longitude, latitude,
+    nv_geo_coord_lab
+  )]
+
+  setnames(
+    cnefe22, c("dsc_localidade", "dsc_estabelecimento", "longitude", "latitude"),
+    c("bairro", "desc", "cnefe_long", "cnefe_lat")
+  )
+
+  # Normalize name
+  cnefe22[, norm_address := tolower(address)]
+  cnefe22[, norm_bairro := tolower(bairro)]
+  cnefe22[, norm_street := tolower(street)]
+  cnefe22
+}
+
 
 clean_inep <- function(inep_data, inep_codes) {
         setnames(
@@ -356,44 +476,57 @@ calc_muni_area <- function(muni_shp) {
         muni_shp[, .(cod_localidade_ibge = code_muni, area)]
 }
 #
-# import_locais <- function(locais_file, muni_ids) {
-#   fread(locais_file) |>
-#     janitor::clean_names() |>
-#     mutate(ds_bairro = ifelse(is.na(ds_bairro), "", ds_bairro),
-#            ds_endereco = ifelse(is.na(ds_endereco), "", ds_endereco)) |>
-#     mutate(
-#       normalized_name = normalize_school(nm_locvot),
-#       normalized_addr = paste(normalize_address(ds_endereco), normalize_address(ds_bairro)),
-#       normalized_st = normalize_address(ds_endereco),
-#       normalized_bairro = normalize_address(ds_bairro)
-#     ) |>
-#     left_join(select(muni_ids, cod_localidade_ibge = id_munic_7, cd_localidade_tse = id_TSE)) |>
-#     filter(!is.na(nm_locvot)) |>
-#     mutate(local_id = 1:n())
-# }
-#
+import_locais <- function(locais_file, muni_ids) {
+        # Load the data
+        locais_data <- fread(locais_file)
+
+        # Clean column names
+        setnames(locais_data, janitor::make_clean_names(names(locais_data)))
+
+        # Replace NA values with empty strings
+        locais_data[, ds_bairro := ifelse(is.na(ds_bairro), "", ds_bairro)]
+        locais_data[, ds_endereco := ifelse(is.na(ds_endereco), "", ds_endereco)]
+
+        # Normalize and mutate columns
+        locais_data[, normalized_name := normalize_school(nm_locvot)]
+        locais_data[, normalized_addr := paste(normalize_address(ds_endereco), normalize_address(ds_bairro))]
+        locais_data[, normalized_st := normalize_address(ds_endereco)]
+        locais_data[, normalized_bairro := normalize_address(ds_bairro)]
+
+        # Load muni_ids and merge
+        locais_data <- merge(locais_data,
+                muni_ids[, .(cod_localidade_ibge = id_munic_7, cd_localidade_tse = id_TSE)],
+                by = "cd_localidade_tse", all.x = TRUE
+        )
+
+        # Filter and add local_id
+        locais_data <- locais_data[!is.na(nm_locvot)]
+        locais_data[, local_id := .I]
+        locais_data
+}
+
 # finalize_coords <- function(locais, string_match, tsegeocoded_locais) {
-#   best_string_match <- string_match |>
-#     group_by(local_id) |>
-#     arrange(local_id, pred_dist) |>
-#     slice(1)
-#
-#   geocoded_locais <- left_join(locais, best_string_match) |>
-#     select(
-#       -normalized_name, -normalized_addr, -normalized_st, -normalized_bairro,
-#       -match_type, -mindist
-#     ) |>
-#     rename("pred_long" = "long", "pred_lat" = "lat") |>
-#     left_join(select(tsegeocoded_locais, local_id, tse_lat, tse_long)) |>
-#     ## if we have ground truth distance from TSE, then assign ground truth
-#     mutate(
-#       long = ifelse(is.na(tse_long), pred_long, tse_long),
-#       lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
-#       pred_dist = ifelse(is.na(tse_lat), pred_dist, 0)
-#     ) |>
-#     relocate(local_id, ano, sg_uf, cd_localidade_tse, cod_localidade_ibge,
-#       .before = everything()
-#     )
+#         best_string_match <- string_match |>
+#                 group_by(local_id) |>
+#                 arrange(local_id, pred_dist) |>
+#                 slice(1)
+
+#         geocoded_locais <- left_join(locais, best_string_match) |>
+#                 select(
+#                         -normalized_name, -normalized_addr, -normalized_st, -normalized_bairro,
+#                         -match_type, -mindist
+#                 ) |>
+#                 rename("pred_long" = "long", "pred_lat" = "lat") |>
+#                 left_join(select(tsegeocoded_locais, local_id, tse_lat, tse_long)) |>
+#                 ## if we have ground truth distance from TSE, then assign ground truth
+#                 mutate(
+#                         long = ifelse(is.na(tse_long), pred_long, tse_long),
+#                         lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
+#                         pred_dist = ifelse(is.na(tse_lat), pred_dist, 0)
+#                 ) |>
+#                 relocate(local_id, ano, sg_uf, cd_localidade_tse, cod_localidade_ibge,
+#                         .before = everything()
+#                 )
 # }
 #
 #

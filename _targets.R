@@ -100,6 +100,11 @@ list(
     format = "file"
   ),
   tar_target(
+    name = cnefe22_file,
+    command = "./data/cnefe22.csv.gz",
+    format = "file"
+  ),
+  tar_target(
     name = cnefe10,
     command = clean_cnefe10(
       cnefe_file = cnefe10_file,
@@ -108,6 +113,15 @@ list(
     ),
     format = "fst_dt"
   ),
+  tar_target(
+    name = cnefe22,
+    command = clean_cnefe22(
+      cnefe22_file = cnefe22_file,
+      muni_ids = muni_ids
+    ),
+    format = "fst_dt"
+  ),
+
   ## Subset on schools in CNEFE
   tar_target(
     name = schools_cnefe10,
@@ -191,20 +205,20 @@ list(
       inep_data = fread(inep_file),
       inep_codes = inep_codes
     )
+  ),
+  ## Import Locais de Votação Data
+  tar_target(
+    name = locais_file,
+    command = "./data/polling_stations_2006_2020.csv.gz",
+    format = "file"
+  ),
+  tar_target(
+    name = locais,
+    command = import_locais(
+      locais_file = locais_file,
+      muni_ids = muni_ids
+    )
   ) # ,
-  #   ## Import Locais de Votação Data
-  #   tar_target(
-  #     name = locais_file,
-  #     command = "./data/polling_stations_2006_2020.csv.gz",
-  #     format = "file"
-  #   ),
-  #   tar_target(
-  #     name = locais,
-  #     command = import_locais(
-  #       locais_file = locais_file,
-  #       muni_ids = muni_ids
-  #     )
-  #   ),
   #   ## Create panel ids to track polling stations across time
   #   tar_target(
   #     name = panel_ids,

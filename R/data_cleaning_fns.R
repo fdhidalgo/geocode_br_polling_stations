@@ -21,7 +21,7 @@ normalize_address <- function(x) {
 normalize_school <- function(x) {
         school_syns <- c(
                 "e m e i", "esc inf", "esc mun", "unidade escolar", "centro educacional", "escola municipal",
-                "colegio estadual", "cmei", "emeif", "grupo escolar",
+                "colegio estadual", "cmei", "emeif", "emeief", "grupo escolar",
                 "escola estadual", "erem", "colegio municipal",
                 "centro de ensino infantil", "escola mul", "e m", "grupo municipal", "e e", "creche", "escola",
                 "colegio", "em", "de referencia", "centro comunitario", "grupo", "de referencia em ensino medio",
@@ -35,7 +35,7 @@ normalize_school <- function(x) {
                 str_remove_all("\\.") |>
                 str_remove_all("[[:punct:]]") |>
                 str_squish() |>
-                str_remove(paste0("\\b", school_syns, "\\b", collapse = "|")) |> ## Remove School synonyms
+                str_remove_all(paste0("\\b", school_syns, "\\b", collapse = "|")) |> ## Remove School synonyms
                 str_squish()
 }
 
@@ -199,121 +199,126 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids) {
 }
 
 clean_cnefe22 <- function(cnefe22_file, muni_ids) {
-  cnefe22 <- fread(cnefe22_file,
-                   drop = c(
-                     "NOM_COMP_ELEM1",
-                     "VAL_COMP_ELEM1", "NOM_COMP_ELEM2",
-                     "VAL_COMP_ELEM2", "NOM_COMP_ELEM3",
-                     "VAL_COMP_ELEM3", "NOM_COMP_ELEM4",
-                     "VAL_COMP_ELEM4", "NOM_COMP_ELEM5",
-                     "VAL_COMP_ELEM5", "NUM_QUADRA", "NUM_FACE",
-                     "COD_UNICO_ENDERECO"
-                   )
-  )
+        cnefe22 <- fread(cnefe22_file,
+                drop = c(
+                        "NOM_COMP_ELEM1",
+                        "VAL_COMP_ELEM1", "NOM_COMP_ELEM2",
+                        "VAL_COMP_ELEM2", "NOM_COMP_ELEM3",
+                        "VAL_COMP_ELEM3", "NOM_COMP_ELEM4",
+                        "VAL_COMP_ELEM4", "NOM_COMP_ELEM5",
+                        "VAL_COMP_ELEM5", "NUM_QUADRA", "NUM_FACE",
+                        "COD_UNICO_ENDERECO"
+                )
+        )
 
-  setnames(
-    cnefe22, names(cnefe22),
-    tolower(names(cnefe22))
-  ) # make nicer names
+        setnames(
+                cnefe22, names(cnefe22),
+                tolower(names(cnefe22))
+        ) # make nicer names
 
-  ## Create address variable
-  cnefe22[, num_endereco_char := fifelse(
-    num_endereco == 0,
-    dsc_modificador, as.character(num_endereco)
-  )]
-  ##Remove SN designation
-  cnefe22[, num_endereco_char := str_remove(num_endereco_char, "SN")]
-  cnefe22[, dsc_modificador_nosn := fifelse(dsc_modificador != "SN", dsc_modificador, "")]
+        ## Create address variable
+        cnefe22[, num_endereco_char := fifelse(
+                num_endereco == 0,
+                dsc_modificador, as.character(num_endereco)
+        )]
+        ## Remove SN designation
+        cnefe22[, num_endereco_char := str_remove(num_endereco_char, "SN")]
+        cnefe22[, dsc_modificador_nosn := fifelse(dsc_modificador != "SN", dsc_modificador, "")]
 
-  cnefe22[, address := str_squish(paste(
-    nom_tipo_seglogr,
-    nom_titulo_seglogr,
-    nom_seglogr,
-    num_endereco_char,
-    dsc_modificador_nosn
-  ))]
-  cnefe22[, street := str_squish(paste(
-    nom_tipo_seglogr,
-    nom_titulo_seglogr,
-    nom_seglogr
-  ))]
-  cnefe22[, c(
-    "nom_tipo_seglogr", "nom_titulo_seglogr",
-    "num_endereco_char", "num_endereco", "nom_seglogr",
-    "dsc_modificador_nosn", "dsc_modificador"
-  ) := NULL]
+        cnefe22[, address := str_squish(paste(
+                nom_tipo_seglogr,
+                nom_titulo_seglogr,
+                nom_seglogr,
+                num_endereco_char,
+                dsc_modificador_nosn
+        ))]
+        cnefe22[, street := str_squish(paste(
+                nom_tipo_seglogr,
+                nom_titulo_seglogr,
+                nom_seglogr
+        ))]
+        cnefe22[, c(
+                "nom_tipo_seglogr", "nom_titulo_seglogr",
+                "num_endereco_char", "num_endereco", "nom_seglogr",
+                "dsc_modificador_nosn", "dsc_modificador"
+        ) := NULL]
 
-  ## ADD NAs where data is missing
-  cnefe22[dsc_estabelecimento == "", dsc_estabelecimento := NA]
-  ## Remove extraneous white space from dsc_estabelecimento
-  cnefe22[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
+        ## ADD NAs where data is missing
+        cnefe22[dsc_estabelecimento == "", dsc_estabelecimento := NA]
+        ## Remove extraneous white space from dsc_estabelecimento
+        cnefe22[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
 
-  setnames(cnefe22, "cod_municipio", "id_munic_7")
-  cnefe22 <- merge(
-    cnefe22,
-    muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)],
-    by.x = "id_munic_7",
-    by.y = "id_munic_7",
-    all.x = TRUE
-  )
-  ## Merge in especie labels
-  especie_labs <- data.table(
-    cod_especie = 1:8,
-    especie_lab = c(
-      "domicílio particular", "domicílio coletivo",
-      "estabeleciemento agropecuário",
-      "estabelecimento de ensino",
-      "estabelecimento de saúde",
-      "estabeleciemento de outras finalidades",
-      "edificação em construção ou reforma",
-      "estabeleciemento religioso"
+        setnames(cnefe22, "cod_municipio", "id_munic_7")
+        cnefe22 <- merge(
+                cnefe22,
+                muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)],
+                by.x = "id_munic_7",
+                by.y = "id_munic_7",
+                all.x = TRUE
+        )
+        ## Merge in especie labels
+        especie_labs <- data.table(
+                cod_especie = 1:8,
+                especie_lab = c(
+                        "domicílio particular", "domicílio coletivo",
+                        "estabeleciemento agropecuário",
+                        "estabelecimento de ensino",
+                        "estabelecimento de saúde",
+                        "estabeleciemento de outras finalidades",
+                        "edificação em construção ou reforma",
+                        "estabeleciemento religioso"
+                )
+        )
 
-    )
-  )
+        cnefe22 <- merge(
+                cnefe22,
+                especie_labs,
+                by = "cod_especie",
+                all.x = TRUE
+        )
 
-  cnefe22 <- merge(
-    cnefe22,
-    especie_labs,
-    by = "cod_especie",
-    all.x = TRUE
-  )
+        ## Merge in geocoding labels
+        nv_geo_coord_labs <- data.table(
+                nv_geo_coord = 1:6,
+                nv_geo_coord_lab = c(
+                        "Endereço - coordenada original do Censo 2022",
+                        "Endereço - coordenada modificada (apartamentos em um mesmo número no logradouro)",
+                        "Endereço - coordenada estimada (endereços originalmente sem coordenadas ou coordenadas inválidas)",
+                        "Face de quadra",
+                        "Localidade",
+                        "Setor censitário"
+                )
+        )
 
-  ## Merge in geocoding labels
-  nv_geo_coord_labs <- data.table(
-    nv_geo_coord = 1:6,
-    nv_geo_coord_lab = c(
-      "Endereço - coordenada original do Censo 2022",
-      "Endereço - coordenada modificada (apartamentos em um mesmo número no logradouro)",
-      "Endereço - coordenada estimada (endereços originalmente sem coordenadas ou coordenadas inválidas)",
-      "Face de quadra",
-      "Localidade",
-      "Setor censitário"
-    )
-  )
+        cnefe22 <- merge(
+                cnefe22,
+                nv_geo_coord_labs,
+                by = "nv_geo_coord",
+                all.x = TRUE
+        )
 
-  cnefe22 <- merge(
-    cnefe22,
-    nv_geo_coord_labs,
-    by = "nv_geo_coord",
-    all.x = TRUE
-  )
+        cnefe22 <- cnefe22[, .(
+                id_munic_7, id_TSE, municipio, cod_setor, especie_lab, street,
+                address, dsc_localidade, dsc_estabelecimento, longitude, latitude,
+                nv_geo_coord_lab
+        )]
 
-  cnefe22 <- cnefe22[, .(
-    id_munic_7, id_TSE, municipio, cod_setor, especie_lab, street,
-    address, dsc_localidade, dsc_estabelecimento, longitude, latitude,
-    nv_geo_coord_lab
-  )]
+        setnames(
+                cnefe22, c("dsc_localidade", "dsc_estabelecimento", "longitude", "latitude"),
+                c("bairro", "desc", "cnefe_long", "cnefe_lat")
+        )
 
-  setnames(
-    cnefe22, c("dsc_localidade", "dsc_estabelecimento", "longitude", "latitude"),
-    c("bairro", "desc", "cnefe_long", "cnefe_lat")
-  )
+        # Normalize name
+        cnefe22[, norm_address := tolower(address)]
+        cnefe22[, norm_bairro := tolower(bairro)]
+        cnefe22[, norm_street := tolower(street)]
+        cnefe22
+}
 
-  # Normalize name
-  cnefe22[, norm_address := tolower(address)]
-  cnefe22[, norm_bairro := tolower(bairro)]
-  cnefe22[, norm_street := tolower(street)]
-  cnefe22
+get_cnefe22_schools <- function(cnefe22) {
+        schools_cnefe22 <- cnefe22[especie_lab == "estabelecimento de ensino"]
+        schools_cnefe22[, norm_desc := normalize_school(desc)]
+        schools_cnefe22[norm_desc != ""]
 }
 
 

@@ -122,7 +122,7 @@ list(
     format = "fst_dt"
   ),
 
-  ## Subset on schools in CNEFE
+  ## Subset on schools in 2010 CNEFE
   tar_target(
     name = schools_cnefe10,
     command =
@@ -188,6 +188,36 @@ list(
     command = agro_cnefe[, .(
       long = median(longitude, na.rm = TRUE),
       lat = median(latitude, na.rm = TRUE), n = .N
+    ),
+    by = .(id_munic_7, norm_bairro)
+    ][n > 1],
+    format = "fst_dt"
+  ),
+  tar_target(
+    ## Extract schools frome 2022 CNEFE
+    name = schools_cnefe22,
+    command = get_cnefe22_schools(cnefe22),
+    format = "fst_dt"
+  ),
+  ## Create a dataset of streets in 2022 CNEFE
+  tar_target(
+    name = cnefe22_st,
+    command = cnefe22[, .(
+      long = median(cnefe_long, na.rm = TRUE),
+      lat = median(cnefe_lat, na.rm = TRUE),
+      n = .N
+    ),
+    by = .(id_munic_7, norm_street)
+    ][n > 1],
+    format = "fst_dt"
+  ),
+  ## Create a dataset of neighborhoods in 2022 CNEFE
+  tar_target(
+    name = cnefe22_bairro,
+    command = cnefe22[, .(
+      long = median(cnefe_long, na.rm = TRUE),
+      lat = median(cnefe_lat, na.rm = TRUE),
+      n = .N
     ),
     by = .(id_munic_7, norm_bairro)
     ][n > 1],

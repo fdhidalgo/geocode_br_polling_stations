@@ -239,7 +239,7 @@ list(
   ## Import Locais de Votação Data
   tar_target(
     name = locais_file,
-    command = "./data/polling_stations_2006_2020.csv.gz",
+    command = "./data/polling_stations_2006_2022.csv.gz",
     format = "file"
   ),
   tar_target(

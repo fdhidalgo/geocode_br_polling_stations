@@ -248,32 +248,32 @@ list(
       locais_file = locais_file,
       muni_ids = muni_ids
     )
-  ) # ,
+  ),
+  tar_target(
+    ## Import geocoded polling stations from TSE for ground truth
+    name = tse_files,
+    command = c(
+      "./data/eleitorado_local_votacao_2018.csv.gz",
+      "./data/eleitorado_local_votacao_2020.csv.gz",
+      "./data/eleitorado_local_votacao_2022.csv.gz"
+    ),
+    format = "file"
+  ),
+  tar_target(
+    name = tsegeocoded_locais,
+    command = clean_tsegeocoded_locais(
+      tse_files = tse_files,
+      muni_ids = muni_ids,
+      locais = locais
+    )
+  )
+  # ,
   #   ## Create panel ids to track polling stations across time
   #   tar_target(
   #     name = panel_ids,
   #     command = create_panel_ids_munis(locais, prop_match_cutoff = .3)
   #   ),
   #
-  #   ## Import geocoded polling stations from TSE for ground truth
-  #   tar_target(
-  #     name = tse_file18,
-  #     command = "./data/eleitorado_local_votacao_2018.csv.gz",
-  #     format = "file"
-  #   ),
-  #   tar_target(
-  #     name = tse_file20,
-  #     command = "./data/eleitorado_local_votacao_2020.csv.gz",
-  #     format = "file"
-  #   ),
-  #
-  #   tar_target(
-  #     name = tsegeocoded_locais,
-  #     command = clean_tsegeocoded_locais(locais18 = fread(tse_file18, encoding = "Latin-1"),
-  #                                        secc20 = fread(tse_file20),
-  #       muni_ids = muni_ids, locais = locais
-  #     ),
-  #   ),
   # # String Matching
   #  tar_target(
   #    name = inep_string_match,

@@ -345,62 +345,69 @@ clean_inep <- function(inep_data, inep_codes) {
 }
 #
 #
-clean_tsegeocoded_locais <- function(locais18, secc20, muni_ids, locais) {
-        locais18 <- janitor::clean_names(locais18)
+clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
+        # Read the data from the 2018, 2020, and 2022 election files
+        loc18 <- fread(tse_files[1],
+                encoding = "Latin-1"
+        )
+        loc20 <- fread(tse_files[2],
+                encoding = "Latin-1"
+        )
+        loc22 <- fread(tse_files[3],
+                encoding = "Latin-1"
+        )
 
-        locais18 <- unique(locais18[sg_uf != "ZZ", .(
+        # Combine the data from all three years into a single data frame
+        locs <- rbindlist(list(loc18, loc20, loc22), fill = TRUE)
+
+        # Only keep columns that are present in all data sets
+        locs <- locs[, names(loc22)[names(loc22) %in% names(loc18) == TRUE], with = FALSE]
+
+        # Convert column names to lowercase
+        setnames(locs, names(locs), tolower(names(locs)))
+
+        # Remove duplicate rows and filter out polling stations out of the country
+        locs <- unique(locs[sg_uf != "ZZ", .(
                 aa_eleicao, sg_uf, cd_municipio, nm_municipio, nr_zona,
                 nr_local_votacao, nm_local_votacao,
                 ds_endereco, nm_bairro, nr_cep, nr_latitude, nr_longitude
         )])
-        locais18[, nr_latitude := ifelse(nr_latitude == -1, NA, nr_latitude)]
-        locais18[, nr_longitude := ifelse(nr_longitude == -1, NA, nr_longitude)]
-        locais18 <- locais18[!is.na(nr_latitude)]
 
-        locais18 <- merge(locais18, muni_ids[, .(id_munic_7, id_TSE)],
+        # Set 'nr_latitude' and 'nr_longitude' to NA if they are equal to -1
+        locs[, nr_latitude := ifelse(nr_latitude == -1, NA, nr_latitude)]
+        locs[, nr_longitude := ifelse(nr_longitude == -1, NA, nr_longitude)]
+
+        # Remove rows with NA values in 'nr_latitude'
+        locs <- locs[!is.na(nr_latitude)]
+
+        # Merge 'locs' with 'muni_ids' based on 'cd_municipio' and 'id_TSE'
+        locs <- merge(locs, muni_ids[, .(id_munic_7, id_TSE)],
                 by.x = c("cd_municipio"),
                 by.y = c("id_TSE"), all.x = TRUE
         )
 
-        locais18 <- locais18 |>
-                select(
-                        cod_localidade_ibge = id_munic_7, nr_zona, nr_locvot = nr_local_votacao,
-                        tse_lat = nr_latitude, tse_long = nr_longitude
-                ) |>
-                mutate(ano = 2018) |>
-                left_join(select(locais, local_id, ano, cod_localidade_ibge, nr_zona, nr_locvot)) |>
-                filter(!is.na(local_id))
-
-        locais18 <- unique(locais18)
-        locais18 <- group_by(locais18, local_id) |>
-                slice(1)
-
-        secc20 <- secc20 |>
-                janitor::clean_names()
-        loc20 <- unique(secc20[, .(cd_municipio, nr_zona, nr_local_votacao, nr_latitude, nr_longitude)])
-        loc20[nr_latitude == -1, nr_latitude := NA]
-        loc20[nr_longitude == -1, nr_longitude := NA]
-        loc20 <- loc20[is.na(nr_longitude) == FALSE]
-
-        loc20 <- merge(loc20, muni_ids[, .(id_munic_7, id_TSE)],
-                by.x = c("cd_municipio"),
-                by.y = c("id_TSE"), all.x = TRUE
+        # Rename columns in 'locs'
+        setnames(
+                locs, c("aa_eleicao", "id_munic_7", "nr_local_votacao", "nr_latitude", "nr_longitude"),
+                c("ano", "cod_localidade_ibge", "nr_locvot", "tse_lat", "tse_long")
         )
 
-        loc20 <- loc20 |>
-                select(
-                        cod_localidade_ibge = id_munic_7, nr_zona, nr_locvot = nr_local_votacao,
-                        tse_lat = nr_latitude, tse_long = nr_longitude
-                ) |>
-                mutate(ano = 2020) |>
-                left_join(select(locais, local_id, ano, cod_localidade_ibge, nr_zona, nr_locvot)) |>
-                filter(!is.na(local_id))
+        # Merge 'locs' with 'locais' based on 'ano', 'cod_localidade_ibge', 'nr_zona', and 'nr_locvot'
+        locs <- merge(locs, locais[, .(
+                local_id, ano, cod_localidade_ibge,
+                nr_zona, nr_locvot
+        )],
+        all.x = TRUE, all.y = FALSE,
+        by = c("ano", "cod_localidade_ibge", "nr_zona", "nr_locvot")
+        )
 
-        loc20 <- unique(loc20)
-        loc20 <- group_by(loc20, local_id) |>
-                slice(1)
+        # Remove rows with NA values in 'local_id'
+        locs <- locs[!is.na(local_id)]
 
-        rbind(locais18, loc20)
+        # Group by 'local_id' and keep only the most recent year
+        locs <- locs[order(-ano), .SD[1], by = local_id]
+
+        locs
 }
 
 
@@ -508,7 +515,7 @@ import_locais <- function(locais_file, muni_ids) {
         locais_data <- locais_data[sg_uf != "ZZ"]
 
         # Filter and add local_id
-        locais_data <- locais_data[!is.na(nm_locvot)]
+        # locais_data <- locais_data[!is.na(nm_locvot)]
         locais_data[, local_id := .I]
         locais_data
 }

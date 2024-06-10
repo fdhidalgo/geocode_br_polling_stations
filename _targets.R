@@ -21,11 +21,9 @@ tar_option_set(
 ## Setup parallel processing
 all_cores <- parallel::detectCores(logical = FALSE)
 data.table::setDTthreads(all_cores - 1)
-# library(doFuture)
-# library(parallel)
-# registerDoFuture()
-# cl <- makeCluster(all_cores)
-# future::plan(cluster, workers = cl)
+library(future)
+
+future::plan(multisession, workers = all_cores - 1)
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
@@ -266,7 +264,7 @@ list(
       muni_ids = muni_ids,
       locais = locais
     )
-  )
+  ),
   # ,
   #   ## Create panel ids to track polling stations across time
   #   tar_target(
@@ -274,49 +272,49 @@ list(
   #     command = create_panel_ids_munis(locais, prop_match_cutoff = .3)
   #   ),
   #
-  # # String Matching
-  #  tar_target(
-  #    name = inep_string_match,
-  #    command = rbindlist(map(
-  #      unique(locais$cod_localidade_ibge),
-  #     ~ match_inep_muni(
-  #       locais_muni = locais[cod_localidade_ibge == .x],
-  #       inep_muni = inep_data[id_munic_7 == .x]
-  #     )
-  #   ))
-  # ),
-  #   tar_target(
-  #     name = schools_cnefe_match,
-  #     command = rbindlist(map(
-  #       unique(locais$cod_localidade_ibge),
-  #       ~ match_schools_cnefe_muni(
-  #         locais_muni = locais[cod_localidade_ibge == .x],
-  #         schools_cnefe_muni = schools_cnefe[id_munic_7 == .x]
-  #       )
-  #     ))
-  #   ) ,
-  #   tar_target(
-  #     name = cnefe_stbairro_match,
-  #     command = rbindlist(map(
-  #       unique(locais$cod_localidade_ibge),
-  #       ~ match_stbairro_cnefe_muni(
-  #         locais_muni = locais[cod_localidade_ibge == .x],
-  #         cnefe_st_muni = cnefe_st[id_munic_7 == .x],
-  #         cnefe_bairro_muni = cnefe_bairro[id_munic_7 == .x]
-  #       )
-  #     ))
-  #   ) ,
-  #   tar_target(
-  #     name = agrocnefe_stbairro_match,
-  #     command = rbindlist(map(
-  #       unique(locais$cod_localidade_ibge),
-  #       ~ match_stbairro_agrocnefe_muni(
-  #         locais_muni = locais[cod_localidade_ibge == .x],
-  #         agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
-  #         agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
-  #       )
-  #     ))
-  #   ),
+  # String Matching
+  tar_target(
+    name = inep_string_match,
+    command = rbindlist(furrr::future_map(
+      unique(locais$cod_localidade_ibge),
+      ~ match_inep_muni(
+        locais_muni = locais[cod_localidade_ibge == .x],
+        inep_muni = inep_data[id_munic_7 == .x]
+      )
+    ))
+  ),
+  tar_target(
+    name = schools_cnefe10_match,
+    command = rbindlist(furrr::future_map(
+      unique(locais$cod_localidade_ibge),
+      ~ match_schools_cnefe10_muni(
+        locais_muni = locais[cod_localidade_ibge == .x],
+        schools_cnefe_muni = schools_cnefe10[id_munic_7 == .x]
+      )
+    ))
+  ),
+  tar_target(
+    name = cnefe10_stbairro_match,
+    command = rbindlist(furrr::future_map(
+      unique(locais$cod_localidade_ibge),
+      ~ match_stbairro_cnefe10_muni(
+        locais_muni = locais[cod_localidade_ibge == .x],
+        cnefe_st_muni = cnefe10_st[id_munic_7 == .x],
+        cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == .x]
+      )
+    ))
+  ),
+  tar_target(
+    name = agrocnefe_stbairro_match,
+    command = rbindlist(map(
+      unique(locais$cod_localidade_ibge),
+      ~ match_stbairro_agrocnefe_muni(
+        locais_muni = locais[cod_localidade_ibge == .x],
+        agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
+        agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
+      )
+    ))
+  ) # ,
   #
   #   # # Choose best match
   #    tar_target(

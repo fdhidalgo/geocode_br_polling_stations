@@ -38,7 +38,7 @@ match_inep_muni <- function(locais_muni, inep_muni) {
         )
 }
 
-match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
+match_schools_cnefe10_muni <- function(locais_muni, schools_cnefe_muni) {
         # this function operates on a single municipality
 
         if (nrow(schools_cnefe_muni) == 0) {
@@ -78,7 +78,7 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
         )
 }
 
-match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_muni) {
+match_stbairro_cnefe10_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_muni) {
         # this function operates on a single municipality
 
         if (nrow(cnefe_st_muni) == 0) {

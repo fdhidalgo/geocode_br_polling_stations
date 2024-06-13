@@ -11,8 +11,8 @@ library(conflicted)
 # Set target options:
 tar_option_set(
   packages = c(
-    "conflicted", "targets", "data.table", "purrr",
-    "sf", "stringr"
+    "conflicted", "targets", "data.table", "purrr", "stringr",
+    "bonsai"
   ), # packages that your targets need to run
   format = "rds" # default storage format
   # Set other options as needed.
@@ -287,9 +287,19 @@ list(
     name = schools_cnefe10_match,
     command = rbindlist(furrr::future_map(
       unique(locais$cod_localidade_ibge),
-      ~ match_schools_cnefe10_muni(
+      ~ match_schools_cnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         schools_cnefe_muni = schools_cnefe10[id_munic_7 == .x]
+      )
+    ))
+  ),
+  tar_target(
+    name = schools_cnefe22_match,
+    command = rbindlist(furrr::future_map(
+      unique(locais$cod_localidade_ibge),
+      ~ match_schools_cnefe_muni(
+        locais_muni = locais[cod_localidade_ibge == .x],
+        schools_cnefe_muni = schools_cnefe22[id_munic_7 == .x]
       )
     ))
   ),
@@ -297,7 +307,7 @@ list(
     name = cnefe10_stbairro_match,
     command = rbindlist(furrr::future_map(
       unique(locais$cod_localidade_ibge),
-      ~ match_stbairro_cnefe10_muni(
+      ~ match_stbairro_cnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         cnefe_st_muni = cnefe10_st[id_munic_7 == .x],
         cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == .x]
@@ -305,8 +315,19 @@ list(
     ))
   ),
   tar_target(
+    name = cnefe22_stbairro_match,
+    command = rbindlist(furrr::future_map(
+      unique(locais$cod_localidade_ibge),
+      ~ match_stbairro_cnefe_muni(
+        locais_muni = locais[cod_localidade_ibge == .x],
+        cnefe_st_muni = cnefe22_st[id_munic_7 == .x],
+        cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == .x]
+      )
+    ))
+  ),
+  tar_target(
     name = agrocnefe_stbairro_match,
-    command = rbindlist(map(
+    command = rbindlist(furrr::future_map(
       unique(locais$cod_localidade_ibge),
       ~ match_stbairro_agrocnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
@@ -314,22 +335,30 @@ list(
         agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
       )
     ))
-  ) # ,
-  #
-  #   # # Choose best match
-  #    tar_target(
-  #      name = string_match,
-  #      command = predict_distance(
-  #        cnefe_stbairro_match = cnefe_stbairro_match,
-  #        schools_cnefe_match = schools_cnefe_match,
-  #        inep_string_match = inep_string_match,
-  #        agrocnefe_stbairro_match = agrocnefe_stbairro_match,
-  #        locais = locais, tsegeocoded_locais = tsegeocoded_locais,
-  #        muni_demo = muni_demo, muni_area = muni_area,
-  #        folds = 5, grid_n = 5
-  #      )
-  #    ) ,
-  #
+  ),
+  tar_target(
+    name = model_data,
+    command = make_model_data(
+      cnefe10_stbairro_match = cnefe10_stbairro_match, cnefe22_stbairro_match = cnefe22_stbairro_match,
+      schools_cnefe10_match = schools_cnefe10_match,
+      schools_cnefe22_match = schools_cnefe22_match,
+      agrocnefe_stbairro_match = agrocnefe_stbairro_match,
+      inep_string_match = inep_string_match,
+      muni_demo = muni_demo, muni_area = muni_area,
+      locais = locais, tsegeocoded_locais = tsegeocoded_locais
+    ),
+  ),
+  tar_target(
+    name = trained_model,
+    command = train_model(model_data, grid_n = 50),
+  ),
+  tar_target(
+    name = model_predictions,
+    command = get_predictions(trained_model, model_data),
+    format = "fst_dt"
+  )
+  # ,
+
   #   # # Use string matches to geocode and add panel ids
   #   tar_target(
   #     name = geocoded_locais,

@@ -1,6 +1,6 @@
 # Geocoding Brazilian Polling Stations with Administrative Data Sets
 
-This repository contains the code to geocode polling stations in Brazil. We leverage administrative datasets to geocode all polling stations used in elections from 2006 to 2020.
+This repository contains the code to geocode polling stations in Brazil. We leverage administrative datasets to geocode all polling stations used in elections from 2006 to 2022.
 
 We detail our methodology and limitations of our method in this [document](https://raw.githack.com/fdhidalgo/geocode_br_polling_stations/master/doc/geocoding_procedure.html). As we explain in that document, our method often performs better than commercial solutions like the [Google Maps Geocoding Service](https://developers.google.com/maps/documentation/geocoding/overview), particularly in rural areas. Despite our best efforts, however, it is important to note that this procedure inevitably will make mistakes and consequently some coordinates will be incorrect. 
 
@@ -38,11 +38,11 @@ The dataset (`geocoded_polliing_stations.csv.gz`) contains the following variabl
 
 - `pred_lat`: Latitude as selected by our model
 
-- `pred_dist`: Predicted distance between chosen longitude and latitude and true longitude and latitude. This variable can be used to filter coordinates based on their likely accuracy.
+- `pred_dist`: Predicted distance between chosen longitude and latitude and true longitude and latitude. For polling stations with coordinates provided by the TSE, this is set to 0.  This variable can be used to filter coordinates based on their likely accuracy.
 
-- `tse_lat`: Latitude provided by the TSE. This is only available for a small subset of data.
+- `tse_lat`: Latitude provided by the TSE. This is only available for a  subset of data.
 
-- `tse_long`: Longitude provided by the TSE. This is only available for a small subset of data.
+- `tse_long`: Longitude provided by the TSE. This is only available for a subset of data.
 
 - `long`: Longitude as predicted by the model or provided by the TSE.
 
@@ -60,7 +60,7 @@ Note that for a small number of cases, a given polling station can be matched to
 ## Code
 ### Running the Geocoding Pipeline
 
-We used the open source language *R* (version 4.0.3) to process the files and geocode the polling stations. To manage the pipeline that imports and processes all the data, we use the [`targets`](https://github.com/ropensci/targets) package.
+We used the open source language *R* (version 4.4.0) to process the files and geocode the polling stations. To manage the pipeline that imports and processes all the data, we use the [`targets`](https://github.com/ropensci/targets) package.
 
 Assuming all the relevant data is in the `./data` folder, you can reconstruct the dataset using the following code:
 
@@ -110,15 +110,16 @@ Because of the size of some of the administrative datasets, we cannot host all t
 Datasets marked with a \* can be found at the associated link in the table below but not in this Github repo.
 All other data can be found in the `data` folder.
 
-| Data                             | Source                                                                                                                                                                                                 |
-|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 2010 CNEFE\*                     | [IBGE FTP Server](https://ftp.ibge.gov.br/Censos/Censo_Demografico_2010/Cadastro_Nacional_de_Enderecos_Fins_Estatisticos/)                                                                               |
-| 2017 CNEFE\*                     | [IBGE Website](https://www.ibge.gov.br/estatisticas/economicas/agricultura-e-pecuaria/21814-2017-censo-agropecuario.html?edicao=23751&t=resultados)                                                    |
-| INEP School Catalog              | [INEP Website](https://inepdata.inep.gov.br/analytics/saw.dll?dashboard&NQUser=inepdata&NQPassword=Inep2014&PortalPath=%2Fshared%2FCenso%20da%20Educação%20Básica%2F_portal%2FCatálogo%20de%20Escolas) |
-| Polling Stations Geocoded by TSE\* | [TSE](https://www.tse.jus.br/hotsites/pesquisas-eleitorais/eleitorado_anos/2018.html)                                                                |
-| Polling Station Addresses        | [Centro de Política e Economia do Setor Público](https://www.cepespdata.io)                                                                                                                            |
-| Census Tract Shape Files\*       | [`geobr` Package](https://github.com/ipeaGIT/geobr)                                                                                                                                                    |
-| Municipal Demographic Variables  | [Atlas do Desenvolvimento Humano no Brasil](http://www.atlasbrasil.org.br)                                                                                                                             |
+| Data                               | Source                                                                                                                                                                                                 |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2010 CNEFE\*                       | [IBGE FTP Server](https://ftp.ibge.gov.br/Censos/Censo_Demografico_2010/Cadastro_Nacional_de_Enderecos_Fins_Estatisticos/)                                                                             |
+| 2017 CNEFE\*                       | [IBGE Website](https://www.ibge.gov.br/estatisticas/economicas/agricultura-e-pecuaria/21814-2017-censo-agropecuario.html?edicao=23751&t=resultados)                                                    |
+| 2022 CNEFE\*                       | [IBGE Website](https://www.ibge.gov.br/estatisticas/sociais/populacao/38734-cadastro-nacional-de-enderecos-para-fins-estatisticos.html?=&t=downloads)                                                  |
+| INEP School Catalog                | [INEP Website](https://inepdata.inep.gov.br/analytics/saw.dll?dashboard&NQUser=inepdata&NQPassword=Inep2014&PortalPath=%2Fshared%2FCenso%20da%20Educação%20Básica%2F_portal%2FCatálogo%20de%20Escolas) |
+| Polling Stations Geocoded by TSE\* | [TSE](https://www.tse.jus.br/hotsites/pesquisas-eleitorais/eleitorado_anos/2018.html)                                                                                                                  |
+| Polling Station Addresses          | [Centro de Política e Economia do Setor Público](https://www.cepespdata.io)                                                                                                                            |
+| Census Tract Shape Files\*         | [`geobr` Package](https://github.com/ipeaGIT/geobr)                                                                                                                                                    |
+| Municipal Demographic Variables    | [Atlas do Desenvolvimento Humano no Brasil](http://www.atlasbrasil.org.br)                                                                                                                             |
 
 ## Acknowledgements
 

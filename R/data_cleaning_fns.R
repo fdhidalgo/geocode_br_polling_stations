@@ -545,13 +545,17 @@ finalize_coords <- function(locais, model_predictions, tsegeocoded_locais) {
                 all.x = TRUE
         )
         ### if we have ground truth distance from TSE, then assign ground truth
-        geocoded_locais[!is.na(tse_lat), c("pred_lat", "pred_long", "pred_dist") := .(tse_lat, tse_long, 0)]
-        ## reorder columns
+        geocoded_locais[, long := ifelse(!is.na(tse_long), tse_long, pred_long)]
+        geocoded_locais[, lat := ifelse(!is.na(tse_lat), tse_lat, pred_lat)]
+        geocoded_locais[, pred_dist := ifelse(!is.na(tse_long), 0, pred_dist)]
+
         geocoded_locais <- geocoded_locais[, c(
                 "local_id", "ano", "sg_uf", "cd_localidade_tse", "cod_localidade_ibge",
-                names(geocoded_locais)[!names(geocoded_locais) %in%
-                        c("local_id", "ano", "sg_uf", "cd_localidade_tse", "cod_localidade_ibge")]
+                "nr_zona", "nr_locvot", "nr_cep", "nm_localidade", "nm_locvot",
+                "ds_endereco", "ds_bairro", "pred_long", "pred_lat", "pred_dist",
+                "tse_long", "tse_lat", "long", "lat"
         )]
+
         geocoded_locais
 }
 #

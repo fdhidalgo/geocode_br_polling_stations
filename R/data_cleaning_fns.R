@@ -19,6 +19,7 @@ normalize_address <- function(x) {
 
 ## normalize school names
 normalize_school <- function(x) {
+        ## School synonyms
         school_syns <- c(
                 "e m e i", "esc inf", "esc mun", "unidade escolar", "centro educacional", "escola municipal",
                 "colegio estadual", "cmei", "emeif", "emeief", "grupo escolar",
@@ -30,6 +31,7 @@ normalize_school <- function(x) {
                 "eem", "eeem", "est ens med", "est ens fund", "ens fund", "mul", "professora", "professor",
                 "eepg", "eemg", "prof", "ensino fundamental"
         )
+        ## Normalize school names
         stringi::stri_trans_general(x, "Latin-ASCII") |>
                 str_to_lower() |>
                 str_remove_all("\\.") |>
@@ -41,6 +43,7 @@ normalize_school <- function(x) {
 
 
 make_tract_centroids <- function(tracts) {
+        ## Create tract centroids
         tracts$centroid <- sf::st_transform(tracts, 4674) |>
                 sf::st_centroid() |>
                 sf::st_geometry()
@@ -70,6 +73,7 @@ convert_coord <- function(coord) {
 }
 
 clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids) {
+        ## This function cleans the CNEFE 2010 data
         cnefe <- fread(cnefe_file,
                 drop = c(
                         "SITUACAO_SETOR", "NOM_COMP_ELEM1",
@@ -199,6 +203,7 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids) {
 }
 
 clean_cnefe22 <- function(cnefe22_file, muni_ids) {
+        ## This function cleans the CNEFE 2022 data
         cnefe22 <- fread(cnefe22_file,
                 drop = c(
                         "NOM_COMP_ELEM1",
@@ -316,6 +321,7 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
 }
 
 get_cnefe22_schools <- function(cnefe22) {
+        ## This function extracts schools from the CNEFE 2022 data
         schools_cnefe22 <- cnefe22[especie_lab == "estabelecimento de ensino"]
         schools_cnefe22[, norm_desc := normalize_school(desc)]
         schools_cnefe22[norm_desc != ""]
@@ -323,13 +329,12 @@ get_cnefe22_schools <- function(cnefe22) {
 
 
 clean_inep <- function(inep_data, inep_codes) {
+        ## This function cleans the INEP school data
         setnames(
                 inep_data, names(inep_data),
                 str_replace_all(stringi::stri_trans_general(tolower(names(inep_data)), "Latin-ASCII"), " ", "_")
         )
         ## remove diacritics from names
-
-
         inep_data <- inep_data[!is.na(latitude), .(
                 escola, codigo_inep, uf,
                 municipio, endereco, latitude, longitude
@@ -412,6 +417,7 @@ clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
 
 
 clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
+        ## This function cleans the 2017 CNEFE Data (agricultural census)
         agro_cnefe <-
                 rbindlist(lapply(agro_cnefe_files, fread,
                         drop = c(
@@ -481,6 +487,7 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
 
 #
 calc_muni_area <- function(muni_shp) {
+        ## Calculate the area of each municipality
         area <- st_area(muni_shp)
         muni_shp$area <- area
         muni_shp <- st_drop_geometry(muni_shp)
@@ -489,6 +496,7 @@ calc_muni_area <- function(muni_shp) {
 }
 #
 import_locais <- function(locais_file, muni_ids) {
+        ## This function imports and cleans the polling station data
         # Load the data
         locais_data <- fread(locais_file)
 

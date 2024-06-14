@@ -8,11 +8,11 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-# knitr::opts_chunk$set(echo = FALSE, cache = FALSE, dpi = 300)
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, dpi = 300)
 # library(tidyverse)
-# library(targets)
-# library(gt)
-# library(sf)
+library(targets)
+library(gt)
+library(sf)
 # sf::sf_use_s2(FALSE)
 ```
 
@@ -97,7 +97,8 @@ For each polling station, we choose the candidate coordinate with the smallest p
 ```{r load_data, message=FALSE, warning=FALSE}
 tar_load(
   c(
-    inep_string_match, cnefe_stbairro_match, schools_cnefe_match,
+    inep_string_match, cnefe10_stbairro_match, cnefe22_stbairro_match,
+    schools_cnefe10_match, schools_cnefe22_match,
     agrocnefe_stbairro_match, locais, string_match,
     tsegeocoded_locais18, panel_ids
   )

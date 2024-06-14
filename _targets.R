@@ -356,19 +356,19 @@ list(
     name = model_predictions,
     command = get_predictions(trained_model, model_data),
     format = "fst_dt"
-  )
-  # ,
+  ),
 
-  #   # # Use string matches to geocode and add panel ids
-  #   tar_target(
-  #     name = geocoded_locais,
-  #     command = finalize_coords(locais, string_match, tsegeocoded_locais)
-  #   ) ,
-  #    tar_target(
-  #      name = geocoded_export,
-  #      command = export_geocoded_locais(geocoded_locais),
-  #      format = "file"
-  #    ) ,
+  # # Use string matches to geocode and add panel ids
+  tar_target(
+    name = geocoded_locais,
+    command = finalize_coords(locais, model_predictions, tsegeocoded_locais),
+    format = "fst_dt"
+  ),
+  tar_target(
+    name = geocoded_export,
+    command = export_geocoded_locais(geocoded_locais),
+    format = "file"
+  ) # ,
   #    tar_target(
   #      name = panelid_export,
   #      command = export_panel_ids(panel_ids),

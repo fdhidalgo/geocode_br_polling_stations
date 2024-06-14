@@ -520,36 +520,46 @@ import_locais <- function(locais_file, muni_ids) {
         locais_data
 }
 
-# finalize_coords <- function(locais, string_match, tsegeocoded_locais) {
-#         best_string_match <- string_match |>
-#                 group_by(local_id) |>
-#                 arrange(local_id, pred_dist) |>
-#                 slice(1)
+finalize_coords <- function(locais, model_predictions, tsegeocoded_locais) {
+        ## order within local_id by pred_dist and pick the first one in each group
+        best_match <- model_predictions[
+                order(local_id, pred_dist),
+                .(local_id, long, lat, pred_dist)
+        ]
+        best_match <- best_match[, .SD[1],
+                by = local_id
+        ]
 
-#         geocoded_locais <- left_join(locais, best_string_match) |>
-#                 select(
-#                         -normalized_name, -normalized_addr, -normalized_st, -normalized_bairro,
-#                         -match_type, -mindist
-#                 ) |>
-#                 rename("pred_long" = "long", "pred_lat" = "lat") |>
-#                 left_join(select(tsegeocoded_locais, local_id, tse_lat, tse_long)) |>
-#                 ## if we have ground truth distance from TSE, then assign ground truth
-#                 mutate(
-#                         long = ifelse(is.na(tse_long), pred_long, tse_long),
-#                         lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
-#                         pred_dist = ifelse(is.na(tse_lat), pred_dist, 0)
-#                 ) |>
-#                 relocate(local_id, ano, sg_uf, cd_localidade_tse, cod_localidade_ibge,
-#                         .before = everything()
-#                 )
-# }
+        geocoded_locais <- merge(
+                locais,
+                best_match,
+                by = "local_id",
+                all.x = TRUE
+        )
+        geocoded_locais[, c("normalized_name", "normalized_addr", "normalized_st", "normalized_bairro") := NULL]
+        setnames(geocoded_locais, c("long", "lat"), c("pred_long", "pred_lat"))
+        geocoded_locais <- merge(
+                geocoded_locais,
+                tsegeocoded_locais[, .(local_id, tse_lat, tse_long)],
+                by = "local_id",
+                all.x = TRUE
+        )
+        ### if we have ground truth distance from TSE, then assign ground truth
+        geocoded_locais[!is.na(tse_lat), c("pred_lat", "pred_long", "pred_dist") := .(tse_lat, tse_long, 0)]
+        ## reorder columns
+        geocoded_locais <- geocoded_locais[, c(
+                "local_id", "ano", "sg_uf", "cd_localidade_tse", "cod_localidade_ibge",
+                names(geocoded_locais)[!names(geocoded_locais) %in%
+                        c("local_id", "ano", "sg_uf", "cd_localidade_tse", "cod_localidade_ibge")]
+        )]
+        geocoded_locais
+}
 #
-#
-# export_geocoded_locais <- function(geocoded_locais) {
-#   fwrite(geocoded_locais, "./output/geocoded_polling_stations.csv.gz")
-#   "./output/geocoded_polling_stations.csv.gz"
-# }
-#
+export_geocoded_locais <- function(geocoded_locais) {
+        fwrite(geocoded_locais, "./output/geocoded_polling_stations.csv.gz")
+        "./output/geocoded_polling_stations.csv.gz"
+}
+
 # export_panel_ids <- function(panel_ids) {
 #   fwrite(panel_ids, "./output/panel_ids.csv.gz")
 #   "./output/panel_ids.csv.gz"

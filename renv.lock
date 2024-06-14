@@ -227,6 +227,25 @@
       "Repository": "CRAN",
       "Hash": "b7d8d8ee39869c18d8846a184dd8a1af"
     },
+    "bonsai": {
+      "Package": "bonsai",
+      "Version": "0.2.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "cli",
+        "dials",
+        "dplyr",
+        "glue",
+        "parsnip",
+        "purrr",
+        "rlang",
+        "stats",
+        "tibble",
+        "utils"
+      ],
+      "Hash": "c086fa23dfeac2d2b95f758dfa917c3d"
+    },
     "bs4Dash": {
       "Package": "bs4Dash",
       "Version": "2.3.3",
@@ -610,6 +629,30 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "aa5e1cd11c2d15497494c5292d7ffcc8"
+    },
+    "finetune": {
+      "Package": "finetune",
+      "Version": "1.2.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "R",
+        "cli",
+        "dials",
+        "dplyr",
+        "ggplot2",
+        "parsnip",
+        "purrr",
+        "rlang",
+        "tibble",
+        "tidyr",
+        "tidyselect",
+        "tune",
+        "utils",
+        "vctrs",
+        "workflows"
+      ],
+      "Hash": "3abf52a3d5cfd55269f5d765b340a794"
     },
     "fontawesome": {
       "Package": "fontawesome",

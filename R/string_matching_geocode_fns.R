@@ -339,7 +339,11 @@ train_model <- function(model_data, grid_n = 10, sample = NULL) {
       new_role = "id variable"
     ) |>
     recipes::update_role(local_id, new_role = "id variable") |>
-    recipes::step_impute_median(logpop, pct_rural, area)
+    recipes::step_impute_median(logpop, pct_rural, area) |>
+    recipes::step_log(recipes::all_outcomes(),
+      offset = .0001,
+      skip = TRUE
+    )
 
   gbm_spec <-
     parsnip::boost_tree(
@@ -385,10 +389,14 @@ train_model <- function(model_data, grid_n = 10, sample = NULL) {
 get_predictions <- function(trained_model, model_data) {
   fitted <- tune::extract_workflow(trained_model$final_fit)
 
-  model_data$pred_dist <- predict(fitted, new_data = model_data)$.pred
+  model_data$pred_logdist <- predict(fitted, new_data = model_data)$.pred
+  model_data$pred_dist <- exp(model_data$pred_logdist) - .0001
 
   model_data[
     order(local_id, pred_dist),
-    .(local_id, match_type = type, mindist, long, lat, dist, pred_dist)
+    .(local_id,
+      match_type = type, mindist, long, lat,
+      dist, pred_dist, pred_logdist
+    )
   ]
 }

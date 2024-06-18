@@ -11,9 +11,13 @@ editor_options:
 knitr::opts_chunk$set(echo = FALSE, cache = FALSE, dpi = 300)
 # library(tidyverse)
 library(targets)
+library(dplyr)
 library(gt)
 library(sf)
-# sf::sf_use_s2(FALSE)
+sf::sf_use_s2(FALSE)
+
+conflicts_prefer(dplyr::first)
+conflicts_prefer(dplyr::filter)
 ```
 
 This document outlines an approach to geocoding Brazilian polling station that heavily relies on administrative datasets. In addition to detailing our approach, we also provide some evidence on the error of our method and how it compares to the [Google Maps Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview).
@@ -27,21 +31,21 @@ For each polling station, we select the coordinates with the predicted smallest 
 
 To geocode the polling stations, we leverage three main data sources:
 
--   *Cadastro Nacional de Endereços para Fins Estatísticos* (CNEFE) from the 2010 Census.
+-   *Cadastro Nacional de Endereços para Fins Estatísticos* (CNEFE) from the 2010 and the 2022 editions of the Census.
 -   *Cadastro Nacional de Endereços para Fins Estatísticos* from the 2017 Agricultural Census.
 -   *Catálogo de Escolas* from INEP.
 
 The CNEFE datasets are national databases of addresses prepared by IBGE for the census and include detailed data on streets and addresses.
-The 2010 version includes private addresses, as well as listings of government buildings (such as schools) and the names of local establishments (such as the names of schools or businesses).
+The 2010 and 2017 versions includes private addresses, as well as listings of government buildings (such as schools) and the names of local establishments (such as the names of schools or businesses).
 The 2017[^1] version only includes agricultural properties.
-Addresses in *rural* census tracts (*setores censitários*) in the 2010 CNEFE have longitude and latitude, while all agricultural properties in the 2017 CNEFE are geocoded.
+Addresses in *rural* census tracts (*setores censitários*) in the 2010 CNEFE have longitude and latitude, while all agricultural properties in the 2017 CNEFE are geocoded. The 2022 CNEFE geocodes all addresses.
 
 [^1]: Details on the 2017 CNEFE can be found at this [link](https://biblioteca.ibge.gov.br/visualizacao/livros/liv101638_notas_tecnicas.pdf)
 
 The 2010 Census data did not include coordinates for addresses in urban census tracts.
 To partially overcome this issue, we compute the centroid of the census tract and assign this coordinate to each property in the urban census tract.
 Because urban census tracts tend to be compact, tract centroid should still be fairly close to the true coordinates.
-Nevertheless, this imputation step will lead to more error for urban addresses than rural addresses.
+Nevertheless, this imputation step will lead to more error for urban addresses than rural addresses when the chosen coordinate is from the 2010 CNEFE data.
 
 The INEP data is a catalog of private and public schools with addresses and longitude and latitude.[^2]
 
@@ -61,19 +65,19 @@ The general approach is a follows:
 
 3.  Find the "medioid" (i.e. the median point) for all unique streets and neighborhoods in the CNEFE datasets.
 
-4.  Compute the normalized Levenshtein string distance between polling station name and the names of schools in the INEP and 2010 CNEFE data in the same municipality as the polling station.
+4.  Compute the normalized Levenshtein string distance between polling station name and the names of schools in the INEP and  CNEFE data in the same municipality as the polling station.
 
-5.  Compute the string distance between the address of polling stations and address of schools in INPE and 2010 CNEFE data.
+5.  Compute the string distance between the address of polling stations and address of schools in INPE and  CNEFE data.
 
 6.  Compute the string distance between the street name and neighborhood name of the polling station and street and neighborhood names from the CNEFE datasets.
 
 [^3]: We remove common, but uninformative words, such as "povoado" and "localidade". We standardize common street abbreviations such as replacing "Av" with "Avenida". Finally, for polling station names, we remove words most common in school names, such as "unidade escolar" and "colegio estadual". These are very common, yet not used consistently and as a result, are relatively uninformative. We found that removing them improves matching performance.
 
-The string matching procedure above generates 8 different potential matches.
+The string matching procedure above generates 12 different potential matches.
 
 ### Choosing Among Potential Matches
 
-After string matching, we use a Random Forest model to predict the distance between the possible coordinates and the true coordinates.
+After string matching, we use a boosted tree model to predict the distance between the possible coordinates and the true coordinates.
 We treat the coordinates provided by the election authorities as the "ground truth".
 This distance is modeled as a function of the following set of covariates:
 
@@ -86,11 +90,12 @@ This distance is modeled as a function of the following set of covariates:
 -   Proportion of the population classified as rural
 -   Area of the municipality
 
-We use the implementation of the Random Forest model provided in the [`ranger`](https://cran.r-project.org/web/packages/ranger/ranger.pdf) package.
-We set the number of trees to 1000 and use five-fold cross-validation to select the number of variables to use in each tree and the minimum number of units in each leaf node.
+We use the implementation of the boosted tree model provided in the [`lightgbm`](https://github.com/Microsoft/LightGBM) package and use the [`tidymodels`](https://www.tidymodels.org/) framework for preprocessing and training. We train our model on half of the polling stations with ground truth coordinates and use the other half for testing. We tune the hyperpareters of the model using adaptive resampling[^4] and 10 fold cross-validation.
 After tuning, we train the model on all polling stations with ground truth coordinates.
 We then use this model to predict the distance between the true coordinates and the candidate coordinates.
 For each polling station, we choose the candidate coordinate with the smallest predicted distance.
+
+[^5]: See the `finetune` package reference [materials](https://finetune.tidymodels.org/reference/tune_race_anova.html) for more information on adaptive resampling.
 
 ### Example of String Matching
 
@@ -99,19 +104,20 @@ tar_load(
   c(
     inep_string_match, cnefe10_stbairro_match, cnefe22_stbairro_match,
     schools_cnefe10_match, schools_cnefe22_match,
-    agrocnefe_stbairro_match, locais, string_match,
-    tsegeocoded_locais18, panel_ids
+    agrocnefe_stbairro_match, locais, model_predictions,
+    tsegeocoded_locais, panel_ids
   )
 )
 
-best_string_match <- string_match |>
+best_prediction <- model_predictions |>
+  #  filter(!is.na(dist)) |>
   group_by(local_id) |>
-  arrange(local_id, pred_dist) |>
+  arrange(local_id, pred_dist, dist) |>
   slice(1)
 
-geocoded_locais <- left_join(locais, best_string_match) |>
+geocoded_locais <- left_join(locais, best_prediction) |>
   rename("pred_long" = "long", "pred_lat" = "lat") |>
-  left_join(select(tsegeocoded_locais18, local_id, tse_lat, tse_long)) |>
+  left_join(select(tsegeocoded_locais, local_id, tse_lat, tse_long)) |>
   ## if we have ground truth distance from TSE, then assign ground truth
   mutate(
     long = ifelse(is.na(tse_long), pred_long, tse_long),
@@ -138,79 +144,103 @@ The blue row shows the selected match, which is the potential match with the sma
 The last column labeled "Error (km)" is the difference between the known geocoded coordinates and the coordinates from the selected match.
 
 ```{r string_match_example, message=FALSE, warning=FALSE}
-example_id <- sample(geocoded_locais$local_id[is.na(geocoded_locais$tse_lat) == FALSE], 1)
-example_id <- 42933
+# example_id <- sample(geocoded_locais$local_id[is.na(geocoded_locais$tse_lat) == FALSE], 1)
+example_id <- 72922
 example_polling_station <- filter(geocoded_locais, local_id == example_id)
 example_inep <- filter(inep_string_match, local_id == example_id)
-example_cnfe_schools <- filter(schools_cnefe_match, local_id == example_id)
+example_cnefe10_schools <- filter(schools_cnefe10_match, local_id == example_id)
+example_cnefe22_schools <- filter(schools_cnefe22_match, local_id == example_id)
 example_agrocnefe <- filter(agrocnefe_stbairro_match, local_id == example_id)
-example_cnefe <- filter(cnefe_stbairro_match, local_id == example_id)
+example_cnefe10 <- filter(cnefe10_stbairro_match, local_id == example_id)
+example_cnefe22 <- filter(cnefe22_stbairro_match, local_id == example_id)
 example_string_match <- tibble(match_type = c(
   "schools_inep_name", "schools_inep_addr",
-  "schools_cnefe_name", "schools_cnefe_addr",
-  "st_agrocnefe", "st_cnefe", "bairro_agrocnefe",
-  "bairro_cnefe"
+  "schools_cnefe_name_2010", "schools_cnefe_addr_2010",
+  "schools_cnefe_name_2022", "schools_cnefe_addr_2022",
+  "st_cnefe_2017", "st_cnefe_2010", "st_cnefe_2022", "bairro_cnefe_2017",
+  "bairro_cnefe_2010", "bairro_cnefe_2022"
 )) |>
-  left_join(filter(string_match, local_id == example_id))
+  left_join(filter(model_predictions, local_id == example_id))
 
 
 table_data <- tibble(
   Data = c(
     "INEP School Name", "INEP School Address",
     "2010 CNEFE School Name", "2010 CNEFE School Address",
-    "2017 CNEFE Street", "2010 CNEFE Street",
-    "2017 CNEFE Neighborhood", "2010 CNEFE Neighborhood"
+    "2022 CNEFE School Name", "2022 CNEFE School Address",
+    "2017 CNEFE Street", "2010 CNEFE Street", "2022 CNEFE Street",
+    "2017 CNEFE Neighborhood", "2010 CNEFE Neighborhood", "2022 CNEFE Neighborhood"
   ),
   `Polling Station String` = c(
     example_polling_station$normalized_name,
     example_polling_station$normalized_addr,
     example_polling_station$normalized_name,
     example_polling_station$normalized_addr,
+    example_polling_station$normalized_name,
+    example_polling_station$normalized_addr,
     example_polling_station$normalized_st,
     example_polling_station$normalized_st,
+    example_polling_station$normalized_st,
+    example_polling_station$normalized_bairro,
     example_polling_station$normalized_bairro,
     example_polling_station$normalized_bairro
   ),
   Match = c(
     example_inep$match_inep_name,
     example_inep$match_inep_addr,
-    example_cnfe_schools$match_schools_cnefe_name,
-    example_cnfe_schools$match_schools_cnefe_addr,
-    example_agrocnefe$match_st_agrocnefe,
-    example_cnefe$match_st_cnefe,
-    example_agrocnefe$match_bairro_agrocnefe,
-    example_cnefe$match_bairro_cnefe
+    example_cnefe10_schools$match_schools_cnefe_name,
+    example_cnefe10_schools$match_schools_cnefe_addr,
+    example_cnefe22_schools$match_schools_cnefe_name,
+    example_cnefe22_schools$match_schools_cnefe_addr,
+    example_agrocnefe$match_st_cnefe,
+    example_cnefe10$match_st_cnefe,
+    example_cnefe22$match_st_cnefe,
+    example_agrocnefe$match_bairro_cnefe,
+    example_cnefe10$match_bairro_cnefe,
+    example_cnefe22$match_bairro_cnefe
   ),
   `String Distance` = c(
     example_inep$mindist_name_inep,
     example_inep$mindist_addr_inep,
-    example_cnfe_schools$mindist_name_schools_cnefe,
-    example_cnfe_schools$mindist_addr_schools_cnefe,
-    example_agrocnefe$mindist_st_agrocnefe,
-    example_cnefe$mindist_st_cnefe,
-    example_agrocnefe$mindist_bairro_agrocnefe,
-    example_cnefe$mindist_bairro_cnefe
+    example_cnefe10_schools$mindist_name_schools_cnefe,
+    example_cnefe10_schools$mindist_addr_schools_cnefe,
+    example_cnefe22_schools$mindist_name_schools_cnefe,
+    example_cnefe22_schools$mindist_addr_schools_cnefe,
+    example_agrocnefe$mindist_st_cnefe,
+    example_cnefe10$mindist_st_cnefe,
+    example_cnefe22$mindist_st_cnefe,
+    example_agrocnefe$mindist_bairro_cnefe,
+    example_cnefe10$mindist_bairro_cnefe,
+    example_cnefe22$mindist_bairro_cnefe
   ),
   `Predicted Error (km)` = example_string_match$pred_dist,
   long = c(
     example_inep$match_long_inep_name,
     example_inep$match_long_inep_addr,
-    example_cnfe_schools$match_long_schools_cnefe_name,
-    example_cnfe_schools$match_long_schools_cnefe_addr,
-    example_agrocnefe$match_long_st_agrocnefe,
-    example_cnefe$match_long_st_cnefe,
-    example_agrocnefe$match_long_bairro_agrocnefe,
-    example_cnefe$match_long_bairro_cnefe
+    example_cnefe10_schools$match_long_schools_cnefe_name,
+    example_cnefe10_schools$match_long_schools_cnefe_addr,
+    example_cnefe22_schools$match_long_schools_cnefe_name,
+    example_cnefe22_schools$match_long_schools_cnefe_addr,
+    example_agrocnefe$match_long_st_cnefe,
+    example_cnefe10$match_long_st_cnefe,
+    example_cnefe22$match_long_st_cnefe,
+    example_agrocnefe$match_long_bairro_cnefe,
+    example_cnefe10$match_long_bairro_cnefe,
+    example_cnefe22$match_long_bairro_cnefe
   ),
   lat = c(
     example_inep$match_lat_inep_name,
     example_inep$match_lat_inep_addr,
-    example_cnfe_schools$match_lat_schools_cnefe_name,
-    example_cnfe_schools$match_lat_schools_cnefe_addr,
-    example_agrocnefe$match_lat_st_agrocnefe,
-    example_cnefe$match_lat_st_cnefe,
-    example_agrocnefe$match_lat_bairro_agrocnefe,
-    example_cnefe$match_lat_bairro_cnefe
+    example_cnefe10_schools$match_lat_schools_cnefe_name,
+    example_cnefe10_schools$match_lat_schools_cnefe_addr,
+    example_cnefe22_schools$match_lat_schools_cnefe_name,
+    example_cnefe22_schools$match_lat_schools_cnefe_addr,
+    example_agrocnefe$match_lat_st_cnefe,
+    example_cnefe10$match_lat_st_cnefe,
+    example_cnefe22$match_lat_st_cnefe,
+    example_agrocnefe$match_lat_bairro_cnefe,
+    example_cnefe10$match_lat_bairro_cnefe,
+    example_cnefe22$match_lat_bairro_cnefe
   )
 ) |>
   mutate(rank = rank(`Predicted Error (km)`, ties.method = "first")) |>
@@ -221,15 +251,16 @@ table_data <- tibble(
         example_polling_station$long,
         example_polling_station$lat
       ),
-      p2 = c(long, lat)
-    ) / 1000
+      p2 = c(long, lat),
+      r = 6378.137
+    )
   ) |>
   select(!long & !lat)
 
 
 table_data |>
   gt() |>
-  cols_hide(vars(rank)) |>
+  cols_hide(c(rank)) |>
   fmt_number(matches("String Distance|Error"),
     decimals = 2
   ) |>
@@ -251,11 +282,10 @@ table_data |>
 
 ```{r gen_error_rate_data, warning=FALSE, message=FALSE}
 tar_load(c(geocoded_locais, tract_shp))
-google_geocoded_df <- read_csv("./data/google_geocoded.csv") |>
-  select(local_id, google_long, google_lat) |>
+google_geocoded_df <- readr::read_csv("./data/google_geocoded.csv") |>
+  select(cod_localidade_ibge, nr_zona, nr_locvot, google_long, google_lat) |>
   left_join(filter(geocoded_locais, ano == 2018)) |>
   filter(!is.na(tse_lat))
-
 
 rural_urban <- st_as_sf(filter(google_geocoded_df, !is.na(long)),
   coords = c("tse_long", "tse_lat"), crs = 4674
@@ -265,10 +295,10 @@ rural_urban <- st_as_sf(filter(google_geocoded_df, !is.na(long)),
   as_tibble() |>
   select(local_id, zone)
 
-google_geocoded_df <- left_join(google_geocoded_df, rural_urban)
+google_geocoded_df <- left_join(google_geocoded_df, unique(rural_urban))
 ```
 
-To estimate the accuracy of our procedure, we use a subset of `r format(nrow(google_geocoded_df), nsmall=1, big.mark=",")` polling stations with coordinates to check the error of the coordinates generated by our procedure.  These "ground truth" coordinates were provided by the TSE, which for 2018 has coordinates for `r format(sum(geocoded_locais$ano == 2018 & !is.na(geocoded_locais$tse_long)), nsmall=1, big.mark = ",")`. We used the Google Maps API to geocode a large subset of these polling stations to compare our error rate to theirs.  We report the error rate at 3 quantiles: 25th, 50th (the median), and the 75th percentile.
+To estimate the accuracy of our procedure, we use a subset of `r format(nrow(google_geocoded_df), nsmall=1, big.mark=",")` polling stations with coordinates to check the error of the coordinates generated by our procedure.  These "ground truth" coordinates were provided by the TSE, which for 2018 has coordinates for `r format(sum(geocoded_locais$ano == 2018 & !is.na(geocoded_locais$tse_long)), nsmall=1, big.mark = ",")`. We used the Google Maps API (as of October 2020) to geocode a large subset of these polling stations to compare our error rate to theirs.  We report the error rate at 3 quantiles: 25th, 50th (the median), and the 75th percentile.
 
 In addition to reporting the error rate for the full sample, we also split the sample into polling stations located in rural census tracts versus urban census tracts.
 Finally, we compare our error rate to coordinates generated using the Google Maps [API](https://developers.google.com/maps/documentation/geocoding/overview).
@@ -320,4 +350,4 @@ As can be seen in the above table, the median error for our method is about `r r
 This median error is *lower* than the median error of coordinates produced by the Google Maps Geocoding API, which is `r round(median(error$google_dist, na.rm = TRUE), 2)` km.
 
 When we separate the sample by rural or urban, we see that our method is more accurate for both types of polling station.
-The difference is particularly large for rural polling stations, where our median error rate is `r round(median(error$dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km and the Google median error rate is `r round(median(error$google_dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km, more than a 10 fold difference.
+The difference is particularly large for rural polling stations, where our median error rate is `r round(median(error$dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km and the Google median error rate is `r round(median(error$google_dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km, more than a 30 fold difference.

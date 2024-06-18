@@ -12,18 +12,18 @@ library(conflicted)
 tar_option_set(
   packages = c(
     "conflicted", "targets", "data.table", "purrr", "stringr",
-    "bonsai"
+    "bonsai", "future", "reclin2"
   ), # packages that your targets need to run
-  format = "rds" # default storage format
-  # Set other options as needed.
+  format = "rds", # default storage format,
+  memory = "transient",
+  garbage_collection = TRUE
 )
 
 ## Setup parallel processing
-all_cores <- parallel::detectCores(logical = FALSE)
-data.table::setDTthreads(all_cores - 1)
-library(future)
 
-future::plan(multisession, workers = all_cores - 1)
+data.table::setDTthreads(future::availableCores(omit = 1))
+future::plan(future::multisession, workers = future::availableCores(omit = 1))
+
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
@@ -265,13 +265,40 @@ list(
       locais = locais
     )
   ),
-  # ,
-  #   ## Create panel ids to track polling stations across time
-  #   tar_target(
-  #     name = panel_ids,
-  #     command = create_panel_ids_munis(locais, prop_match_cutoff = .3)
-  #   ),
-  #
+  ## Create panel ids to track polling stations across time
+  ## Create panel ids for Brasília
+  tar_target(
+    name = panel_ids_df,
+    command = make_panel_1block(locais[sg_uf == "DF"],
+      years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022),
+      blocking_column = "cod_localidade_ibge",
+      scoring_columns = c("normalized_name", "normalized_addr")
+    ),
+    format = "fst_dt"
+  ),
+  tar_target(panel_state,
+    command = c(
+      "AC", "AL", "AM", "AP", "BA", "CE", "ES", "GO", "MA", "MG", "MS",
+      "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE",
+      "SP", "TO"
+    )
+  ),
+  ## Iterate over states (except Brasília) to create panel ids
+  tar_target(
+    name = panel_ids_states,
+    command = make_panel_1block(
+      block = locais[sg_uf == panel_state],
+      years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022),
+      blocking_column = "cod_localidade_ibge",
+      scoring_columns = c("normalized_name", "normalized_addr")
+    ),
+    pattern = map(panel_state)
+  ),
+  tar_target(
+    name = panel_ids,
+    command = rbindlist(list(panel_ids_df, panel_ids_states))
+  ),
+
   # String Matching
   tar_target(
     name = inep_string_match,
@@ -368,7 +395,7 @@ list(
     name = geocoded_export,
     command = export_geocoded_locais(geocoded_locais),
     format = "file"
-  ) # ,
+  ),
   #    tar_target(
   #      name = panelid_export,
   #      command = export_panel_ids(panel_ids),
@@ -376,8 +403,8 @@ list(
   #    ),
   #
   ## Methodology and Evaluation
-  #   tar_render(
-  #     name = geocode_writeup,
-  #     path = "./doc/geocoding_procedure.Rmd"
-  #   )
+  tar_render(
+    name = geocode_writeup,
+    path = "./doc/geocoding_procedure.Rmd"
+  )
 )

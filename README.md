@@ -48,7 +48,12 @@ The dataset (`geocoded_polliing_stations.csv.gz`) contains the following variabl
 
 - `lat`: Latitude as predicted by the model or provided by the TSE.
 
-We also created panel identifiers that track a given polling station over time. Note to construct this, we had to use fuzzy string matching of address and polling station name. The dataset `panel_ids.csv.gz` has the following variables:
+### Panel Identifiers
+We also created panel identifiers that track a given polling station over time. Because panel identifiers provided by the electoral authorities can change over time, we must use a fuzzy matching procedure to create our own panel identifiers. The process implemented to generate the panel identifiers consists of six stages. First, we subset the data at the state level for each electoral year. Then, we generate every possible pair of polling stations at the municipality level for every consecutive electoral year. This can be as few as three possible pairs for the least populous municipality in Brazil, Serra da Saudade-MG, which had one polling station in 2006 and three in 2008, or as many as millions of pairs for the most populous municipality, São Paulo-SP, which has over 1,500 polling stations in each electoral year. The next step is to calculate the [Jaro-Winkler](https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance) string similarity for each possible pair on two strings: the normalized name and the normalized address of the location. 
+
+Subsequently, we use the Fellegi-Sunter framework for record linkage to choose the best matches as implemented in the [`reclin2`](https://github.com/djvanderlaan/reclin2) package. Specifically, we use an Expectation-Maximization (EM) algorithm to calculate the probabilities of a given pair being a match. We retain pairs with a probability greater than 0.5. To choose the final matches, we select the best matches under the constraint that each polling station can only be matched once. Finally, we construct the panel by combining the pairs matched in each consecutive year and establishing a unique panel identifier for those observations.
+
+ The dataset `panel_ids.csv.gz` has the following variables:
 
 - `ano`: year
 - `panel_id`: unique panel identifier. Units with the same `panel_id` are classified to be the same polling station in two different election years according to our fuzzy matching procedure. 

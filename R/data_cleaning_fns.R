@@ -571,8 +571,3 @@ export_geocoded_locais <- function(geocoded_locais) {
         fwrite(geocoded_locais, "./output/geocoded_polling_stations.csv.gz")
         "./output/geocoded_polling_stations.csv.gz"
 }
-
-# export_panel_ids <- function(panel_ids) {
-#   fwrite(panel_ids, "./output/panel_ids.csv.gz")
-#   "./output/panel_ids.csv.gz"
-# }

@@ -127,3 +127,8 @@ make_panel_1block <- function(block, years, blocking_column, scoring_columns) {
         panel <- create_panel_dataset(pairs_list, years)
         return(panel)
 }
+
+export_panel_ids <- function(panel_ids) {
+        fwrite(panel_ids, "./output/panel_ids.csv.gz")
+        "./output/panel_ids.csv.gz"
+}

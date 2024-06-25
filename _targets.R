@@ -1,8 +1,3 @@
-# Created by use_targets().
-# Follow the comments below to fill in this target script.
-# Then follow the manual to check and run the pipeline:
-#   https://books.ropensci.org/targets/walkthrough.html#inspect-the-pipeline # nolint
-
 # Load packages required to define the pipeline:
 library(targets)
 library(tarchetypes)
@@ -13,8 +8,8 @@ tar_option_set(
   packages = c(
     "conflicted", "targets", "data.table", "purrr", "stringr",
     "bonsai", "future", "reclin2"
-  ), # packages that your targets need to run
-  format = "rds", # default storage format,
+  ),
+  format = "qs", # default storage format,
   memory = "transient",
   garbage_collection = TRUE
 )
@@ -363,10 +358,12 @@ list(
       )
     ))
   ),
+  ## Combine string matching data for mdeling
   tar_target(
     name = model_data,
     command = make_model_data(
-      cnefe10_stbairro_match = cnefe10_stbairro_match, cnefe22_stbairro_match = cnefe22_stbairro_match,
+      cnefe10_stbairro_match = cnefe10_stbairro_match,
+      cnefe22_stbairro_match = cnefe22_stbairro_match,
       schools_cnefe10_match = schools_cnefe10_match,
       schools_cnefe22_match = schools_cnefe22_match,
       agrocnefe_stbairro_match = agrocnefe_stbairro_match,
@@ -375,6 +372,7 @@ list(
       locais = locais, tsegeocoded_locais = tsegeocoded_locais
     ),
   ),
+  ## Train model and make predictions
   tar_target(
     name = trained_model,
     command = train_model(model_data, grid_n = 50),
@@ -385,23 +383,23 @@ list(
     format = "fst_dt"
   ),
 
-  # # Use string matches to geocode and add panel ids
+  # # Use string matches to geocode
   tar_target(
     name = geocoded_locais,
     command = finalize_coords(locais, model_predictions, tsegeocoded_locais),
     format = "fst_dt"
   ),
+  ## Export data
   tar_target(
     name = geocoded_export,
     command = export_geocoded_locais(geocoded_locais),
     format = "file"
   ),
-  #    tar_target(
-  #      name = panelid_export,
-  #      command = export_panel_ids(panel_ids),
-  #      format = "file"
-  #    ),
-  #
+  tar_target(
+    name = panelid_export,
+    command = export_panel_ids(panel_ids),
+    format = "file"
+  ),
   ## Methodology and Evaluation
   tar_render(
     name = geocode_writeup,

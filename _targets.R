@@ -64,7 +64,7 @@ list(
   ),
   tar_target(
     name = muni_shp,
-    command = st_make_valid(readRDS(muni_shp_file))
+    command = sf::st_make_valid(readRDS(muni_shp_file))
   ),
   ## import municipal demographic data
   tar_target(

@@ -488,9 +488,9 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
 #
 calc_muni_area <- function(muni_shp) {
         ## Calculate the area of each municipality
-        area <- st_area(muni_shp)
+        area <- sf::st_area(muni_shp)
         muni_shp$area <- area
-        muni_shp <- st_drop_geometry(muni_shp)
+        muni_shp <- sf::st_drop_geometry(muni_shp)
         setDT(muni_shp)
         muni_shp[, .(cod_localidade_ibge = code_muni, area)]
 }

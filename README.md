@@ -58,8 +58,8 @@ Subsequently, we use the Fellegi-Sunter framework for record linkage to choose t
 - `ano`: year
 - `panel_id`: unique panel identifier. Units with the same `panel_id` are classified to be the same polling station in two different election years according to our fuzzy matching procedure. 
 - `local_id`: polling station identifier. Use this variable to merge with the coordinates data. 
-- `long`: This is a longitude variable that is constant for all observations with the same `panel_id`. The longitude is the longitude with the smallest predicted distance to the true longitude. Ties are broken by selecting the longitude from the latest year. 
-- `lat`: This is a latitude variable that is constant for all observations with the same `panel_id`. The latitude is the latitude with the smallest predicted distance to the true latitude. Ties are broken by selecting the latitude from the latest year.
+- `long`: This is a longitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest predicted distance to the true location. Ties are broken by selecting the longitude from the latest year.
+- `lat`: This is a latitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest predicted distance to the true location. Ties are broken by selecting the latitude from the latest year.
 
 ## Code
 ### Running the Geocoding Pipeline
@@ -128,6 +128,8 @@ All other data can be found in the `data` folder.
 ## Acknowledgements
 
 Thanks to:
+
+- Lucas Nobrega for help improving the panel identifier code. 
 
 - [Yuri Kasahara](https://www.researchgate.net/profile/Yuri_Kasahara2) for ideas and assistance in debugging
 

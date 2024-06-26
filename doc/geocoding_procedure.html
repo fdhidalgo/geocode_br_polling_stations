@@ -456,11 +456,12 @@ package and use the <a href="https://www.tidymodels.org/"><code>tidymodels</code
 for preprocessing and training. We train our model on half of the
 polling stations with ground truth coordinates and use the other half
 for testing. We tune the hyperpareters of the model using adaptive
-resampling[^4] and 10 fold cross-validation. After tuning, we train the
-model on all polling stations with ground truth coordinates. We then use
-this model to predict the distance between the true coordinates and the
-candidate coordinates. For each polling station, we choose the candidate
-coordinate with the smallest predicted distance.</p>
+resampling<a href="#fn4" class="footnote-ref" id="fnref4"><sup>4</sup></a> and 10 fold cross-validation. After tuning,
+we train the model on all polling stations with ground truth
+coordinates. We then use this model to predict the distance between the
+true coordinates and the candidate coordinates. For each polling
+station, we choose the candidate coordinate with the smallest predicted
+distance.</p>
 </div>
 <div id="example-of-string-matching" class="section level3">
 <h3>Example of String Matching</h3>
@@ -1443,6 +1444,8 @@ names, we remove words most common in school names, such as “unidade
 escolar” and “colegio estadual”. These are very common, yet not used
 consistently and as a result, are relatively uninformative. We found
 that removing them improves matching performance.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn4"><p>See the <code>finetune</code> package reference <a href="https://finetune.tidymodels.org/reference/tune_race_anova.html">materials</a>
+for more information on adaptive resampling.<a href="#fnref4" class="footnote-back">↩︎</a></p></li>
 </ol>
 </div>
 

@@ -291,7 +291,7 @@ list(
   ),
   tar_target(
     name = panel_ids,
-    command = rbindlist(list(panel_ids_df, panel_ids_states))
+    command = make_panel_ids(panel_ids_df, panel_ids_states, geocoded_locais)
   ),
 
   # String Matching
@@ -302,7 +302,8 @@ list(
       ~ match_inep_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         inep_muni = inep_data[id_munic_7 == .x]
-      )
+      ),
+      .progress = TRUE
     ))
   ),
   tar_target(
@@ -312,7 +313,8 @@ list(
       ~ match_schools_cnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         schools_cnefe_muni = schools_cnefe10[id_munic_7 == .x]
-      )
+      ),
+      .progress = TRUE
     ))
   ),
   tar_target(
@@ -322,7 +324,8 @@ list(
       ~ match_schools_cnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         schools_cnefe_muni = schools_cnefe22[id_munic_7 == .x]
-      )
+      ),
+      .progress = TRUE
     ))
   ),
   tar_target(
@@ -333,7 +336,8 @@ list(
         locais_muni = locais[cod_localidade_ibge == .x],
         cnefe_st_muni = cnefe10_st[id_munic_7 == .x],
         cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == .x]
-      )
+      ),
+      .progress = TRUE
     ))
   ),
   tar_target(
@@ -344,7 +348,8 @@ list(
         locais_muni = locais[cod_localidade_ibge == .x],
         cnefe_st_muni = cnefe22_st[id_munic_7 == .x],
         cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == .x]
-      )
+      ),
+      .progress = TRUE
     ))
   ),
   tar_target(
@@ -355,10 +360,11 @@ list(
         locais_muni = locais[cod_localidade_ibge == .x],
         agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
         agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
-      )
+      ),
+      .progress = TRUE
     ))
   ),
-  ## Combine string matching data for mdeling
+  ## Combine string matching data for modeling
   tar_target(
     name = model_data,
     command = make_model_data(

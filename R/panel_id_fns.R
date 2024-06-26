@@ -128,6 +128,22 @@ make_panel_1block <- function(block, years, blocking_column, scoring_columns) {
         return(panel)
 }
 
+make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
+        panel_ids <- rbindlist(list(panel_ids_df, panel_ids_states))
+
+
+        ## Merge panel ids with geocoded locais
+        panel_ids <- merge(panel_ids, geocoded_locais[, .(local_id, ano, long, lat, pred_dist)],
+                by = "local_id", all.x = TRUE
+        )
+
+        ## For each panel id, long and lat with smallest pred_dist, break ties by choosing most recent year
+        panel_ids <- panel_ids[order(local_id, pred_dist, -ano), .SD[1], by = .(local_id)]
+        # Remove ano
+        panel_ids[, ano := NULL]
+        panel_ids
+}
+
 export_panel_ids <- function(panel_ids) {
         fwrite(panel_ids, "./output/panel_ids.csv.gz")
         "./output/panel_ids.csv.gz"

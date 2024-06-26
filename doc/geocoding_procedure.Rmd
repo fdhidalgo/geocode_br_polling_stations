@@ -95,7 +95,7 @@ After tuning, we train the model on all polling stations with ground truth coord
 We then use this model to predict the distance between the true coordinates and the candidate coordinates.
 For each polling station, we choose the candidate coordinate with the smallest predicted distance.
 
-[^5]: See the `finetune` package reference [materials](https://finetune.tidymodels.org/reference/tune_race_anova.html) for more information on adaptive resampling.
+[^4]: See the `finetune` package reference [materials](https://finetune.tidymodels.org/reference/tune_race_anova.html) for more information on adaptive resampling.
 
 ### Example of String Matching
 

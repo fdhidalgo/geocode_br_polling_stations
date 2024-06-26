@@ -58,9 +58,8 @@ Subsequently, we use the Fellegi-Sunter framework for record linkage to choose t
 - `ano`: year
 - `panel_id`: unique panel identifier. Units with the same `panel_id` are classified to be the same polling station in two different election years according to our fuzzy matching procedure. 
 - `local_id`: polling station identifier. Use this variable to merge with the coordinates data. 
-- `panel_match_prop`: this variable measures the quality of the match. This is the proportion of words in the pollling station name and address that are exactly the same across years.  A 1 indicates a perfect match between polling station name and address. 
-
-Note that for a small number of cases, a given polling station can be matched to multiple polling stations from an earlier year. This occurs when a later potential match is the best match for multiple polling stations in an earlier election. 
+- `long`: This is a longitude variable that is constant for all observations with the same `panel_id`. The longitude is the longitude with the smallest predicted distance to the true longitude. Ties are broken by selecting the longitude from the latest year. 
+- `lat`: This is a latitude variable that is constant for all observations with the same `panel_id`. The latitude is the latitude with the smallest predicted distance to the true latitude. Ties are broken by selecting the latitude from the latest year.
 
 ## Code
 ### Running the Geocoding Pipeline

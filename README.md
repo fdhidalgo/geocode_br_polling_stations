@@ -8,7 +8,7 @@ The latest dataset of geocoded polling stations can be found in the compressed c
 
 ## Data
 
-The dataset (`geocoded_polliing_stations.csv.gz`) contains the following variables:
+The dataset (`geocoded_polling_stations.csv.gz`) contains the following variables:
 
 - `local_id`: Unique identifier for the polling station in a given election. This will vary across time, even for polling stations that are active in multiple elections.
 

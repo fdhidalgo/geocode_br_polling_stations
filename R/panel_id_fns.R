@@ -138,7 +138,13 @@ make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
         )
 
         ## For each panel id, long and lat with smallest pred_dist, break ties by choosing most recent year
-        panel_ids <- panel_ids[order(panel_id, pred_dist, -ano), .SD[1], by = .(panel_id)]
+        panel_ids_best <- panel_ids[order(panel_id, pred_dist, -ano), .SD[1], by = .(panel_id)]
+        panel_ids_best <- panel_ids_best[, .(panel_id, long, lat, pred_dist)]
+
+        # remove long, lat, pred_dist from panel_ids
+        panel_ids[, c("long", "lat", "pred_dist") := NULL]
+        panel_ids <- merge(panel_ids, panel_ids_best, by = "panel_id", all.x = TRUE)
+
         # Remove ano
         panel_ids[, ano := NULL]
         panel_ids

@@ -1,7 +1,5 @@
 # Brazilian Polling Station Geocoding Project
 
-
-
 ## Project Goals
 
 This project geocodes Brazilian polling stations from 2006-2022 elections through sophisticated string matching and machine learning techniques. The modernization effort focuses on:
@@ -19,7 +17,9 @@ The current plan for modernization is in modernization_plan.md. Please use the g
 
 When creating functions, please stop after each function and explain what you've created.  
 
-After you add a function to  _targets.R or modify a function in _targets.R, test that the function works. 
+After you add a function to  _targets.R or modify a function in _targets.R, check that the function works. 
+
+Please ask follow up questions to add context and get additional clarity. 
 
 ## Systematic Commit Practices
 
@@ -35,19 +35,14 @@ This project follows systematic commit practices for research data analysis. Eac
 - Every data transformation must be validated
 - Validation targets run automatically in pipeline
 - Quality checks flag potential issues for review
-- Diagnostic plots confirm cleaning effectiveness
 
 ### Issue-Driven Development
 - Create GitHub issues for each analytical decision
 - Document exploration in issue threads
 - Link commits to relevant issues
-- Maintain decision log for peer review
 
 ### targets Pipeline Structure
 - Atomic targets for each processing step
-- Validation targets depend on analysis targets
-- Clear separation of functions and pipeline definition
-- Cached results for computational efficiency
 
 ## Key Commands
 
@@ -67,18 +62,6 @@ tar_outdated()
 
 # Read target results
 tar_read(target_name)
-```
-
-### Testing and Validation
-```bash
-# Run all validation targets
-tar_make(starts_with("validate_"))
-
-# Check data quality reports
-tar_read(data_quality_report)
-
-# Run pipeline tests on data subset
-tar_make(test_pipeline)
 ```
 
 ### Code Style
@@ -109,42 +92,6 @@ lintr::lint_dir("R/")
     └── codebook.md       # Variable definitions
 ```
 
-## Modernization Tasks
-
-### Phase 1: Foundation (High Priority)
-1. Set up validation framework with test targets
-2. Create GitHub issues for major components
-3. Analyze and document current dependencies
-
-### Phase 2: Refactoring (Medium Priority)
-4. Refactor data cleaning with validation
-5. Standardize coding style (tidyverse conventions)
-6. Reduce package dependencies
-
-### Phase 3: Enhancement (Ongoing)
-7. Add comprehensive validation targets
-8. Create detailed documentation
-9. Implement unit testing framework
-
-## Validation Requirements
-
-### Data Cleaning Validation
-- Input data structure checks
-- Transformation correctness tests
-- Output quality metrics
-- Missing data handling verification
-
-### Geocoding Validation
-- String match quality scores
-- Coordinate reasonableness checks
-- Cross-validation with known coordinates
-- Spatial consistency verification
-
-### Panel Creation Validation
-- Temporal consistency checks
-- Identifier uniqueness verification
-- Linkage quality metrics
-- Coverage statistics
 
 ## Development Guidelines
 
@@ -172,15 +119,6 @@ Closes #XX
 - Descriptive variable and function names
 - Comprehensive function documentation
 
-## Dependencies to Minimize
-
-Current key dependencies to evaluate:
-- String matching: stringdist, stringr
-- Spatial: sf, sp (consolidate to sf only)
-- Data manipulation: dplyr, data.table (choose one)
-- Parallel processing: future, furrr
-- Machine learning: glmnet, ranger
-
 ## Quality Assurance
 
 ### Before Each Commit
@@ -190,9 +128,3 @@ Current key dependencies to evaluate:
 4. Update documentation
 5. Link to GitHub issue
 
-### Regular Maintenance
-- Weekly: Review and update dependencies
-- Monthly: Full pipeline validation
-- Quarterly: Performance optimization review
-
-Please ask follow up questions to add context and get additional clarity. 

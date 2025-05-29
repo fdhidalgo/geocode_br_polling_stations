@@ -6,8 +6,8 @@ library(conflicted)
 # Set target options:
 tar_option_set(
   packages = c(
-    "conflicted", "targets", "data.table", "purrr", "stringr",
-    "bonsai", "future", "reclin2"
+    "conflicted", "targets", "data.table", "stringr",
+    "bonsai", "future", "reclin2", "future.apply"
   ),
   format = "qs", # default storage format,
   memory = "transient",
@@ -297,71 +297,65 @@ list(
   # String Matching
   tar_target(
     name = inep_string_match,
-    command = rbindlist(furrr::future_map(
+    command = rbindlist(future.apply::future_lapply(
       unique(locais$cod_localidade_ibge),
-      ~ match_inep_muni(
+      function(.x) match_inep_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         inep_muni = inep_data[id_munic_7 == .x]
-      ),
-      .progress = TRUE
+      )
     ))
   ),
   tar_target(
     name = schools_cnefe10_match,
-    command = rbindlist(furrr::future_map(
+    command = rbindlist(future.apply::future_lapply(
       unique(locais$cod_localidade_ibge),
-      ~ match_schools_cnefe_muni(
+      function(.x) match_schools_cnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         schools_cnefe_muni = schools_cnefe10[id_munic_7 == .x]
-      ),
-      .progress = TRUE
+      )
     ))
   ),
   tar_target(
     name = schools_cnefe22_match,
-    command = rbindlist(furrr::future_map(
+    command = rbindlist(future.apply::future_lapply(
       unique(locais$cod_localidade_ibge),
-      ~ match_schools_cnefe_muni(
+      function(.x) match_schools_cnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         schools_cnefe_muni = schools_cnefe22[id_munic_7 == .x]
-      ),
-      .progress = TRUE
+      )
     ))
   ),
   tar_target(
     name = cnefe10_stbairro_match,
-    command = rbindlist(furrr::future_map(
+    command = rbindlist(future.apply::future_lapply(
       unique(locais$cod_localidade_ibge),
-      ~ match_stbairro_cnefe_muni(
+      function(.x) match_stbairro_cnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         cnefe_st_muni = cnefe10_st[id_munic_7 == .x],
         cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == .x]
-      ),
-      .progress = TRUE
+      )
     ))
   ),
   tar_target(
     name = cnefe22_stbairro_match,
-    command = rbindlist(furrr::future_map(
+    command = rbindlist(future.apply::future_lapply(
       unique(locais$cod_localidade_ibge),
-      ~ match_stbairro_cnefe_muni(
+      function(.x) match_stbairro_cnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         cnefe_st_muni = cnefe22_st[id_munic_7 == .x],
         cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == .x]
-      ),
-      .progress = TRUE
+      )
     ))
   ),
   tar_target(
     name = agrocnefe_stbairro_match,
-    command = rbindlist(furrr::future_map(
+    command = rbindlist(future.apply::future_lapply(
       unique(locais$cod_localidade_ibge),
-      ~ match_stbairro_agrocnefe_muni(
+      function(.x) match_stbairro_agrocnefe_muni(
         locais_muni = locais[cod_localidade_ibge == .x],
         agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
         agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
-      ),
-      .progress = TRUE
+      )
     ))
   ),
   ## Combine string matching data for modeling

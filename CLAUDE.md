@@ -15,7 +15,11 @@ This project geocodes Brazilian polling stations from 2006-2022 elections throug
 
 ## Claude Code Instructions
 
-The current plan for modernization is in modernization_plan.md. Please use the github cli to interact with the github repo. 
+The current plan for modernization is in modernization_plan.md. Please use the github cli to interact with the github repo.  
+
+When creating functions, please stop after each function and explain what you've created.  
+
+After you add a function to  _targets.R or modify a function in _targets.R, test that the function works. 
 
 ## Systematic Commit Practices
 

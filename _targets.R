@@ -2,6 +2,11 @@
 library(targets)
 library(tarchetypes)
 library(conflicted)
+library(future.apply)
+library(data.table)
+
+# Set global options for future
+options(future.globals.maxSize = 1 * 1024^3) # 1GB limit, was in process_with_progress
 
 # Set target options:
 tar_option_set(
@@ -25,7 +30,7 @@ tar_option_set(
 
 data.table::setDTthreads(future::availableCores(omit = 1))
 future::plan(future::multisession, workers = future::availableCores(omit = 1))
-
+library(progressr)
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
@@ -185,7 +190,7 @@ list(
   ## Import and clean 2017 CNEFE
   tar_target(
     name = agro_cnefe_files,
-    command = dir("./data/agro_censo/", full.names = TRUE)
+    command = dir("data/agro_censo/", full.names = TRUE)
   ),
   tar_target(
     name = agro_cnefe,
@@ -359,79 +364,102 @@ list(
   # String Matching
   tar_target(
     name = inep_string_match,
-    command = process_with_progress(
-      muni_codes = unique(locais$cod_localidade_ibge),
-      func = function(.x) {
-        match_inep_muni(
-          locais_muni = locais[cod_localidade_ibge == .x],
-          inep_muni = inep_data[id_munic_7 == .x]
-        )
-      },
-      task_name = "INEP string matching"
-    )
+    command = {
+      future.apply::future_lapply(
+        X = unique(locais$cod_localidade_ibge),
+        FUN = function(.x) {
+          match_inep_muni(
+            locais_muni = locais[cod_localidade_ibge == .x],
+            inep_muni = inep_data[id_munic_7 == .x]
+          )
+        },
+        future.seed = TRUE
+      ) |>
+        data.table::rbindlist()
+    }
   ),
   tar_target(
     name = schools_cnefe10_match,
-    command = process_with_progress(
-      muni_codes = unique(locais$cod_localidade_ibge),
-      func = function(.x)
-        match_schools_cnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == .x],
-          schools_cnefe_muni = schools_cnefe10[id_munic_7 == .x]
-        ),
-      task_name = "CNEFE 2010 schools matching"
-    )
+    command = {
+      future.apply::future_lapply(
+        X = unique(locais$cod_localidade_ibge),
+        FUN = function(.x) {
+          match_schools_cnefe_muni(
+            locais_muni = locais[cod_localidade_ibge == .x],
+            schools_cnefe_muni = schools_cnefe10[id_munic_7 == .x]
+          )
+        },
+        future.seed = TRUE
+      ) |>
+        data.table::rbindlist()
+    }
   ),
   tar_target(
     name = schools_cnefe22_match,
-    command = process_with_progress(
-      muni_codes = unique(locais$cod_localidade_ibge),
-      func = function(.x)
-        match_schools_cnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == .x],
-          schools_cnefe_muni = schools_cnefe22[id_munic_7 == .x]
-        ),
-      task_name = "CNEFE 2022 schools matching"
-    )
+    command = {
+      future.apply::future_lapply(
+        X = unique(locais$cod_localidade_ibge),
+        FUN = function(.x) {
+          match_schools_cnefe_muni(
+            locais_muni = locais[cod_localidade_ibge == .x],
+            schools_cnefe_muni = schools_cnefe22[id_munic_7 == .x]
+          )
+        },
+        future.seed = TRUE
+      ) |>
+        data.table::rbindlist()
+    }
   ),
   tar_target(
     name = cnefe10_stbairro_match,
-    command = process_with_progress(
-      muni_codes = unique(locais$cod_localidade_ibge),
-      func = function(.x)
-        match_stbairro_cnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == .x],
-          cnefe_st_muni = cnefe10_st[id_munic_7 == .x],
-          cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == .x]
-        ),
-      task_name = "CNEFE 2010 street/neighborhood matching"
-    )
+    command = {
+      future.apply::future_lapply(
+        X = unique(locais$cod_localidade_ibge),
+        FUN = function(.x) {
+          match_stbairro_cnefe_muni(
+            locais_muni = locais[cod_localidade_ibge == .x],
+            cnefe_st_muni = cnefe10_st[id_munic_7 == .x],
+            cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == .x]
+          )
+        },
+        future.seed = TRUE
+      ) |>
+        data.table::rbindlist()
+    }
   ),
   tar_target(
     name = cnefe22_stbairro_match,
-    command = process_with_progress(
-      muni_codes = unique(locais$cod_localidade_ibge),
-      func = function(.x)
-        match_stbairro_cnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == .x],
-          cnefe_st_muni = cnefe22_st[id_munic_7 == .x],
-          cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == .x]
-        ),
-      task_name = "CNEFE 2022 street/neighborhood matching"
-    )
+    command = {
+      future.apply::future_lapply(
+        X = unique(locais$cod_localidade_ibge),
+        FUN = function(.x) {
+          match_stbairro_cnefe_muni(
+            locais_muni = locais[cod_localidade_ibge == .x],
+            cnefe_st_muni = cnefe22_st[id_munic_7 == .x],
+            cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == .x]
+          )
+        },
+        future.seed = TRUE
+      ) |>
+        data.table::rbindlist()
+    }
   ),
   tar_target(
     name = agrocnefe_stbairro_match,
-    command = process_with_progress(
-      muni_codes = unique(locais$cod_localidade_ibge),
-      func = function(.x)
-        match_stbairro_agrocnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == .x],
-          agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
-          agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
-        ),
-      task_name = "Agro CNEFE 2017 street/neighborhood matching"
-    )
+    command = {
+      future.apply::future_lapply(
+        X = unique(locais$cod_localidade_ibge),
+        FUN = function(.x) {
+          match_stbairro_agrocnefe_muni(
+            locais_muni = locais[cod_localidade_ibge == .x],
+            agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
+            agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
+          )
+        },
+        future.seed = TRUE
+      ) |>
+        data.table::rbindlist()
+    }
   ),
   ## Combine string matching data for modeling
   tar_target(

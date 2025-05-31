@@ -6,7 +6,7 @@ library(future.apply)
 library(data.table)
 
 # Set global options for future
-options(future.globals.maxSize = 1 * 1024^3) # 1GB limit, was in process_with_progress
+options(future.globals.maxSize = 2 * 1024^3) # 2GB limit, was in process_with_progress
 
 # Set target options:
 tar_option_set(

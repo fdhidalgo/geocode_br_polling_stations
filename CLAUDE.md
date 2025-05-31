@@ -32,7 +32,7 @@ This project follows systematic commit practices for research data analysis. Eac
 ## Core Principles
 
 ### Data Validation Philosophy
-- Every data transformation must be validated
+- Every data transformation and merge must be validated
 - Validation targets run automatically in pipeline
 - Quality checks flag potential issues for review
 

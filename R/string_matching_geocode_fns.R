@@ -894,7 +894,8 @@ train_model <- function(model_data, grid_n = 10, sample = NULL) {
     # metrics = metrics,
     control = finetune::control_race(
       verbose_elim = TRUE,
-      verbose = TRUE
+      verbose = TRUE,
+      allow_par = FALSE
     )
   )
   best_rmse <- tune::select_best(gbm_tune, metric = "rmse")

@@ -28,8 +28,13 @@ tar_option_set(
 
 ## Setup parallel processing
 
-data.table::setDTthreads(future::availableCores(omit = 1))
-future::plan(future::multisession, workers = future::availableCores(omit = 1))
+data.table::setDTthreads(future::availableCores(
+  omit = floor(future::availableCores() / 2)
+))
+future::plan(
+  future::multisession,
+  workers = floor(future::availableCores() / 2)
+)
 library(progressr)
 
 # Load the R scripts with your custom functions:

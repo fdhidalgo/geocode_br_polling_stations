@@ -155,6 +155,116 @@ Even for solo work, issues provide valuable context that commit messages can't c
 - The machine learning model (boosted trees) predicts distance to true location for selecting best match
 - Memory requirement: 50GB+ RAM due to large datasets
 
+## Task Management with task-master CLI
+
+This project uses the `task-master` CLI tool to manage development tasks. Tasks are stored in `.taskmaster/tasks/` directory.
+
+### Key Task Management Commands
+
+```bash
+# View all tasks and their status
+task-master list
+
+# See the next recommended task to work on
+task-master next
+
+# View details of a specific task
+task-master show <id>
+
+# Mark a task as complete
+task-master set-status --id=<id> --status=done
+
+# Expand a complex task into subtasks
+task-master expand --id=<id> --research
+
+# Update future tasks when implementation changes
+task-master update --from=<id> --prompt="<explanation>"
+
+# Analyze task complexity before starting work
+task-master analyze-complexity --research
+task-master complexity-report
+
+# Add new tasks
+task-master add-task --prompt="<description>" --dependencies=<ids>
+```
+
+### Current Project Tasks
+
+The project has 10 major tasks tracked in `.taskmaster/tasks/tasks.json`:
+1. **Setup Development Environment** - Testing infrastructure with testthat
+2. **Code Standardization** - Consistent data.table usage
+3. **Validation Framework** - Systematic data quality checks
+4. **Dynamic Branching Migration** - Convert to targets branching
+5. **String Matching Consolidation** - Unified fuzzy matching
+6. **Data Integration Pipeline** - Multi-source ETL
+7. **ML Coordinate Selection** - LightGBM models
+8. **Panel Identifier System** - Record linkage across time
+9. **geocodebr Integration** - Analyze IPEA methodology
+10. **R Package Creation** - Package for data distribution
+
+### Task Workflow Integration
+
+**IMPORTANT**: Always ask the user to review tasks and subtasks before executing them. Never proceed with task implementation without explicit approval.
+
+1. **Starting Work**: Run `task-master next` to identify ready tasks
+2. **Task Selection**: Check dependencies are complete before starting
+3. **Complex Tasks**: Use `task-master expand --id=<id>` to break down
+4. **Review Required**: Present generated tasks/subtasks to user for approval
+5. **Progress Tracking**: Update status with `task-master set-status`
+6. **Implementation Changes**: Use `task-master update` to modify future tasks
+
+### R-Specific Task Implementation
+
+When working on tasks in this R project:
+
+1. **Before Starting a Task**:
+   ```bash
+   # Check task details and dependencies
+   task-master show <id>
+   
+   # Ensure R environment is ready
+   R -e "renv::status()"
+   ```
+
+2. **During Implementation**:
+   - Follow the task's detailed implementation notes
+   - Create functions in appropriate R/ files
+   - Use data.table consistently as specified in tasks
+   - Add testthat tests when implementing new functions
+
+3. **Testing Your Changes**:
+   ```bash
+   # Run specific pipeline targets
+   R -e "targets::tar_make(names = 'your_target')"
+   
+   # Run tests (when implemented)
+   R -e "devtools::test()"
+   
+   # Check code style
+   R -e "lintr::lint_dir('R/')"
+   ```
+
+4. **Completing Tasks**:
+   ```bash
+   # Verify implementation meets test strategy
+   # Mark task as done
+   task-master set-status --id=<id> --status=done
+   
+   # Generate updated task files
+   task-master generate
+   ```
+
+### Task-Specific R Commands
+
+Based on the current tasks:
+
+- **Task 1 (Testing)**: `R -e "usethis::use_testthat()"`
+- **Task 2 (Style)**: `R -e "lintr::lint_dir('R/', linters = lintr::linters_with_defaults())"`
+- **Task 3 (Validation)**: `R -e "library(validate); ?validator"`
+- **Task 4 (Targets)**: `R -e "targets::tar_visnetwork()"`
+- **Task 5-8 (Implementation)**: Use task details for specific R code
+- **Task 10 (Package)**: `R -e "usethis::create_package('.')"`
+
 ## Known Issues and Active Development
 
 ### Data Quality (Issue #3)

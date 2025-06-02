@@ -4,7 +4,7 @@
     "Repositories": [
       {
         "Name": "P3M",
-        "URL": "https://packagemanager.posit.co/cran/__linux__/jammy/latest"
+        "URL": "https://packagemanager.posit.co/cran/latest"
       }
     ]
   },
@@ -603,7 +603,7 @@
       "Package": "evaluate",
       "Version": "1.0.3",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "https://cloud.r-project.org",
       "Requirements": [
         "R"
       ],
@@ -931,7 +931,7 @@
       "Package": "highr",
       "Version": "0.11",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "https://cloud.r-project.org",
       "Requirements": [
         "R",
         "xfun"
@@ -1130,7 +1130,7 @@
       "Package": "knitr",
       "Version": "1.50",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "https://cloud.r-project.org",
       "Requirements": [
         "R",
         "evaluate",
@@ -1879,11 +1879,22 @@
       ],
       "Hash": "8b53c2f65677895c7e118afd6d786c1a"
     },
+    "settings": {
+      "Package": "settings",
+      "Version": "0.2.7",
+      "Source": "Repository",
+      "Repository": "https://cran.r-project.org",
+      "Requirements": [
+        "grDevices",
+        "graphics"
+      ],
+      "Hash": "044078dfd387c9a6e160103978d23be4"
+    },
     "sf": {
       "Package": "sf",
       "Version": "1.0-21",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "https://cran.r-project.org",
       "Requirements": [
         "DBI",
         "R",
@@ -2342,6 +2353,22 @@
       ],
       "Hash": "ed553a57e9eb21f4d0298fbc1ad7b4df"
     },
+    "validate": {
+      "Package": "validate",
+      "Version": "1.1.5",
+      "Source": "Repository",
+      "Repository": "https://cran.r-project.org",
+      "Requirements": [
+        "R",
+        "graphics",
+        "grid",
+        "methods",
+        "settings",
+        "stats",
+        "yaml"
+      ],
+      "Hash": "b3353629762a62bb7cd9b79fc0caf683"
+    },
     "vctrs": {
       "Package": "vctrs",
       "Version": "0.6.5",
@@ -2481,7 +2508,7 @@
       "Package": "xfun",
       "Version": "0.52",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "https://cloud.r-project.org",
       "Requirements": [
         "R",
         "grDevices",
@@ -2494,7 +2521,7 @@
       "Package": "xml2",
       "Version": "1.3.8",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "https://cloud.r-project.org",
       "Requirements": [
         "R",
         "cli",
@@ -2519,7 +2546,7 @@
       "Package": "yaml",
       "Version": "2.3.10",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "https://cloud.r-project.org",
       "Hash": "51dab85c6c98e50a18d7551e9d49f76c"
     },
     "yardstick": {

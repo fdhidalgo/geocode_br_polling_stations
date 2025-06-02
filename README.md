@@ -2,6 +2,14 @@
 
 This repository contains the code to geocode polling stations in Brazil. We leverage administrative datasets to geocode all polling stations used in elections from 2006 to 2022.
 
+## Overview
+
+This project provides:
+- **Geocoded coordinates** for ~400,000 Brazilian polling stations (2006-2022)
+- **Panel identifiers** to track polling stations across elections
+- **Reproducible pipeline** using R and the `targets` package
+- **Fuzzy string matching** algorithms that often outperform commercial geocoding services
+
 We detail our methodology and limitations of our method in this [document](https://raw.githack.com/fdhidalgo/geocode_br_polling_stations/master/doc/geocoding_procedure.html). As we explain in that document, our method often performs better than commercial solutions like the [Google Maps Geocoding Service](https://developers.google.com/maps/documentation/geocoding/overview), particularly in rural areas. Despite our best efforts, however, it is important to note that this procedure inevitably will make mistakes and consequently some coordinates will be incorrect. 
 
 The latest dataset of geocoded polling stations can be found in the compressed csv file  linked to on the [release page](https://github.com/fdhidalgo/geocode_br_polling_stations/releases/latest). Version notes can be found [here](https://github.com/fdhidalgo/geocode_br_polling_stations/releases).
@@ -61,23 +69,133 @@ Subsequently, we use the Fellegi-Sunter framework for record linkage to choose t
 - `long`: This is a longitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest predicted distance to the true location. Ties are broken by selecting the longitude from the latest year.
 - `lat`: This is a latitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest predicted distance to the true location. Ties are broken by selecting the latitude from the latest year.
 
-## Code
-### Running the Geocoding Pipeline
+## Development Setup
+
+### Prerequisites
+
+- R >= 4.4.0
+- 50GB+ RAM (required for processing large administrative datasets)
+- Git for version control
+
+### Initial Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/fdhidalgo/geocode_br_polling_stations.git
+cd geocode_br_polling_stations
+```
+
+2. Restore R package dependencies using renv:
+```r
+renv::restore()
+```
+
+3. Download required administrative datasets (see [Data Sources](#data-sources) section)
+
+### Development Environment
+
+This project uses:
+- **`renv`** for reproducible package management
+- **`targets`** for pipeline orchestration
+- **`data.table`** for efficient data manipulation
+- **`future`** for parallel processing
+
+### Project Structure
+
+```
+├── _targets.R           # Pipeline configuration
+├── R/                   # Core functions
+│   ├── data_cleaning_fns.R
+│   ├── string_matching_geocode_fns.R
+│   ├── panel_id_fns.R
+│   └── functions_validate.R
+├── data/               # Input data
+├── output/             # Generated outputs
+└── doc/                # Documentation
+```
+
+## Running the Pipeline
+
+### Quick Start
 
 We used the open source language *R* (version 4.4.0) to process the files and geocode the polling stations. To manage the pipeline that imports and processes all the data, we use the [`targets`](https://github.com/ropensci/targets) package.
 
-Assuming all the relevant data is in the `./data` folder, you can reconstruct the dataset using the following code:
+Assuming all the relevant data is in the `./data` folder, you can reconstruct the dataset using:
 
-``` r
-#Set working directory to project directory
-setwd(".")
-renv::restore() #to install necessary packages
-targets::tar_make() # to run pipepeline
+```r
+# Run the complete pipeline
+targets::tar_make()
+
+# Run specific targets
+targets::tar_make(names = "target_name")
+
+# Visualize pipeline
+targets::tar_visnetwork()
+
+# Check pipeline status
+targets::tar_outdated()
 ```
 
-Options to modify how the pipeline runs (e.g. parallel processing options) can be found in the [`_targets.R`](./_targets.R) file. The pipeline is in the [`targets.R`](./targets.R) file as well. We use the [`renv`](https://rstudio.github.io/renv/index.html) package to manage package dependencies. To ensure that you are using the right package versions, invoke `renv::restore()` when the working directory is set to the github repo directory.
+### Pipeline Configuration
 
-Given the size of some of the data files, you will likely need at least 50GB of RAM to run the code.
+The pipeline can be configured in `_targets.R`:
+- **Parallel workers**: Adjust `future::plan()` settings
+- **Memory limits**: Currently set to 2GB for future globals
+- **Target-specific options**: Modify individual target settings
+
+### Common Pipeline Commands
+
+```r
+# Clean and rebuild everything
+targets::tar_destroy()
+targets::tar_make()
+
+# Debug a specific target
+targets::tar_load(target_name)
+
+# View target dependencies
+targets::tar_deps(target_name)
+```
+
+## Testing
+
+*Note: Test infrastructure is currently being implemented (Task #1)*
+
+Once implemented, tests can be run with:
+```r
+# Run all tests
+devtools::test()
+
+# Run specific test file
+testthat::test_file("tests/testthat/test-string_matching.R")
+```
+
+## Code Style Guide
+
+### R Code Conventions
+
+- **Naming**: Use snake_case for functions and variables
+- **Functions**: Document with Roxygen2 comments
+- **Data manipulation**: Use `data.table` syntax consistently
+- **File paths**: Use relative paths or `here::here()`
+
+### Pre-commit Hooks
+
+*Note: Pre-commit hooks are being implemented*
+
+The project will use pre-commit hooks for:
+- Code formatting with `styler`
+- Linting with `lintr`
+- Spell checking documentation
+
+### Best Practices
+
+1. **Memory Management**: Monitor memory usage with large datasets
+2. **Parallel Processing**: Use municipality-level parallelization
+3. **Validation**: Add checks after major data transformations
+4. **Documentation**: Update function documentation when modifying code
+
+## Working with the Data
 
 ### Merging Coordinates with Electoral Data
 While one can get disaggregated electoral data directly from the TSE, I recommend obtaining polling station-level data from  [CEPESP DATA](https://www.cepespdata.io), as it has been cleaned, aggregated, and standardized. 
@@ -125,6 +243,29 @@ All other data can be found in the `data` folder.
 | Census Tract Shape Files\*         | [`geobr` Package](https://github.com/ipeaGIT/geobr)                                                                                                                                                    |
 | Municipal Demographic Variables    | [Atlas do Desenvolvimento Humano no Brasil](http://www.atlasbrasil.org.br)                                                                                                                             |
 
+## Contributing
+
+We welcome contributions!
+
+### Reporting Issues
+
+Please report bugs or request features through [GitHub Issues](https://github.com/fdhidalgo/geocode_br_polling_stations/issues).
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Memory errors**: Reduce parallel workers in `_targets.R`
+2. **Package conflicts**: Run `renv::status()` and `renv::restore()`
+3. **Missing data files**: Check [Data Sources](#data-sources) for download links
+4. **Pipeline failures**: Use `targets::tar_meta()` to inspect errors
+
+### Getting Help
+
+- Check existing [GitHub Issues](https://github.com/fdhidalgo/geocode_br_polling_stations/issues)
+- Review pipeline status with `targets::tar_visnetwork()`
+- Inspect specific target errors with `targets::tar_meta(target_name)$error`
+
 ## Acknowledgements
 
 Thanks to:
@@ -135,6 +276,16 @@ Thanks to:
 
 - George Avelino, Mauricio Izumi, Gabriel Caseiro, and Daniel Travassos Ferreira at [FGV/CEPESP](https://www.cepespdata.io) for data and advice
 - Marco Antonio Faganello for excellent assistance at the early stages of the project. 
+
+## License
+
+*License information to be added*
+
+## Citation
+
+If you use this data in your research, please cite:
+
+*Citation format to be added*
 
 ## Other Approaches
 

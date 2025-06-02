@@ -38,9 +38,11 @@ future::plan(
 library(progressr)
 
 # Load the R scripts with your custom functions:
-lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
+lapply(list.files("./R", full.names = TRUE, pattern = "fns\\.R$"), source)
 # Load validation functions
 source("./R/functions_validate.R")
+# Load join validation functions
+source("./R/validation_join_operations.R")
 
 ## Do not use s2 spherical geometry package
 # sf::sf_use_s2(FALSE)

@@ -1,156 +1,274 @@
-# Function to create pairs, compute scores, and select the best match for each observation
-create_and_select_best_pairs <- function(data, years, blocking_column, scoring_columns) {
-        pairs_list <- list()
+## Panel ID functions
 
-        # Sort years to ensure correct order
-        years <- sort(years)
-
-        for (i in seq_along(years)[-length(years)]) {
-                year1 <- years[i]
-                year2 <- years[i + 1]
-                print(year1)
-
-                # Subset the data for the two consecutive years
-                linkexample1 <- data[ano == year1]
-                linkexample2 <- data[ano == year2]
-
-                # Create pairs using pair_blocking
-                pairs <- pair_blocking(linkexample1, linkexample2, blocking_column)
-
-                # Compare pairs to ensure the necessary variables are kept, using Jaro-Winkler Distance
-                pairs <- compare_pairs(pairs,
-                        on = scoring_columns,
-                        default_comparator = cmp_jarowinkler(0.9), inplace = TRUE
-                )
-
-                # Rename the variables to indicate they represent a match score
-                match_scoring_columns <- paste0("match_", scoring_columns)
-                setnames(pairs, scoring_columns, match_scoring_columns)
-
-                # Compute the Machine Learning Fellegi and Sunter Weights
-                formula <- as.formula(paste("~", paste(match_scoring_columns, collapse = " + ")))
-                m <- problink_em(formula, data = pairs)
-                pairs <- predict(m, pairs, add = TRUE)
-
-                # Add local_id to the pairs
-                pairs[, `:=`(
-                        .x_local_id = linkexample1$local_id[.x],
-                        .y_local_id = linkexample2$local_id[.y]
-                )]
-
-                # Select the best match for each observation
-                best_pairs <- select_n_to_m(pairs, threshold = 0, score = "weights", var = "match", n = 1, m = 1)
-
-                # Keep only the pairs where match is TRUE
-                best_pairs <- best_pairs[match == TRUE]
-
-                # Store the final matched pairs in the list
-                pairs_list[[paste0(year1, "_", year2)]] <- best_pairs
-        }
-
-        return(pairs_list)
-}
+library(data.table)
+source("R/data_table_utils.R")
 
 process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
-        # Rename the columns in best_pairs to match the years
-        clean_pairs <- best_pairs[, .(local_id_from = .x_local_id, local_id_to = .y_local_id)]
-        setnames(
-                clean_pairs, c("local_id_from", "local_id_to"),
-                c(paste0("local_id_", year_from), paste0("local_id_", year_to))
-        )
-
-        # Identify missing ids from the previous year that are not in the current panel
-        missing_ids <- setdiff(
-                clean_pairs[[paste0("local_id_", year_from)]],
-                panel[[paste0("local_id_", year_from)]]
-        )
-
-        # Create rows for missing ids
-        missing_rows <- data.table(matrix(NA, nrow = length(missing_ids), ncol = ncol(panel)))
-        setnames(missing_rows, names(panel))
-        missing_rows[[paste0("local_id_", year_from)]] <- missing_ids
-
-        # Add missing rows to the panel
-        panel <- rbindlist(list(panel, missing_rows), fill = TRUE)
-
-        # Merge the panel with the clean pairs
-        panel <- merge(panel, clean_pairs, by = paste0("local_id_", year_from), all = TRUE)
-
-        return(panel)
-}
-
-create_panel_dataset <- function(final_pairs_list, years) {
-        # Ensure the years are sorted
-        years <- sort(years)
-
-        # Extract the best pairs for the first two years
-        first_year <- years[1]
-        second_year <- years[2]
-        best_pairs_first <- final_pairs_list[[paste0(first_year, "_", second_year)]]
-
-        # Create the initial panel dataset with the first two years' local_id columns
-        panel <- best_pairs_first[, .(
-                local_id_first = .x_local_id,
-                local_id_second = .y_local_id
-        )]
-        setnames(
-                panel, c("local_id_first", "local_id_second"),
-                c(paste0("local_id_", first_year), paste0("local_id_", second_year))
-        )
-
-        # Process each subsequent pair of years using the helper function
-        for (i in seq(2, length(years) - 1)) {
-                year_from <- years[i]
-                year_to <- years[i + 1]
-                best_pairs <- final_pairs_list[[paste0(year_from, "_", year_to)]]
-                panel <- process_year_pairs(panel, best_pairs, year_from, year_to)
-        }
-
-        # Add a new variable panel_id that is equal to the smallest value in each row (among the local_id columns)
-        panel[, panel_id := apply(.SD, 1, min, na.rm = TRUE), .SDcols = patterns("local_id_")]
-
-        # Create the final dataset with local_id and panel_id
-        panel <- melt(panel,
-                id.vars = "panel_id", measure.vars = patterns("local_id_"),
-                variable.name = "year", value.name = "local_id"
-        )[, .(local_id, panel_id)]
-
-        # Remove rows with NA local_id
-        panel <- panel[!is.na(local_id)]
-
-        return(panel)
-}
-
-make_panel_1block <- function(block, years, blocking_column, scoring_columns) {
-        print(unique(block$sg_uf))
-        pairs_list <- create_and_select_best_pairs(block, years, blocking_column, scoring_columns)
-        panel <- create_panel_dataset(pairs_list, years)
-        return(panel)
+  # Standardize column names in best_pairs
+  standardize_column_names(best_pairs, inplace = TRUE)
+  
+  # Rename the columns in best_pairs to match the years
+  clean_pairs <- best_pairs[, .(local_id_from = x_local_id, local_id_to = y_local_id)]
+  setnames(
+    clean_pairs, c("local_id_from", "local_id_to"),
+    c(paste0("local_id_", year_from), paste0("local_id_", year_to))
+  )
+  
+  # Identify missing ids from the previous year that are not in the current panel
+  missing_ids <- setdiff(
+    clean_pairs[[paste0("local_id_", year_from)]],
+    panel[[paste0("local_id_", year_from)]]
+  )
+  
+  # Create rows for missing ids
+  if (length(missing_ids) > 0) {
+    missing_rows <- data.table(matrix(NA, nrow = length(missing_ids), ncol = ncol(panel)))
+    setnames(missing_rows, names(panel))
+    missing_rows[[paste0("local_id_", year_from)]] <- missing_ids
+    
+    # Add missing rows to the panel
+    panel <- rbindlist(list(panel, missing_rows), fill = TRUE)
+  }
+  
+  # Join with clean_pairs
+  panel <- clean_pairs[
+    panel,
+    on = paste0("local_id_", year_from),
+    nomatch = NA
+  ]
+  
+  return(panel)
 }
 
 make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
-        panel_ids <- rbindlist(list(panel_ids_df, panel_ids_states))
+  # Standardize column names
+  standardize_column_names(panel_ids_df, inplace = TRUE)
+  standardize_column_names(panel_ids_states, inplace = TRUE)
+  standardize_column_names(geocoded_locais, inplace = TRUE)
+  
+  panel_ids <- rbindlist(list(panel_ids_df, panel_ids_states))
+  
+  # Join with geocoded locais using data.table syntax
+  panel_ids <- geocoded_locais[
+    panel_ids,
+    on = .(local_id),
+    nomatch = NA
+  ][, .(local_id, panel_id, ano, long, lat, pred_dist)]
+  
+  # For each panel_id, get coordinates with smallest pred_dist
+  # Break ties by choosing most recent year
+  panel_ids_best <- panel_ids[
+    order(panel_id, pred_dist, -ano)
+  ][, .SD[1], by = .(panel_id)
+  ][, .(panel_id, long, lat, pred_dist)]
+  
+  # Remove coordinates from panel_ids
+  panel_ids[, c("long", "lat", "pred_dist", "ano") := NULL]
+  
+  # Join with best coordinates using data.table syntax
+  panel_ids <- panel_ids_best[
+    panel_ids,
+    on = .(panel_id),
+    nomatch = NA
+  ]
+  
+  return(panel_ids)
+}
 
+create_panel_dataset <- function(final_pairs_list, years) {
+  # Ensure the years are sorted
+  years <- sort(years)
+  
+  # Extract the best pairs for the first two years
+  first_year <- years[1]
+  second_year <- years[2]
+  best_pairs_first <- final_pairs_list[[paste0(first_year, "_", second_year)]]
+  
+  # Standardize column names
+  standardize_column_names(best_pairs_first, inplace = TRUE)
+  
+  # Create the initial panel dataset with standardized column names
+  panel <- best_pairs_first[, .(
+    local_id_first = x_local_id,
+    local_id_second = y_local_id
+  )]
+  setnames(
+    panel, c("local_id_first", "local_id_second"),
+    c(paste0("local_id_", first_year), paste0("local_id_", second_year))
+  )
+  
+  # Process each subsequent pair of years
+  for (i in seq(2, length(years) - 1)) {
+    year_from <- years[i]
+    year_to <- years[i + 1]
+    best_pairs <- final_pairs_list[[paste0(year_from, "_", year_to)]]
+    panel <- process_year_pairs(panel, best_pairs, year_from, year_to)
+  }
+  
+  # Add panel_id
+  panel[, panel_id := apply(.SD, 1, min, na.rm = TRUE), .SDcols = patterns("local_id_")]
+  
+  # Create the final dataset
+  panel_long <- melt(panel,
+    id.vars = "panel_id", 
+    measure.vars = patterns("local_id_"),
+    variable.name = "year", 
+    value.name = "local_id"
+  )[, .(local_id, panel_id)]
+  
+  # Remove rows with NA local_id
+  panel_clean <- panel_long[!is.na(local_id)]
+  
+  return(panel_clean)
+}
 
-        ## Merge panel ids with geocoded locais
-        panel_ids <- merge(panel_ids, geocoded_locais[, .(local_id, ano, long, lat, pred_dist)],
-                by = "local_id", all.x = TRUE
-        )
+create_and_select_best_pairs <- function(data, years, blocking_column, scoring_columns) {
+  pairs_list <- list()
+  
+  # Standardize column names in input data
+  standardize_column_names(data, inplace = TRUE)
+  
+  # Sort years to ensure correct order
+  years <- sort(years)
+  
+  for (i in seq_along(years)[-length(years)]) {
+    year1 <- years[i]
+    year2 <- years[i + 1]
+    cat("Processing year pair:", year1, "->", year2, "\n")
+    
+    # Subset the data for the two consecutive years
+    linkexample1 <- data[ano == year1]
+    linkexample2 <- data[ano == year2]
+    
+    if (nrow(linkexample1) == 0 || nrow(linkexample2) == 0) {
+      cat("  Skipping - no data for one or both years\n")
+      next
+    }
+    
+    # Create pairs using pair_blocking
+    pairs <- pair_blocking(linkexample1, linkexample2, blocking_column)
+    
+    # Compare pairs using standardized scoring columns
+    pairs <- compare_pairs(pairs,
+      on = scoring_columns,
+      default_comparator = cmp_jarowinkler(0.9), 
+      inplace = TRUE
+    )
+    
+    # Rename variables
+    match_scoring_columns <- paste0("match_", scoring_columns)
+    setnames(pairs, scoring_columns, match_scoring_columns)
+    
+    # Compute the Machine Learning Fellegi and Sunter Weights
+    formula <- as.formula(paste("~", paste(match_scoring_columns, collapse = " + ")))
+    m <- problink_em(formula, data = pairs)
+    pairs <- predict(m, pairs, add = TRUE)
+    
+    # Add local_id to the pairs
+    pairs[, `:=`(
+      x_local_id = linkexample1$local_id[.x],
+      y_local_id = linkexample2$local_id[.y]
+    )]
+    
+    # Select the best match for each observation
+    best_pairs <- select_n_to_m(pairs, threshold = 0, score = "weights", var = "match", n = 1, m = 1)
+    
+    # Keep only the pairs where match is TRUE
+    best_pairs <- best_pairs[match == TRUE]
+    
+    # Store the final matched pairs in the list
+    pairs_list[[paste0(year1, "_", year2)]] <- best_pairs
+    
+    cat("  Found", nrow(best_pairs), "matches\n")
+  }
+  
+  return(pairs_list)
+}
 
-        ## For each panel id, long and lat with smallest pred_dist, break ties by choosing most recent year
-        panel_ids_best <- panel_ids[order(panel_id, pred_dist, -ano), .SD[1], by = .(panel_id)]
-        panel_ids_best <- panel_ids_best[, .(panel_id, long, lat, pred_dist)]
+make_panel_1block <- function(block, years, blocking_column, scoring_columns) {
+  # Standardize column names in block
+  standardize_column_names(block, inplace = TRUE)
+  
+  cat("Processing state:", unique(block$sg_uf), "\n")
+  
+  pairs_list <- create_and_select_best_pairs(block, years, blocking_column, scoring_columns)
+  
+  if (length(pairs_list) == 0) {
+    cat("  No pairs found for this block\n")
+    return(NULL)
+  }
+  
+  panel <- create_panel_dataset(pairs_list, years)
+  
+  cat("  Final panel has", nrow(panel), "observations\n")
+  
+  return(panel)
+}
 
-        # remove long, lat, pred_dist from panel_ids
-        panel_ids[, c("long", "lat", "pred_dist") := NULL]
-        panel_ids <- merge(panel_ids, panel_ids_best, by = "panel_id", all.x = TRUE)
+# Function to validate panel consistency
+validate_panel_consistency <- function(panel_data, years) {
+  cat("=== Panel Consistency Validation ===\n\n")
+  
+  # Check for duplicates
+  duplicates <- panel_data[, .N, by = local_id][N > 1]
+  cat("Duplicate local_ids:", nrow(duplicates), "\n")
+  
+  # Check panel_id distribution
+  panel_sizes <- panel_data[, .N, by = panel_id]
+  cat("Panel size distribution:\n")
+  print(panel_sizes[, .N, by = N][order(N)])
+  
+  # Check for missing years in panels
+  if ("year" %in% names(panel_data)) {
+    year_coverage <- panel_data[, .(years_present = length(unique(year))), by = panel_id]
+    cat("Year coverage distribution:\n")
+    print(year_coverage[, .N, by = years_present][order(years_present)])
+  }
+  
+  invisible(list(
+    duplicates = duplicates,
+    panel_sizes = panel_sizes,
+    year_coverage = if("year" %in% names(panel_data)) year_coverage else NULL
+  ))
+}
 
-        # Remove ano
-        panel_ids[, ano := NULL]
-        panel_ids
+# Batch processing function for multiple states/blocks
+process_multiple_blocks <- function(data_list, years, blocking_column, scoring_columns, parallel = TRUE) {
+  cat("Processing", length(data_list), "blocks/states\n")
+  
+  if (parallel && require(future.apply, quietly = TRUE)) {
+    cat("Using parallel processing\n")
+    
+    # Process blocks in parallel
+    results <- future.apply::future_lapply(data_list, function(block) {
+      make_panel_1block(block, years, blocking_column, scoring_columns)
+    }, future.seed = TRUE)
+    
+  } else {
+    cat("Using sequential processing\n")
+    
+    # Process blocks sequentially
+    results <- lapply(seq_along(data_list), function(i) {
+      cat("Block", i, "of", length(data_list), "\n")
+      make_panel_1block(data_list[[i]], years, blocking_column, scoring_columns)
+    })
+  }
+  
+  # Remove NULL results and combine
+  valid_results <- results[!sapply(results, is.null)]
+  
+  if (length(valid_results) > 0) {
+    combined <- rbindlist(valid_results, fill = TRUE)
+    cat("Combined panel has", nrow(combined), "total observations\n")
+    return(combined)
+  } else {
+    cat("No valid results found\n")
+    return(NULL)
+  }
 }
 
 export_panel_ids <- function(panel_ids) {
-        fwrite(panel_ids, "./output/panel_ids.csv.gz")
-        "./output/panel_ids.csv.gz"
+  fwrite(panel_ids, "./output/panel_ids.csv.gz")
+  "./output/panel_ids.csv.gz"
 }
+

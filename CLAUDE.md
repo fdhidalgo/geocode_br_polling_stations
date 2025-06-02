@@ -147,6 +147,104 @@ Even for solo work, issues provide valuable context that commit messages can't c
 - Run via `devtools::test()` or `testthat::test_dir("tests/testthat")`
 - Start with simple test infrastructure (even `assert 1 + 1 == 2`) to enable easy additions
 
+### Refactoring Guidelines - Lessons from data.table Migration
+
+**CRITICAL**: Refactoring must be systematic and comprehensive. Partial refactoring breaks pipelines.
+
+#### Pre-Refactoring Checklist
+1. **Function Inventory**: List all functions before starting
+   ```bash
+   grep "^[a-zA-Z_].*<- function" R/*.R | cut -d: -f2 | cut -d' ' -f1 | sort > functions_before.txt
+   ```
+
+2. **Dependency Analysis**: Check where functions are called
+   ```bash
+   # Find function calls in pipeline
+   grep -E "command = [a-zA-Z_]+\\(" _targets.R
+   # Find function calls in other R files
+   grep -rn "function_name(" R/
+   ```
+
+3. **Test Coverage**: Write tests for existing behavior BEFORE refactoring
+   ```r
+   # Capture current behavior
+   test_that("function produces expected output", {
+     result <- original_function(test_input)
+     saveRDS(result, "tests/testthat/fixtures/expected_output.rds")
+   })
+   ```
+
+#### During Refactoring
+1. **Incremental Changes**: Refactor one function at a time and test
+   ```bash
+   # After each function change
+   R -e "targets::tar_make()"
+   ```
+
+2. **Maintain Signatures**: Keep function names and parameters identical
+   - If renaming is necessary, update ALL calling code
+   - If changing parameters, ensure backward compatibility
+
+3. **Case Sensitivity**: R is case-sensitive - maintain exact column names
+   - `id_TSE` ≠ `id_tse`
+   - Use `grep -i` to find case variations
+
+4. **Complete Migration**: If refactoring a file, migrate ALL functions
+   ```r
+   # Don't leave functions behind in original files
+   # Either refactor completely or not at all
+   ```
+
+#### Post-Refactoring Verification
+1. **Function Comparison**:
+   ```bash
+   grep "^[a-zA-Z_].*<- function" R/*.R | cut -d: -f2 | cut -d' ' -f1 | sort > functions_after.txt
+   diff functions_before.txt functions_after.txt
+   ```
+
+2. **Pipeline Testing**:
+   ```bash
+   # Clean rebuild to catch all issues
+   R -e "targets::tar_destroy()"
+   R -e "targets::tar_make()"
+   ```
+
+3. **Documentation**: Update a refactoring log
+   ```markdown
+   ## Refactoring Log
+   - make_tract_centroids → create_tract_centroids (line 125 in _targets.R)
+   - Parameter changes: locais_path → locais_file
+   - Implementation: now uses data.table throughout
+   ```
+
+#### Common Pitfalls to Avoid
+1. **Partial Function Migration**: Missing functions break pipelines
+2. **Silent Renames**: Changing names without updating callers
+3. **Parameter Mismatches**: Different argument names/order
+4. **Helper Function Dependencies**: Ensure all dependencies are included
+5. **Column Name Cases**: Exact case matching is critical for joins
+
+#### Refactoring Workflow
+```bash
+# 1. Create feature branch
+git checkout -b refactor/descriptive-name
+
+# 2. Document current state
+R -e "targets::tar_make()" # Ensure it works
+git add -A && git commit -m "Baseline before refactoring"
+
+# 3. Refactor incrementally
+# - One function at a time
+# - Test after each change
+# - Commit working states
+
+# 4. Final verification
+R -e "targets::tar_destroy(); targets::tar_make()"
+
+# 5. Document changes
+echo "## Changes made:" >> refactoring_notes.md
+```
+
 ### Validation Best Practices
 - **Validate after key operations**: data import, transformations, merges
 - **Critical for merges**: Check join keys uniqueness, row counts, NA patterns

@@ -97,6 +97,11 @@ Included in `data/`:
 - **Paths**: Use relative paths or `here::here()`, never hardcode
 - **Pure Functions**: Prefer functions without side effects
 
+### Claude Code Development Preferences
+- **IMPORTANT**: Anytime you create or change a function in a major way, stop and explain to the user the changes or the rationale for the function and then ask the user whether we should proceed
+- Always explain the purpose and implementation approach before making significant code changes
+- Wait for explicit user approval before implementing major functionality
+
 ### Git Commit Guidelines - The Perfect Commit
 
 Each commit should strive to include:

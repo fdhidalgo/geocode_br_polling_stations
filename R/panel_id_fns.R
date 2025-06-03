@@ -54,17 +54,17 @@ make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
     on = .(local_id),
     nomatch = NA
   ][, .(local_id, panel_id, ano, 
-        long = final_long, lat = final_lat, pred_dist)]
+        long = tse_long, lat = tse_lat)]
   
-  # For each panel_id, get coordinates with smallest pred_dist
-  # Break ties by choosing most recent year
+  # For each panel_id, get coordinates from most recent year
+  # (TSE data doesn't have pred_dist)
   panel_ids_best <- panel_ids[
-    order(panel_id, pred_dist, -ano)
+    order(panel_id, -ano)
   ][, .SD[1], by = .(panel_id)
-  ][, .(panel_id, long, lat, pred_dist)]
+  ][, .(panel_id, long, lat)]
   
   # Remove coordinates from panel_ids
-  panel_ids[, c("long", "lat", "pred_dist", "ano") := NULL]
+  panel_ids[, c("long", "lat", "ano") := NULL]
   
   # Join with best coordinates using data.table syntax
   panel_ids <- panel_ids_best[

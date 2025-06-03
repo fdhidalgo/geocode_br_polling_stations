@@ -1,0 +1,6 @@
+failed_rule,rule_expression,record_index,codigo_inep,id_munic_7
+has_column_co_entidade,"""co_entidade"" %vin% names(.)",1,11022370,1100320
+has_column_no_entidade,"""no_entidade"" %vin% names(.)",1,11022370,1100320
+has_column_co_municipio,"""co_municipio"" %vin% names(.)",1,11022370,1100320
+has_column_latitude,"""latitude"" %vin% names(.)",1,11022370,1100320
+has_column_longitude,"""longitude"" %vin% names(.)",1,11022370,1100320

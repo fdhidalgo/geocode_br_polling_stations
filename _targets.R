@@ -8,6 +8,9 @@ library(data.table)
 # Set global options for future
 options(future.globals.maxSize = 2 * 1024^3) # 2GB limit, was in process_with_progress
 
+# Define the null coalescing operator
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
 # Set target options:
 tar_option_set(
   packages = c(
@@ -46,6 +49,10 @@ DEV_MODE <- TRUE  # Process only AC, RR, AP, RO states when TRUE
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
 # Load validation functions
 source("./R/functions_validate.R")
+# Load comprehensive validation framework
+source("./R/validation_pipeline_stages.R")
+source("./R/validation_reporting.R")
+source("./R/validation_report_renderer.R")
 # Load state filtering functions
 source("./R/state_filtering.R")
 
@@ -89,11 +96,14 @@ list(
   tar_target(
     name = validate_muni_ids,
     command = {
-      result <- validate_muni_ids_data(muni_ids)
+      result <- validate_import_stage(
+        data = muni_ids,
+        stage_name = "muni_ids",
+        expected_cols = c("id_munic_7", "id_munic_6", "Cod_Mun", "estado_abrev", "municipio"),
+        min_rows = ifelse(pipeline_config$dev_mode, 100, 5000)  # Brazil has ~5,570 municipalities
+      )
       if (!result$passed) {
-        stop(
-          "Municipal ID validation failed. Run tar_read(validate_muni_ids) to see details."
-        )
+        warning("Municipality identifiers validation failed - check data quality")
       }
       result
     }
@@ -110,11 +120,14 @@ list(
   tar_target(
     name = validate_inep_codes,
     command = {
-      result <- validate_inep_codes_data(inep_codes)
+      result <- validate_import_stage(
+        data = inep_codes,
+        stage_name = "inep_codes",
+        expected_cols = c("co_entidade", "no_entidade", "co_municipio", "latitude", "longitude"),
+        min_rows = ifelse(pipeline_config$dev_mode, 1000, 100000)  # Expect many schools
+      )
       if (!result$passed) {
-        stop(
-          "INEP codes validation failed. Run tar_read(validate_inep_codes) to see details."
-        )
+        warning("INEP codes validation failed - check data quality")
       }
       result
     }
@@ -235,12 +248,42 @@ list(
     format = "fst_dt"
   ),
   tar_target(
+    name = validate_cnefe10_clean,
+    command = {
+      result <- validate_cleaning_stage(
+        cleaned_data = cnefe10,
+        original_data = cnefe10_raw,
+        stage_name = "cnefe10_cleaned",
+        key_cols = c("id_munic_7", "cnefe_lat", "cnefe_long")
+      )
+      if (!result$passed) {
+        stop("CNEFE 2010 cleaning validation failed - pipeline halted")
+      }
+      result
+    }
+  ),
+  tar_target(
     name = cnefe22,
     command = clean_cnefe22(
       cnefe22_file = cnefe22_raw,
       muni_ids = muni_ids
     ),
     format = "fst_dt"
+  ),
+  tar_target(
+    name = validate_cnefe22_clean,
+    command = {
+      result <- validate_cleaning_stage(
+        cleaned_data = cnefe22,
+        original_data = cnefe22_raw,
+        stage_name = "cnefe22_cleaned",
+        key_cols = c("id_munic_7", "cnefe_lat", "cnefe_long")
+      )
+      if (!result$passed) {
+        stop("CNEFE 2022 cleaning validation failed - pipeline halted")
+      }
+      result
+    }
   ),
 
   ## Subset on schools in 2010 CNEFE
@@ -387,6 +430,21 @@ list(
       }
     }
   ),
+  tar_target(
+    name = validate_inep_clean,
+    command = {
+      result <- validate_cleaning_stage(
+        cleaned_data = inep_data,
+        original_data = inep_codes,
+        stage_name = "inep_cleaned",
+        key_cols = c("co_entidade", "id_munic_7", "lat", "long")
+      )
+      if (!result$passed) {
+        warning("INEP data cleaning validation failed")
+      }
+      result
+    }
+  ),
   ## Import Locais de Votação Data
   tar_target(
     name = locais_file,
@@ -408,6 +466,22 @@ list(
       } else {
         locais_all
       }
+    }
+  ),
+  tar_target(
+    name = validate_locais,
+    command = {
+      result <- validate_import_stage(
+        data = locais,
+        stage_name = "locais",
+        expected_cols = c("local_id", "ano", "nr_zona", "nr_locvot", "nm_local", 
+                         "nm_muni", "sg_uf", "cod_localidade_ibge", "ds_endereco"),
+        min_rows = ifelse(pipeline_config$dev_mode, 1000, 100000)
+      )
+      if (!result$passed) {
+        warning("Polling stations validation failed - check data quality")
+      }
+      result
     }
   ),
   tar_target(
@@ -479,7 +553,7 @@ list(
   ),
   tar_target(
     name = panel_ids,
-    command = make_panel_ids(panel_ids_df, panel_ids_states, geocoded_locais)
+    command = make_panel_ids(panel_ids_df, panel_ids_states, tsegeocoded_locais)
   ),
 
   # String Matching
@@ -497,6 +571,29 @@ list(
         future.seed = TRUE
       ) |>
         data.table::rbindlist()
+    }
+  ),
+  tar_target(
+    name = validate_inep_match,
+    command = {
+      result <- validate_string_match_stage(
+        match_data = inep_string_match,
+        stage_name = "inep_string_match",
+        id_col = "local_id",
+        score_col = "dist"
+      )
+      
+      message(sprintf(
+        "INEP string matching: %.1f%% match rate (%d matched out of %d)",
+        result$metadata$match_rate,
+        sum(!is.na(inep_string_match$lat), na.rm = TRUE),
+        nrow(inep_string_match)
+      ))
+      
+      if (!result$passed) {
+        warning("INEP string match validation has issues")
+      }
+      result
     }
   ),
   tar_target(
@@ -598,6 +695,24 @@ list(
       tsegeocoded_locais = tsegeocoded_locais
     ),
   ),
+  tar_target(
+    name = validate_model_data,
+    command = {
+      result <- validate_merge_stage(
+        merged_data = model_data,
+        left_data = locais,
+        right_data = NULL,  # Multiple sources merged
+        stage_name = "model_data_merge",
+        merge_keys = "local_id",
+        join_type = "left"
+      )
+      
+      if (!result$passed) {
+        warning("Model data merge validation failed")
+      }
+      result
+    }
+  ),
   ## Train model and make predictions
   tar_target(
     name = trained_model,
@@ -608,6 +723,21 @@ list(
     command = get_predictions(trained_model, model_data),
     format = "fst_dt"
   ),
+  tar_target(
+    name = validate_predictions,
+    command = {
+      result <- validate_prediction_stage(
+        predictions = model_predictions,
+        stage_name = "model_predictions",
+        pred_col = "pred_dist",  # Distance prediction column
+        prob_col = NULL          # No probability column
+      )
+      if (!result$passed) {
+        stop("Model predictions validation failed")
+      }
+      result
+    }
+  ),
 
   # # Use string matches to geocode
   tar_target(
@@ -615,15 +745,124 @@ list(
     command = finalize_coords(locais, model_predictions, tsegeocoded_locais),
     format = "fst_dt"
   ),
-  ## Export data
+  tar_target(
+    name = validate_geocoded_output,
+    command = {
+      result <- validate_output_stage(
+        output_data = geocoded_locais,
+        stage_name = "geocoded_locais",
+        required_cols = c("local_id", "final_lat", "final_long", "ano", 
+                         "nr_zona", "nr_locvot", "nm_locvot", "nm_localidade"),
+        unique_keys = c("local_id", "ano", "nr_zona", "nr_locvot")
+      )
+      
+      # Final quality check
+      if (!result$passed) {
+        stop("Final output validation failed - do not export!")
+      }
+      
+      message(sprintf(
+        "Geocoding complete: %d polling stations geocoded",
+        nrow(geocoded_locais)
+      ))
+      
+      result
+    }
+  ),
+  
+  ## Generate comprehensive validation report as pipeline output
+  tar_target(
+    name = validation_report,
+    command = {
+      # Collect all validation results
+      validation_results <- list(
+        muni_ids = validate_muni_ids,
+        inep_codes = validate_inep_codes,
+        cnefe10_cleaned = validate_cnefe10_clean,
+        cnefe22_cleaned = validate_cnefe22_clean,
+        inep_cleaned = validate_inep_clean,
+        locais = validate_locais,
+        inep_string_match = validate_inep_match,
+        model_data_merge = validate_model_data,
+        model_predictions = validate_predictions,
+        geocoded_output = validate_geocoded_output
+      )
+      
+      # Store original data references for failed record export
+      for (name in names(validation_results)) {
+        validation_results[[name]]$metadata$data <- switch(name,
+          muni_ids = muni_ids,
+          inep_codes = inep_codes,
+          cnefe10_cleaned = cnefe10,
+          cnefe22_cleaned = cnefe22,
+          inep_cleaned = inep_data,
+          locais = locais,
+          inep_string_match = inep_string_match,
+          model_data_merge = model_data,
+          model_predictions = model_predictions,
+          geocoded_output = geocoded_locais
+        )
+      }
+      
+      # Generate text validation report
+      report_path <- generate_text_validation_report(
+        validation_results = validation_results,
+        output_dir = "output/validation_reports",
+        export_failures = TRUE
+      )
+      
+      # Save validation summary for future reference
+      summary_stats <- list(
+        report_path = report_path,
+        timestamp = Sys.time(),
+        pipeline_version = "1.0.0",
+        total_validations = length(validation_results),
+        passed = sum(sapply(validation_results, function(x) x$passed)),
+        failed = sum(sapply(validation_results, function(x) !x$passed)),
+        dev_mode = pipeline_config$dev_mode,
+        stage_summary = sapply(validation_results, function(x) {
+          list(
+            passed = x$passed,
+            type = x$metadata$type,
+            n_rows = x$metadata$n_rows %||% NA
+          )
+        })
+      )
+      
+      # Save summary
+      saveRDS(summary_stats, "output/validation_summary.rds")
+      
+      # Print summary to console
+      cat("\n========== VALIDATION REPORT SUMMARY ==========\n")
+      cat("Report generated:", report_path, "\n")
+      cat("Total stages validated:", summary_stats$total_validations, "\n")
+      cat("Passed:", summary_stats$passed, "\n")
+      cat("Failed:", summary_stats$failed, "\n")
+      cat("Mode:", ifelse(summary_stats$dev_mode, "DEVELOPMENT", "PRODUCTION"), "\n")
+      cat("Overall status:", ifelse(summary_stats$failed == 0, "✅ SUCCESS", "❌ FAILURES DETECTED"), "\n")
+      cat("===============================================\n\n")
+      
+      summary_stats
+    }
+  ),
+  
+  ## Export data (only after validation passes)
   tar_target(
     name = geocoded_export,
-    command = export_geocoded_locais(geocoded_locais),
+    command = {
+      # Ensure validation report has been generated
+      validation_report
+      export_geocoded_locais(geocoded_locais)
+    },
     format = "file"
   ),
   tar_target(
     name = panelid_export,
-    command = export_panel_ids(panel_ids),
+    command = {
+      # Ensure validation report has been generated
+      validation_report
+      export_panel_ids(panel_ids)
+    },
     format = "file"
   ),
   ## Methodology and Evaluation

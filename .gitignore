@@ -9,6 +9,8 @@
 /data/cnefe22.csv.gz
 data/eleitorado_local_votacao_2018.csv.gz
 /data/agro_censo/
+/data/cnefe_2010/
+/data/cnefe_2022/
 /archive/
 /reference/
 /R/geocode_api_calls/
@@ -60,3 +62,11 @@ tasks/
 
 # Backup folder
 backup/ 
+# IDE-specific directories
+.roo/
+.cursor/
+.windsurf/
+
+# Taskmaster reports
+.taskmaster/reports/
+

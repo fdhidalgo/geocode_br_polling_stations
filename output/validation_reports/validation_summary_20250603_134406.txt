@@ -1,0 +1,58 @@
+VALIDATION REPORT SUMMARY
+========================
+
+Generated: 2025-06-03 13:44:06.271748
+
+Stage: muni_ids
+  Type: import
+  Passed: TRUE
+  Rows: 105
+
+Stage: inep_codes
+  Type: import
+  Passed: TRUE
+  Rows: 286014
+
+Stage: cnefe10_cleaned
+  Type: cleaning
+  Passed: TRUE
+  Rows: 1400303
+
+Stage: cnefe22_cleaned
+  Type: cleaning
+  Passed: TRUE
+  Rows: 1486033
+
+Stage: inep_cleaned
+  Type: cleaning
+  Passed: TRUE
+  Rows: 2743
+
+Stage: locais
+  Type: import
+  Passed: TRUE
+  Rows: 17517
+
+Stage: inep_string_match
+  Type: string_matching
+  Passed: TRUE
+  Rows: 17517
+
+Stage: model_data_merge
+  Type: merge
+  Passed: TRUE
+  Rows: 
+
+Stage: model_predictions
+  Type: prediction
+  Passed: TRUE
+  Rows: 175006
+
+Stage: geocoded_output
+  Type: output
+  Passed: TRUE
+  Rows: 17517
+
+
+Failed records exported to: output/validation_reports/failed_records/
+

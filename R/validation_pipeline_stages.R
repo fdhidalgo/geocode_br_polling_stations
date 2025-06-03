@@ -283,12 +283,15 @@ validate_merge_stage <- function(merged_data, left_data, right_data,
   
   # Calculate merge statistics
   n_left <- nrow(left_data)
-  n_right <- nrow(right_data)
+  n_right <- if (!is.null(right_data)) nrow(right_data) else NA
   n_merged <- nrow(merged_data)
   
   # Expected rows based on join type
   if (join_type == "left") {
     expected_range <- c(n_left, n_left)
+  } else if (join_type == "left_many") {
+    # For one-to-many joins (e.g., fuzzy matching), expect at least n_left rows
+    expected_range <- c(n_left, Inf)
   } else if (join_type == "inner") {
     expected_range <- c(0, min(n_left, n_right))
   } else if (join_type == "full") {

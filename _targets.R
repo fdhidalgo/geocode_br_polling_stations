@@ -53,6 +53,8 @@ source("./R/functions_validate.R")
 source("./R/validation_pipeline_stages.R")
 source("./R/validation_reporting.R")
 source("./R/validation_report_renderer.R")
+# Load column mapping functions
+source("./R/column_mapping.R")
 # Load state filtering functions
 source("./R/state_filtering.R")
 
@@ -99,7 +101,7 @@ list(
       result <- validate_import_stage(
         data = muni_ids,
         stage_name = "muni_ids",
-        expected_cols = c("id_munic_7", "id_munic_6", "Cod_Mun", "estado_abrev", "municipio"),
+        expected_cols = c("id_munic_7", "id_munic_6", "id_TSE", "estado_abrev", "municipio"),
         min_rows = ifelse(pipeline_config$dev_mode, 100, 5000)  # Brazil has ~5,570 municipalities
       )
       if (!result$passed) {
@@ -123,7 +125,7 @@ list(
       result <- validate_import_stage(
         data = inep_codes,
         stage_name = "inep_codes",
-        expected_cols = c("co_entidade", "no_entidade", "co_municipio", "latitude", "longitude"),
+        expected_cols = c("codigo_inep", "id_munic_7"),
         min_rows = ifelse(pipeline_config$dev_mode, 1000, 100000)  # Expect many schools
       )
       if (!result$passed) {
@@ -437,7 +439,7 @@ list(
         cleaned_data = inep_data,
         original_data = inep_codes,
         stage_name = "inep_cleaned",
-        key_cols = c("co_entidade", "id_munic_7", "lat", "long")
+        key_cols = c("codigo_inep", "id_munic_7", "latitude", "longitude")
       )
       if (!result$passed) {
         warning("INEP data cleaning validation failed")
@@ -474,8 +476,8 @@ list(
       result <- validate_import_stage(
         data = locais,
         stage_name = "locais",
-        expected_cols = c("local_id", "ano", "nr_zona", "nr_locvot", "nm_local", 
-                         "nm_muni", "sg_uf", "cod_localidade_ibge", "ds_endereco"),
+        expected_cols = c("local_id", "ano", "nr_zona", "nr_locvot", "nm_locvot", 
+                         "nm_localidade", "sg_uf", "cod_localidade_ibge", "ds_endereco"),
         min_rows = ifelse(pipeline_config$dev_mode, 1000, 100000)
       )
       if (!result$passed) {
@@ -704,7 +706,7 @@ list(
         right_data = NULL,  # Multiple sources merged
         stage_name = "model_data_merge",
         merge_keys = "local_id",
-        join_type = "left"
+        join_type = "left_many"  # One-to-many join expected for fuzzy matching
       )
       
       if (!result$passed) {

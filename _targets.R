@@ -2,14 +2,33 @@
 library(targets)
 library(tarchetypes)
 library(conflicted)
-library(future.apply)
+# library(future.apply) # No longer needed with dynamic branching
 library(data.table)
+library(crew)
 
-# Set global options for future
-options(future.globals.maxSize = 2 * 1024^3) # 2GB limit, was in process_with_progress
+# Set global options
+# options(future.globals.maxSize = 2 * 1024^3) # No longer needed with crew/mirai
 
 # Define the null coalescing operator
 `%||%` <- function(x, y) if (is.null(x)) y else x
+
+## Setup parallel processing with crew/mirai
+
+# Keep data.table threads for data.table operations
+data.table::setDTthreads(parallel::detectCores() - 2)
+
+# Create crew controller for targets parallel execution
+controller <- crew_controller_local(
+  name = "main",
+  workers = floor(parallel::detectCores() / 2),
+  seconds_idle = 60,  # Workers shut down after 60s idle
+  seconds_wall = Inf,  # No wall time limit
+  tasks_max = Inf,     # No task limit per worker
+  reset_globals = FALSE,
+  reset_packages = FALSE,
+  reset_options = FALSE,
+  garbage_collection = TRUE  # Important for memory management
+)
 
 # Set target options:
 tar_option_set(
@@ -19,27 +38,19 @@ tar_option_set(
     "data.table",
     "stringr",
     "bonsai",
-    "future",
+    # "future", # Replaced by crew/mirai
     "reclin2",
-    "future.apply",
+    # "future.apply", # No longer needed with dynamic branching
     "validate",
     "geosphere",
     "sf"
   ),
   format = "qs", # default storage format,
   memory = "transient",
-  garbage_collection = TRUE
+  garbage_collection = TRUE,
+  controller = controller  # Use crew for parallel execution
 )
 
-## Setup parallel processing
-
-data.table::setDTthreads(future::availableCores(
-  omit = floor(future::availableCores() / 2)
-))
-future::plan(
-  future::multisession,
-  workers = floor(future::availableCores() / 2)
-)
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
@@ -559,21 +570,27 @@ list(
   ),
 
   # String Matching
+  # Create target for municipalities to iterate over
+  tar_target(
+    name = municipalities_for_matching,
+    command = unique(locais$cod_localidade_ibge)
+  ),
+  
+  # INEP string matching with dynamic branching
+  tar_target(
+    name = inep_string_match_muni,
+    command = {
+      match_inep_muni(
+        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
+        inep_muni = inep_data[id_munic_7 == municipalities_for_matching]
+      )
+    },
+    pattern = map(municipalities_for_matching),
+    iteration = "list"  # Keep branches as list for rbindlist
+  ),
   tar_target(
     name = inep_string_match,
-    command = {
-      future.apply::future_lapply(
-        X = unique(locais$cod_localidade_ibge),
-        FUN = function(.x) {
-          match_inep_muni(
-            locais_muni = locais[cod_localidade_ibge == .x],
-            inep_muni = inep_data[id_munic_7 == .x]
-          )
-        },
-        future.seed = TRUE
-      ) |>
-        data.table::rbindlist()
-    }
+    command = rbindlist(inep_string_match_muni)
   ),
   tar_target(
     name = validate_inep_match,
@@ -598,88 +615,88 @@ list(
       result
     }
   ),
+  # Schools CNEFE 2010 matching with dynamic branching
+  tar_target(
+    name = schools_cnefe10_match_muni,
+    command = {
+      match_schools_cnefe_muni(
+        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
+        schools_cnefe_muni = schools_cnefe10[id_munic_7 == municipalities_for_matching]
+      )
+    },
+    pattern = map(municipalities_for_matching),
+    iteration = "list"  # Keep branches as list for rbindlist
+  ),
   tar_target(
     name = schools_cnefe10_match,
+    command = rbindlist(schools_cnefe10_match_muni)
+  ),
+  # Schools CNEFE 2022 matching with dynamic branching
+  tar_target(
+    name = schools_cnefe22_match_muni,
     command = {
-      future.apply::future_lapply(
-        X = unique(locais$cod_localidade_ibge),
-        FUN = function(.x) {
-          match_schools_cnefe_muni(
-            locais_muni = locais[cod_localidade_ibge == .x],
-            schools_cnefe_muni = schools_cnefe10[id_munic_7 == .x]
-          )
-        },
-        future.seed = TRUE
-      ) |>
-        data.table::rbindlist()
-    }
+      match_schools_cnefe_muni(
+        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
+        schools_cnefe_muni = schools_cnefe22[id_munic_7 == municipalities_for_matching]
+      )
+    },
+    pattern = map(municipalities_for_matching),
+    iteration = "list"  # Keep branches as list for rbindlist
   ),
   tar_target(
     name = schools_cnefe22_match,
+    command = rbindlist(schools_cnefe22_match_muni)
+  ),
+  # CNEFE 2010 street/neighborhood matching with dynamic branching
+  tar_target(
+    name = cnefe10_stbairro_match_muni,
     command = {
-      future.apply::future_lapply(
-        X = unique(locais$cod_localidade_ibge),
-        FUN = function(.x) {
-          match_schools_cnefe_muni(
-            locais_muni = locais[cod_localidade_ibge == .x],
-            schools_cnefe_muni = schools_cnefe22[id_munic_7 == .x]
-          )
-        },
-        future.seed = TRUE
-      ) |>
-        data.table::rbindlist()
-    }
+      match_stbairro_cnefe_muni(
+        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
+        cnefe_st_muni = cnefe10_st[id_munic_7 == municipalities_for_matching],
+        cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == municipalities_for_matching]
+      )
+    },
+    pattern = map(municipalities_for_matching),
+    iteration = "list"  # Keep branches as list for rbindlist
   ),
   tar_target(
     name = cnefe10_stbairro_match,
+    command = rbindlist(cnefe10_stbairro_match_muni)
+  ),
+  # CNEFE 2022 street/neighborhood matching with dynamic branching
+  tar_target(
+    name = cnefe22_stbairro_match_muni,
     command = {
-      future.apply::future_lapply(
-        X = unique(locais$cod_localidade_ibge),
-        FUN = function(.x) {
-          match_stbairro_cnefe_muni(
-            locais_muni = locais[cod_localidade_ibge == .x],
-            cnefe_st_muni = cnefe10_st[id_munic_7 == .x],
-            cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == .x]
-          )
-        },
-        future.seed = TRUE
-      ) |>
-        data.table::rbindlist()
-    }
+      match_stbairro_cnefe_muni(
+        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
+        cnefe_st_muni = cnefe22_st[id_munic_7 == municipalities_for_matching],
+        cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == municipalities_for_matching]
+      )
+    },
+    pattern = map(municipalities_for_matching),
+    iteration = "list"  # Keep branches as list for rbindlist
   ),
   tar_target(
     name = cnefe22_stbairro_match,
+    command = rbindlist(cnefe22_stbairro_match_muni)
+  ),
+  # Agro CNEFE street/neighborhood matching with dynamic branching
+  tar_target(
+    name = agrocnefe_stbairro_match_muni,
     command = {
-      future.apply::future_lapply(
-        X = unique(locais$cod_localidade_ibge),
-        FUN = function(.x) {
-          match_stbairro_cnefe_muni(
-            locais_muni = locais[cod_localidade_ibge == .x],
-            cnefe_st_muni = cnefe22_st[id_munic_7 == .x],
-            cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == .x]
-          )
-        },
-        future.seed = TRUE
-      ) |>
-        data.table::rbindlist()
-    }
+      match_stbairro_agrocnefe_muni(
+        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
+        agrocnefe_st_muni = agrocnefe_st[id_munic_7 == municipalities_for_matching],
+        agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == municipalities_for_matching]
+      )
+    },
+    pattern = map(municipalities_for_matching),
+    iteration = "list"  # Keep branches as list for rbindlist
   ),
   tar_target(
     name = agrocnefe_stbairro_match,
-    command = {
-      future.apply::future_lapply(
-        X = unique(locais$cod_localidade_ibge),
-        FUN = function(.x) {
-          match_stbairro_agrocnefe_muni(
-            locais_muni = locais[cod_localidade_ibge == .x],
-            agrocnefe_st_muni = agrocnefe_st[id_munic_7 == .x],
-            agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == .x]
-          )
-        },
-        future.seed = TRUE
-      ) |>
-        data.table::rbindlist()
-    }
+    command = rbindlist(agrocnefe_stbairro_match_muni)
   ),
   ## Combine string matching data for modeling
   tar_target(
@@ -868,9 +885,21 @@ list(
     format = "file"
   ),
   ## Methodology and Evaluation
-  tar_render(
-    name = geocode_writeup,
-    path = "./doc/geocoding_procedure.Rmd",
-    cue = tar_cue(mode = ifelse(pipeline_config$dev_mode, "never", "thorough"))
-  )
+  # Only render in production mode
+  if (!pipeline_config$dev_mode) {
+    tar_render(
+      name = geocode_writeup,
+      path = "./doc/geocoding_procedure.Rmd",
+      cue = tar_cue(mode = "thorough")
+    )
+  } else {
+    # Skip in dev mode - return dummy target
+    tar_target(
+      name = geocode_writeup,
+      command = {
+        message("Skipping geocode_writeup in DEV_MODE")
+        "./doc/geocoding_procedure.html"  # Return expected output path
+      }
+    )
+  }
 )

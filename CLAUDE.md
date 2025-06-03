@@ -131,11 +131,13 @@ The project has 10 major tasks in `.taskmaster/tasks/tasks.json`. A PRD already 
 
 ### Task Workflow
 **IMPORTANT**: Always ask user to review tasks/subtasks before executing. Never proceed without explicit approval.
+**CRITICAL**: Never mark a task as "done" without explicit permission from the user. Always ask for confirmation before using `set_task_status` with status="done".
 
 1. Use `mcp__taskmaster-ai__next_task()` to find ready tasks
 2. Expand complex tasks with `mcp__taskmaster-ai__expand_task()`
 3. Update status with `mcp__taskmaster-ai__set_task_status()`
 4. Test changes in DEV_MODE before marking complete
+5. Ask user for permission before marking any task as "done"
 
 ### Key Task Master Patterns
 ```r

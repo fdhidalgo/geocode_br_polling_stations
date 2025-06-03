@@ -234,26 +234,16 @@ validate_panel_consistency <- function(panel_data, years) {
 }
 
 # Batch processing function for multiple states/blocks
+# Note: This function is kept for backwards compatibility but is not used
+# when targets dynamic branching is enabled (which is the default)
 process_multiple_blocks <- function(data_list, years, blocking_column, scoring_columns, parallel = TRUE) {
   cat("Processing", length(data_list), "blocks/states\n")
   
-  if (parallel && require(future.apply, quietly = TRUE)) {
-    cat("Using parallel processing\n")
-    
-    # Process blocks in parallel
-    results <- future.apply::future_lapply(data_list, function(block) {
-      make_panel_1block(block, years, blocking_column, scoring_columns)
-    }, future.seed = TRUE)
-    
-  } else {
-    cat("Using sequential processing\n")
-    
-    # Process blocks sequentially
-    results <- lapply(seq_along(data_list), function(i) {
-      cat("Block", i, "of", length(data_list), "\n")
-      make_panel_1block(data_list[[i]], years, blocking_column, scoring_columns)
-    })
-  }
+  # Process blocks sequentially
+  results <- lapply(seq_along(data_list), function(i) {
+    cat("Block", i, "of", length(data_list), "\n")
+    make_panel_1block(data_list[[i]], years, blocking_column, scoring_columns)
+  })
   
   # Remove NULL results and combine
   valid_results <- results[!sapply(results, is.null)]

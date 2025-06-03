@@ -11,6 +11,7 @@ editor_options:
 knitr::opts_chunk$set(echo = FALSE, cache = FALSE, dpi = 300)
 # library(tidyverse)
 library(targets)
+library(data.table)
 library(dplyr)
 library(gt)
 library(sf)
@@ -146,13 +147,15 @@ The last column labeled "Error (km)" is the difference between the known geocode
 ```{r string_match_example, message=FALSE, warning=FALSE}
 # example_id <- sample(geocoded_locais$local_id[is.na(geocoded_locais$tse_lat) == FALSE], 1)
 example_id <- 72922
-example_polling_station <- filter(geocoded_locais, local_id == example_id)
-example_inep <- filter(inep_string_match, local_id == example_id)
-example_cnefe10_schools <- filter(schools_cnefe10_match, local_id == example_id)
-example_cnefe22_schools <- filter(schools_cnefe22_match, local_id == example_id)
-example_agrocnefe <- filter(agrocnefe_stbairro_match, local_id == example_id)
-example_cnefe10 <- filter(cnefe10_stbairro_match, local_id == example_id)
-example_cnefe22 <- filter(cnefe22_stbairro_match, local_id == example_id)
+
+# Convert data.table objects to work with dplyr if needed
+example_polling_station <- as.data.frame(geocoded_locais[local_id == example_id])
+example_inep <- as.data.frame(inep_string_match[local_id == example_id])
+example_cnefe10_schools <- as.data.frame(schools_cnefe10_match[local_id == example_id])
+example_cnefe22_schools <- as.data.frame(schools_cnefe22_match[local_id == example_id])
+example_agrocnefe <- as.data.frame(agrocnefe_stbairro_match[local_id == example_id])
+example_cnefe10 <- as.data.frame(cnefe10_stbairro_match[local_id == example_id])
+example_cnefe22 <- as.data.frame(cnefe22_stbairro_match[local_id == example_id])
 example_string_match <- tibble(match_type = c(
   "schools_inep_name", "schools_inep_addr",
   "schools_cnefe_name_2010", "schools_cnefe_addr_2010",
@@ -160,7 +163,7 @@ example_string_match <- tibble(match_type = c(
   "st_cnefe_2017", "st_cnefe_2010", "st_cnefe_2022", "bairro_cnefe_2017",
   "bairro_cnefe_2010", "bairro_cnefe_2022"
 )) |>
-  left_join(filter(model_predictions, local_id == example_id))
+  left_join(as.data.frame(model_predictions[local_id == example_id]))
 
 
 table_data <- tibble(

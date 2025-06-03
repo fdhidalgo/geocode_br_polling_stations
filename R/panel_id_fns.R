@@ -53,7 +53,8 @@ make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
     panel_ids,
     on = .(local_id),
     nomatch = NA
-  ][, .(local_id, panel_id, ano, long, lat, pred_dist)]
+  ][, .(local_id, panel_id, ano, 
+        long = final_long, lat = final_lat, pred_dist)]
   
   # For each panel_id, get coordinates with smallest pred_dist
   # Break ties by choosing most recent year

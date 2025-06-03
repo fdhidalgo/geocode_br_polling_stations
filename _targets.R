@@ -19,7 +19,9 @@ tar_option_set(
     "future",
     "reclin2",
     "future.apply",
-    "validate"
+    "validate",
+    "geosphere",
+    "sf"
   ),
   format = "qs", # default storage format,
   memory = "transient",
@@ -37,15 +39,30 @@ future::plan(
 )
 library(progressr)
 
+# Development mode flag - set to TRUE for faster iteration with subset of states
+DEV_MODE <- TRUE  # Process only AC, RR, AP, RO states when TRUE
+
 # Load the R scripts with your custom functions:
-lapply(list.files("./R", full.names = TRUE, pattern = "fns\\.R$"), source)
+lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
 # Load validation functions
 source("./R/functions_validate.R")
-# Load join validation functions
-source("./R/validation_join_operations.R")
+# Load state filtering functions
+source("./R/state_filtering.R")
 
 ## Do not use s2 spherical geometry package
 # sf::sf_use_s2(FALSE)
+
+# Get pipeline configuration based on development mode
+pipeline_config <- get_pipeline_config(DEV_MODE)
+
+# Print configuration info
+if (pipeline_config$dev_mode) {
+  message("Running in DEVELOPMENT MODE")
+  message("Processing states: ", paste(pipeline_config$dev_states, collapse = ", "))
+} else {
+  message("Running in PRODUCTION MODE")
+  message("Processing all Brazilian states")
+}
 
 # Replace the target list below with your own:
 list(
@@ -56,8 +73,18 @@ list(
     format = "file"
   ),
   tar_target(
-    name = muni_ids,
+    name = muni_ids_all,
     command = fread(muni_ids_file)
+  ),
+  tar_target(
+    name = muni_ids,
+    command = {
+      if (pipeline_config$dev_mode) {
+        muni_ids_all[estado_abrev %in% pipeline_config$dev_states]
+      } else {
+        muni_ids_all
+      }
+    }
   ),
   tar_target(
     name = validate_muni_ids,
@@ -99,8 +126,23 @@ list(
     format = "file"
   ),
   tar_target(
-    name = tract_shp,
+    name = tract_shp_all,
     command = sf::st_make_valid(readRDS(tract_shp_file))
+  ),
+  tar_target(
+    name = tract_shp,
+    command = {
+      if (pipeline_config$dev_mode) {
+        # Filter census tracts to dev states using sf-aware subsetting
+        dev_state_codes <- substr(as.character(muni_ids$id_munic_7), 1, 2)
+        # Use sf's subsetting to preserve geometry
+        tract_filtered <- tract_shp_all[substr(tract_shp_all$code_tract, 1, 2) %in% unique(dev_state_codes), ]
+        # Ensure it's still a valid sf object
+        sf::st_as_sf(tract_filtered)
+      } else {
+        tract_shp_all
+      }
+    }
   ),
   tar_target(
     name = muni_shp_file,
@@ -108,8 +150,23 @@ list(
     format = "file"
   ),
   tar_target(
-    name = muni_shp,
+    name = muni_shp_all,
     command = sf::st_make_valid(readRDS(muni_shp_file))
+  ),
+  tar_target(
+    name = muni_shp,
+    command = {
+      if (pipeline_config$dev_mode) {
+        # Filter municipality shapes to dev states using sf-aware subsetting
+        dev_muni_codes <- muni_ids$id_munic_7
+        # Use sf's subsetting to preserve geometry
+        muni_filtered <- muni_shp_all[muni_shp_all$code_muni %in% dev_muni_codes, ]
+        # Ensure it's still a valid sf object
+        sf::st_as_sf(muni_filtered)
+      } else {
+        muni_shp_all
+      }
+    }
   ),
   ## import municipal demographic data
   tar_target(
@@ -118,8 +175,20 @@ list(
     format = "file"
   ),
   tar_target(
-    name = muni_demo,
+    name = muni_demo_all,
     command = fread(muni_demo_file)
+  ),
+  tar_target(
+    name = muni_demo,
+    command = {
+      if (pipeline_config$dev_mode) {
+        # Filter demographic data to dev municipalities
+        dev_muni_codes <- muni_ids$id_munic_7
+        muni_demo_all[Codmun7 %in% dev_muni_codes]
+      } else {
+        muni_demo_all
+      }
+    }
   ),
   #  calculate geographic features of municipalities
   tar_target(
@@ -133,19 +202,33 @@ list(
 
   ## import and clean CNEFE data
   tar_target(
-    name = cnefe10_file,
-    command = "./data/CNEFE_combined.gz",
-    format = "file"
+    name = cnefe10_raw,
+    command = {
+      if (pipeline_config$dev_mode) {
+        # Read only dev states from partitioned files
+        read_state_cnefe(2010, pipeline_config$dev_states, base_dir = "data")
+      } else {
+        # In production, read the full file
+        fread("./data/CNEFE_combined.gz")
+      }
+    }
   ),
   tar_target(
-    name = cnefe22_file,
-    command = "./data/cnefe22.csv.gz",
-    format = "file"
+    name = cnefe22_raw,
+    command = {
+      if (pipeline_config$dev_mode) {
+        # Read only dev states from partitioned files
+        read_state_cnefe(2022, pipeline_config$dev_states, base_dir = "data")
+      } else {
+        # In production, read the full file
+        fread("./data/cnefe22.csv.gz")
+      }
+    }
   ),
   tar_target(
     name = cnefe10,
     command = clean_cnefe10(
-      cnefe_file = cnefe10_file,
+      cnefe_file = cnefe10_raw,
       muni_ids = muni_ids,
       tract_centroids = tract_centroids
     ),
@@ -154,7 +237,7 @@ list(
   tar_target(
     name = cnefe22,
     command = clean_cnefe22(
-      cnefe22_file = cnefe22_file,
+      cnefe22_file = cnefe22_raw,
       muni_ids = muni_ids
     ),
     format = "fst_dt"
@@ -197,7 +280,21 @@ list(
   ## Import and clean 2017 CNEFE
   tar_target(
     name = agro_cnefe_files,
-    command = dir("data/agro_censo/", full.names = TRUE)
+    command = {
+      if (pipeline_config$dev_mode) {
+        # Map state abbreviations to agro censo file names
+        state_file_map <- c(
+          "AC" = "12_ACRE.csv.gz",
+          "RR" = "14_RORAIMA.csv.gz", 
+          "AP" = "16_AMAPA.csv.gz",
+          "RO" = "11_RONDONIA.csv.gz"
+        )
+        dev_files <- state_file_map[pipeline_config$dev_states]
+        file.path("data/agro_censo", dev_files[!is.na(dev_files)])
+      } else {
+        dir("data/agro_censo/", full.names = TRUE)
+      }
+    }
   ),
   tar_target(
     name = agro_cnefe,
@@ -272,11 +369,23 @@ list(
     format = "file"
   ),
   tar_target(
-    name = inep_data,
+    name = inep_data_all,
     command = clean_inep(
       inep_data = fread(inep_file),
       inep_codes = inep_codes
     )
+  ),
+  tar_target(
+    name = inep_data,
+    command = {
+      if (pipeline_config$dev_mode) {
+        # Get municipality codes for dev states
+        dev_muni_codes <- get_muni_codes_for_states(muni_ids, pipeline_config$dev_states)
+        inep_data_all[id_munic_7 %in% dev_muni_codes]
+      } else {
+        inep_data_all
+      }
+    }
   ),
   ## Import Locais de Votação Data
   tar_target(
@@ -285,11 +394,21 @@ list(
     format = "file"
   ),
   tar_target(
-    name = locais,
+    name = locais_all,
     command = import_locais(
       locais_file = locais_file,
       muni_ids = muni_ids
     )
+  ),
+  tar_target(
+    name = locais,
+    command = {
+      if (pipeline_config$dev_mode) {
+        filter_data_by_state(locais_all, pipeline_config$dev_states, "sg_uf")
+      } else {
+        locais_all
+      }
+    }
   ),
   tar_target(
     ## Import geocoded polling stations from TSE for ground truth
@@ -313,44 +432,39 @@ list(
   ## Create panel ids for Brasília
   tar_target(
     name = panel_ids_df,
-    command = make_panel_1block(
-      locais[sg_uf == "DF"],
-      years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022),
-      blocking_column = "cod_localidade_ibge",
-      scoring_columns = c("normalized_name", "normalized_addr")
-    ),
+    command = {
+      # Only process DF if it exists in the data (production mode)
+      df_data <- locais[sg_uf == "DF"]
+      if (nrow(df_data) > 0) {
+        make_panel_1block(
+          df_data,
+          years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022),
+          blocking_column = "cod_localidade_ibge",
+          scoring_columns = c("normalized_name", "normalized_addr")
+        )
+      } else {
+        # Return empty data.table with expected structure
+        data.table()
+      }
+    },
     format = "fst_dt"
   ),
   tar_target(
     panel_state,
-    command = c(
-      "AC",
-      "AL",
-      "AM",
-      "AP",
-      "BA",
-      "CE",
-      "ES",
-      "GO",
-      "MA",
-      "MG",
-      "MS",
-      "MT",
-      "PA",
-      "PB",
-      "PE",
-      "PI",
-      "PR",
-      "RJ",
-      "RN",
-      "RO",
-      "RR",
-      "RS",
-      "SC",
-      "SE",
-      "SP",
-      "TO"
-    )
+    command = {
+      if (pipeline_config$dev_mode) {
+        # In dev mode, only process dev states (excluding DF which is handled separately)
+        setdiff(pipeline_config$dev_states, "DF")
+      } else {
+        # In production, process all states except DF
+        c(
+          "AC", "AL", "AM", "AP", "BA", "CE", "ES", "GO",
+          "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI",
+          "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE",
+          "SP", "TO"
+        )
+      }
+    }
   ),
   ## Iterate over states (except Brasília) to create panel ids
   tar_target(
@@ -515,6 +629,7 @@ list(
   ## Methodology and Evaluation
   tar_render(
     name = geocode_writeup,
-    path = "./doc/geocoding_procedure.Rmd"
+    path = "./doc/geocoding_procedure.Rmd",
+    cue = tar_cue(mode = ifelse(pipeline_config$dev_mode, "never", "thorough"))
   )
 )

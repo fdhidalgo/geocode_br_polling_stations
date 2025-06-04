@@ -84,13 +84,20 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
   cnefe22[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
 
   setnames(cnefe22, "cod_municipio", "id_munic_7")
-  cnefe22 <- merge(
-    cnefe22,
-    muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)],
-    by.x = "id_munic_7",
-    by.y = "id_munic_7",
-    all.x = TRUE
-  )
+  
+  # Check if muni_ids has data for this state
+  if (nrow(muni_ids) > 0) {
+    cnefe22 <- merge(
+      cnefe22,
+      muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)],
+      by.x = "id_munic_7",
+      by.y = "id_munic_7",
+      all.x = TRUE
+    )
+  } else {
+    # If no muni_ids for this state, add empty columns
+    cnefe22[, `:=`(id_TSE = NA_integer_, municipio = NA_character_, estado_abrev = NA_character_)]
+  }
   # Merge in especie labels
   especie_labs <- data.table(
     cod_especie = 1:8,

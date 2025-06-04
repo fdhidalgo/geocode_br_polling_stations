@@ -132,12 +132,14 @@ The project has 10 major tasks in `.taskmaster/tasks/tasks.json`. A PRD already 
 ### Task Workflow
 **IMPORTANT**: Always ask user to review tasks/subtasks before executing. Never proceed without explicit approval.
 **CRITICAL**: Never mark a task as "done" without explicit permission from the user. Always ask for confirmation before using `set_task_status` with status="done".
+**COMMIT REQUIREMENT**: When about to mark a main task (not subtask) as "done", always offer to clean up the project directory and move unneeded files to the backup folder. 
 
 1. Use `mcp__taskmaster-ai__next_task()` to find ready tasks
 2. Expand complex tasks with `mcp__taskmaster-ai__expand_task()`
 3. Update status with `mcp__taskmaster-ai__set_task_status()`
 4. Test changes in DEV_MODE before marking complete
 5. Ask user for permission before marking any task as "done"
+6. When marking a main task as "done", offer to create a commit
 
 ### Key Task Master Patterns
 ```r
@@ -156,3 +158,6 @@ mcp__taskmaster-ai__expand_task(id = "7", research = TRUE, projectRoot = "...")
 - **Dynamic branching**: Migrate from `future_lapply` to targets branching (Issue #12)
 - **String matching**: Multiple implementations need consolidation (Issue #8)
 - **Portuguese text**: Be aware of abbreviations and accents in string matching 
+
+## Workflow Guidelines
+- When using the todo list feature, ask me to approve each todo on the list before you proceed

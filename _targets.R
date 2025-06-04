@@ -14,20 +14,31 @@ library(crew)
 
 ## Setup parallel processing with crew/mirai
 
-# Keep data.table threads for data.table operations
-data.table::setDTthreads(parallel::detectCores() - 2)
+data.table::setDTthreads(1)
 
-# Create crew controller for targets parallel execution
-controller <- crew_controller_local(
-  name = "main",
-  workers = floor(parallel::detectCores() / 2),
-  seconds_idle = 60,  # Workers shut down after 60s idle
-  seconds_wall = Inf,  # No wall time limit
-  tasks_max = Inf,     # No task limit per worker
-  reset_globals = FALSE,
-  reset_packages = FALSE,
-  reset_options = FALSE,
-  garbage_collection = TRUE  # Important for memory management
+# Load parallel processing functions
+source("./R/parallel_processing_fns.R")
+
+# Create differentiated crew controllers
+controllers <- create_crew_controllers()
+
+# Create a controller group for targets to use
+controller <- crew_controller_group(
+  controllers$cnefe,
+  controllers$light
+)
+
+# Store controllers globally for access by functions
+assign("crew_controllers", controllers, envir = .GlobalEnv)
+
+# Register cleanup on exit
+on.exit(
+  {
+    if (exists("crew_controllers", envir = .GlobalEnv)) {
+      cleanup_controllers(get("crew_controllers", envir = .GlobalEnv))
+    }
+  },
+  add = TRUE
 )
 
 # Set target options:
@@ -48,16 +59,19 @@ tar_option_set(
   format = "qs", # default storage format,
   memory = "transient",
   garbage_collection = TRUE,
-  controller = controller  # Use crew for parallel execution
+  controller = controller # Use crew for parallel execution
 )
 
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- TRUE  # Process only AC, RR, AP, RO states when TRUE
+DEV_MODE <- FALSE # Process only AC, RR, AP, RO states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
+# Load parallel processing functions
+source("./R/parallel_processing_fns.R")
+source("./R/parallel_integration_fns.R")
 # Load validation functions
 source("./R/functions_validate.R")
 # Load comprehensive validation framework
@@ -78,7 +92,10 @@ pipeline_config <- get_pipeline_config(DEV_MODE)
 # Print configuration info
 if (pipeline_config$dev_mode) {
   message("Running in DEVELOPMENT MODE")
-  message("Processing states: ", paste(pipeline_config$dev_states, collapse = ", "))
+  message(
+    "Processing states: ",
+    paste(pipeline_config$dev_states, collapse = ", ")
+  )
 } else {
   message("Running in PRODUCTION MODE")
   message("Processing all Brazilian states")
@@ -112,14 +129,25 @@ list(
       result <- validate_import_stage(
         data = muni_ids,
         stage_name = "muni_ids",
-        expected_cols = c("id_munic_7", "id_munic_6", "id_TSE", "estado_abrev", "municipio"),
-        min_rows = ifelse(pipeline_config$dev_mode, 100, 5000)  # Brazil has ~5,570 municipalities
+        expected_cols = c(
+          "id_munic_7",
+          "id_munic_6",
+          "id_TSE",
+          "estado_abrev",
+          "municipio"
+        ),
+        min_rows = ifelse(pipeline_config$dev_mode, 100, 5000) # Brazil has ~5,570 municipalities
       )
       if (!result$passed) {
-        warning("Municipality identifiers validation failed - check data quality")
+        warning(
+          "Municipality identifiers validation failed - check data quality"
+        )
       }
       result
-    }
+    },
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "light_tasks")
+    )
   ),
   tar_target(
     name = inep_codes_file,
@@ -137,7 +165,7 @@ list(
         data = inep_codes,
         stage_name = "inep_codes",
         expected_cols = c("codigo_inep", "id_munic_7"),
-        min_rows = ifelse(pipeline_config$dev_mode, 1000, 100000)  # Expect many schools
+        min_rows = ifelse(pipeline_config$dev_mode, 1000, 100000) # Expect many schools
       )
       if (!result$passed) {
         warning("INEP codes validation failed - check data quality")
@@ -162,7 +190,9 @@ list(
         # Filter census tracts to dev states using sf-aware subsetting
         dev_state_codes <- substr(as.character(muni_ids$id_munic_7), 1, 2)
         # Use sf's subsetting to preserve geometry
-        tract_filtered <- tract_shp_all[substr(tract_shp_all$code_tract, 1, 2) %in% unique(dev_state_codes), ]
+        tract_filtered <- tract_shp_all[
+          substr(tract_shp_all$code_tract, 1, 2) %in% unique(dev_state_codes),
+        ]
         # Ensure it's still a valid sf object
         sf::st_as_sf(tract_filtered)
       } else {
@@ -186,7 +216,9 @@ list(
         # Filter municipality shapes to dev states using sf-aware subsetting
         dev_muni_codes <- muni_ids$id_munic_7
         # Use sf's subsetting to preserve geometry
-        muni_filtered <- muni_shp_all[muni_shp_all$code_muni %in% dev_muni_codes, ]
+        muni_filtered <- muni_shp_all[
+          muni_shp_all$code_muni %in% dev_muni_codes,
+        ]
         # Ensure it's still a valid sf object
         sf::st_as_sf(muni_filtered)
       } else {
@@ -237,17 +269,26 @@ list(
         # In production, read the full file
         fread("./data/CNEFE_combined.gz")
       }
-    }
+    },
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "cnefe_heavy")
+    )
   ),
+  # Get list of states to process based on mode
   tar_target(
-    name = cnefe22_raw,
+    name = cnefe22_states,
     command = {
       if (pipeline_config$dev_mode) {
-        # Read only dev states from partitioned files
-        read_state_cnefe(2022, pipeline_config$dev_states, base_dir = "data")
+        pipeline_config$dev_states
       } else {
-        # In production, read the full file
-        fread("./data/cnefe22.csv.gz")
+        # Get all states from the cnefe_2022 directory
+        state_files <- list.files(
+          "data/cnefe_2022",
+          pattern = "cnefe_2022_.*\\.csv\\.gz$"
+        )
+        gsub("cnefe_2022_(.+)\\.csv\\.gz", "\\1", state_files)
       }
     }
   ),
@@ -258,7 +299,12 @@ list(
       muni_ids = muni_ids,
       tract_centroids = tract_centroids
     ),
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "cnefe_heavy")
+    )
   ),
   tar_target(
     name = validate_cnefe10_clean,
@@ -275,22 +321,70 @@ list(
       result
     }
   ),
+  # Process CNEFE22 state by state to avoid memory issues
+  tar_target(
+    name = cnefe22_cleaned_by_state,
+    command = {
+      # Read state file
+      state_file <- file.path(
+        "data/cnefe_2022",
+        paste0("cnefe_2022_", cnefe22_states, ".csv.gz")
+      )
+
+      # Get municipality IDs for this state
+      state_muni_ids <- muni_ids[estado_abrev == cnefe22_states]
+
+      # Clean the state data
+      clean_cnefe22(
+        cnefe22_file = state_file,
+        muni_ids = state_muni_ids
+      )
+    },
+    pattern = map(cnefe22_states),
+    format = "fst_dt",
+    iteration = "list",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "cnefe_heavy")
+    )
+  ),
+  # Combine all cleaned state data
   tar_target(
     name = cnefe22,
-    command = clean_cnefe22(
-      cnefe22_file = cnefe22_raw,
-      muni_ids = muni_ids
-    ),
-    format = "fst_dt"
+    command = {
+      # Combine all state data.tables
+      combined <- rbindlist(
+        cnefe22_cleaned_by_state,
+        use.names = TRUE,
+        fill = TRUE
+      )
+
+      # Return combined dataset
+      combined
+    },
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "cnefe_heavy")
+    )
   ),
   tar_target(
     name = validate_cnefe22_clean,
     command = {
-      result <- validate_cleaning_stage(
-        cleaned_data = cnefe22,
-        original_data = cnefe22_raw,
+      # For validation, we can't compare to original_data since it's processed by state
+      # Instead, validate the combined output
+      result <- validate_import_stage(
+        data = cnefe22,
         stage_name = "cnefe22_cleaned",
-        key_cols = c("id_munic_7", "cnefe_lat", "cnefe_long")
+        expected_cols = c(
+          "id_munic_7",
+          "cnefe_lat",
+          "cnefe_long",
+          "norm_address",
+          "norm_street",
+          "norm_bairro"
+        ),
+        min_rows = ifelse(pipeline_config$dev_mode, 10000, 1000000)
       )
       if (!result$passed) {
         stop("CNEFE 2022 cleaning validation failed - pipeline halted")
@@ -305,7 +399,9 @@ list(
     command = cnefe10[especie_lab == "estabelecimento de ensino"][,
       norm_desc := normalize_school(desc)
     ],
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   ## Create a dataset of streets in 2010 CNEFE
   tar_target(
@@ -318,7 +414,9 @@ list(
       ),
       by = .(id_munic_7, norm_street)
     ][n > 1],
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   ## Create a dataset of neighborhoods in 2010 CNEFE
   tar_target(
@@ -331,7 +429,9 @@ list(
       ),
       by = .(id_munic_7, norm_bairro)
     ][n > 1],
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   ## Import and clean 2017 CNEFE
   tar_target(
@@ -341,7 +441,7 @@ list(
         # Map state abbreviations to agro censo file names
         state_file_map <- c(
           "AC" = "12_ACRE.csv.gz",
-          "RR" = "14_RORAIMA.csv.gz", 
+          "RR" = "14_RORAIMA.csv.gz",
           "AP" = "16_AMAPA.csv.gz",
           "RO" = "11_RONDONIA.csv.gz"
         )
@@ -358,7 +458,9 @@ list(
       agro_cnefe_files = agro_cnefe_files,
       muni_ids = muni_ids
     ),
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   ## Create a dataset of streets in 2017 CNEFE
   tar_target(
@@ -371,7 +473,9 @@ list(
       ),
       by = .(id_munic_7, norm_street)
     ][n > 1],
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   ## Create a dataset of neighborhoods in 2017 CNEFE
   tar_target(
@@ -384,13 +488,20 @@ list(
       ),
       by = .(id_munic_7, norm_bairro)
     ][n > 1],
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   tar_target(
     ## Extract schools frome 2022 CNEFE
     name = schools_cnefe22,
     command = get_cnefe22_schools(cnefe22),
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "cnefe_heavy")
+    )
   ),
   ## Create a dataset of streets in 2022 CNEFE
   tar_target(
@@ -403,7 +514,9 @@ list(
       ),
       by = .(id_munic_7, norm_street)
     ][n > 1],
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   ## Create a dataset of neighborhoods in 2022 CNEFE
   tar_target(
@@ -416,7 +529,9 @@ list(
       ),
       by = .(id_munic_7, norm_bairro)
     ][n > 1],
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   ## Import and clean INEP data
   tar_target(
@@ -436,7 +551,10 @@ list(
     command = {
       if (pipeline_config$dev_mode) {
         # Get municipality codes for dev states
-        dev_muni_codes <- get_muni_codes_for_states(muni_ids, pipeline_config$dev_states)
+        dev_muni_codes <- get_muni_codes_for_states(
+          muni_ids,
+          pipeline_config$dev_states
+        )
         inep_data_all[id_munic_7 %in% dev_muni_codes]
       } else {
         inep_data_all
@@ -469,7 +587,9 @@ list(
     command = import_locais(
       locais_file = locais_file,
       muni_ids = muni_ids
-    )
+    ),
+    storage = "worker",
+    retrieval = "worker"
   ),
   tar_target(
     name = locais,
@@ -487,8 +607,17 @@ list(
       result <- validate_import_stage(
         data = locais,
         stage_name = "locais",
-        expected_cols = c("local_id", "ano", "nr_zona", "nr_locvot", "nm_locvot", 
-                         "nm_localidade", "sg_uf", "cod_localidade_ibge", "ds_endereco"),
+        expected_cols = c(
+          "local_id",
+          "ano",
+          "nr_zona",
+          "nr_locvot",
+          "nm_locvot",
+          "nm_localidade",
+          "sg_uf",
+          "cod_localidade_ibge",
+          "ds_endereco"
+        ),
         min_rows = ifelse(pipeline_config$dev_mode, 1000, 100000)
       )
       if (!result$passed) {
@@ -534,7 +663,9 @@ list(
         data.table()
       }
     },
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   tar_target(
     panel_state,
@@ -545,10 +676,32 @@ list(
       } else {
         # In production, process all states except DF
         c(
-          "AC", "AL", "AM", "AP", "BA", "CE", "ES", "GO",
-          "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI",
-          "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE",
-          "SP", "TO"
+          "AC",
+          "AL",
+          "AM",
+          "AP",
+          "BA",
+          "CE",
+          "ES",
+          "GO",
+          "MA",
+          "MG",
+          "MS",
+          "MT",
+          "PA",
+          "PB",
+          "PE",
+          "PI",
+          "PR",
+          "RJ",
+          "RN",
+          "RO",
+          "RR",
+          "RS",
+          "SC",
+          "SE",
+          "SP",
+          "TO"
         )
       }
     }
@@ -575,22 +728,26 @@ list(
     name = municipalities_for_matching,
     command = unique(locais$cod_localidade_ibge)
   ),
-  
+
   # INEP string matching with dynamic branching
   tar_target(
     name = inep_string_match_muni,
     command = {
       match_inep_muni(
-        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
+        locais_muni = locais[
+          cod_localidade_ibge == municipalities_for_matching
+        ],
         inep_muni = inep_data[id_munic_7 == municipalities_for_matching]
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list"  # Keep branches as list for rbindlist
+    iteration = "list" # Keep branches as list for rbindlist
   ),
   tar_target(
     name = inep_string_match,
-    command = rbindlist(inep_string_match_muni)
+    command = rbindlist(inep_string_match_muni),
+    storage = "worker",
+    retrieval = "worker"
   ),
   tar_target(
     name = validate_inep_match,
@@ -601,14 +758,14 @@ list(
         id_col = "local_id",
         score_col = "dist"
       )
-      
+
       message(sprintf(
         "INEP string matching: %.1f%% match rate (%d matched out of %d)",
         result$metadata$match_rate,
         sum(!is.na(inep_string_match$lat), na.rm = TRUE),
         nrow(inep_string_match)
       ))
-      
+
       if (!result$passed) {
         warning("INEP string match validation has issues")
       }
@@ -620,83 +777,115 @@ list(
     name = schools_cnefe10_match_muni,
     command = {
       match_schools_cnefe_muni(
-        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
-        schools_cnefe_muni = schools_cnefe10[id_munic_7 == municipalities_for_matching]
+        locais_muni = locais[
+          cod_localidade_ibge == municipalities_for_matching
+        ],
+        schools_cnefe_muni = schools_cnefe10[
+          id_munic_7 == municipalities_for_matching
+        ]
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list"  # Keep branches as list for rbindlist
+    iteration = "list" # Keep branches as list for rbindlist
   ),
   tar_target(
     name = schools_cnefe10_match,
-    command = rbindlist(schools_cnefe10_match_muni)
+    command = rbindlist(schools_cnefe10_match_muni),
+    storage = "worker",
+    retrieval = "worker"
   ),
   # Schools CNEFE 2022 matching with dynamic branching
   tar_target(
     name = schools_cnefe22_match_muni,
     command = {
       match_schools_cnefe_muni(
-        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
-        schools_cnefe_muni = schools_cnefe22[id_munic_7 == municipalities_for_matching]
+        locais_muni = locais[
+          cod_localidade_ibge == municipalities_for_matching
+        ],
+        schools_cnefe_muni = schools_cnefe22[
+          id_munic_7 == municipalities_for_matching
+        ]
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list"  # Keep branches as list for rbindlist
+    iteration = "list" # Keep branches as list for rbindlist
   ),
   tar_target(
     name = schools_cnefe22_match,
-    command = rbindlist(schools_cnefe22_match_muni)
+    command = rbindlist(schools_cnefe22_match_muni),
+    storage = "worker",
+    retrieval = "worker"
   ),
   # CNEFE 2010 street/neighborhood matching with dynamic branching
   tar_target(
     name = cnefe10_stbairro_match_muni,
     command = {
       match_stbairro_cnefe_muni(
-        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
+        locais_muni = locais[
+          cod_localidade_ibge == municipalities_for_matching
+        ],
         cnefe_st_muni = cnefe10_st[id_munic_7 == municipalities_for_matching],
-        cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == municipalities_for_matching]
+        cnefe_bairro_muni = cnefe10_bairro[
+          id_munic_7 == municipalities_for_matching
+        ]
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list"  # Keep branches as list for rbindlist
+    iteration = "list" # Keep branches as list for rbindlist
   ),
   tar_target(
     name = cnefe10_stbairro_match,
-    command = rbindlist(cnefe10_stbairro_match_muni)
+    command = rbindlist(cnefe10_stbairro_match_muni),
+    storage = "worker",
+    retrieval = "worker"
   ),
   # CNEFE 2022 street/neighborhood matching with dynamic branching
   tar_target(
     name = cnefe22_stbairro_match_muni,
     command = {
       match_stbairro_cnefe_muni(
-        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
+        locais_muni = locais[
+          cod_localidade_ibge == municipalities_for_matching
+        ],
         cnefe_st_muni = cnefe22_st[id_munic_7 == municipalities_for_matching],
-        cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == municipalities_for_matching]
+        cnefe_bairro_muni = cnefe22_bairro[
+          id_munic_7 == municipalities_for_matching
+        ]
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list"  # Keep branches as list for rbindlist
+    iteration = "list" # Keep branches as list for rbindlist
   ),
   tar_target(
     name = cnefe22_stbairro_match,
-    command = rbindlist(cnefe22_stbairro_match_muni)
+    command = rbindlist(cnefe22_stbairro_match_muni),
+    storage = "worker",
+    retrieval = "worker"
   ),
   # Agro CNEFE street/neighborhood matching with dynamic branching
   tar_target(
     name = agrocnefe_stbairro_match_muni,
     command = {
       match_stbairro_agrocnefe_muni(
-        locais_muni = locais[cod_localidade_ibge == municipalities_for_matching],
-        agrocnefe_st_muni = agrocnefe_st[id_munic_7 == municipalities_for_matching],
-        agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == municipalities_for_matching]
+        locais_muni = locais[
+          cod_localidade_ibge == municipalities_for_matching
+        ],
+        agrocnefe_st_muni = agrocnefe_st[
+          id_munic_7 == municipalities_for_matching
+        ],
+        agrocnefe_bairro_muni = agrocnefe_bairro[
+          id_munic_7 == municipalities_for_matching
+        ]
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list"  # Keep branches as list for rbindlist
+    iteration = "list" # Keep branches as list for rbindlist
   ),
   tar_target(
     name = agrocnefe_stbairro_match,
-    command = rbindlist(agrocnefe_stbairro_match_muni)
+    command = rbindlist(agrocnefe_stbairro_match_muni),
+    storage = "worker",
+    retrieval = "worker"
   ),
   ## Combine string matching data for modeling
   tar_target(
@@ -713,6 +902,8 @@ list(
       locais = locais,
       tsegeocoded_locais = tsegeocoded_locais
     ),
+    storage = "worker",
+    retrieval = "worker"
   ),
   tar_target(
     name = validate_model_data,
@@ -720,12 +911,12 @@ list(
       result <- validate_merge_stage(
         merged_data = model_data,
         left_data = locais,
-        right_data = NULL,  # Multiple sources merged
+        right_data = NULL, # Multiple sources merged
         stage_name = "model_data_merge",
         merge_keys = "local_id",
-        join_type = "left_many"  # One-to-many join expected for fuzzy matching
+        join_type = "left_many" # One-to-many join expected for fuzzy matching
       )
-      
+
       if (!result$passed) {
         warning("Model data merge validation failed")
       }
@@ -740,7 +931,9 @@ list(
   tar_target(
     name = model_predictions,
     command = get_predictions(trained_model, model_data),
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   tar_target(
     name = validate_predictions,
@@ -748,8 +941,8 @@ list(
       result <- validate_prediction_stage(
         predictions = model_predictions,
         stage_name = "model_predictions",
-        pred_col = "pred_dist",  # Distance prediction column
-        prob_col = NULL          # No probability column
+        pred_col = "pred_dist", # Distance prediction column
+        prob_col = NULL # No probability column
       )
       if (!result$passed) {
         stop("Model predictions validation failed")
@@ -762,7 +955,9 @@ list(
   tar_target(
     name = geocoded_locais,
     command = finalize_coords(locais, model_predictions, tsegeocoded_locais),
-    format = "fst_dt"
+    format = "fst_dt",
+    storage = "worker",
+    retrieval = "worker"
   ),
   tar_target(
     name = validate_geocoded_output,
@@ -770,25 +965,33 @@ list(
       result <- validate_output_stage(
         output_data = geocoded_locais,
         stage_name = "geocoded_locais",
-        required_cols = c("local_id", "final_lat", "final_long", "ano", 
-                         "nr_zona", "nr_locvot", "nm_locvot", "nm_localidade"),
+        required_cols = c(
+          "local_id",
+          "final_lat",
+          "final_long",
+          "ano",
+          "nr_zona",
+          "nr_locvot",
+          "nm_locvot",
+          "nm_localidade"
+        ),
         unique_keys = c("local_id", "ano", "nr_zona", "nr_locvot")
       )
-      
+
       # Final quality check
       if (!result$passed) {
         stop("Final output validation failed - do not export!")
       }
-      
+
       message(sprintf(
         "Geocoding complete: %d polling stations geocoded",
         nrow(geocoded_locais)
       ))
-      
+
       result
     }
   ),
-  
+
   ## Generate comprehensive validation report as pipeline output
   tar_target(
     name = validation_report,
@@ -806,10 +1009,11 @@ list(
         model_predictions = validate_predictions,
         geocoded_output = validate_geocoded_output
       )
-      
+
       # Store original data references for failed record export
       for (name in names(validation_results)) {
-        validation_results[[name]]$metadata$data <- switch(name,
+        validation_results[[name]]$metadata$data <- switch(
+          name,
           muni_ids = muni_ids,
           inep_codes = inep_codes,
           cnefe10_cleaned = cnefe10,
@@ -822,14 +1026,14 @@ list(
           geocoded_output = geocoded_locais
         )
       }
-      
+
       # Generate text validation report
       report_path <- generate_text_validation_report(
         validation_results = validation_results,
         output_dir = "output/validation_reports",
         export_failures = TRUE
       )
-      
+
       # Save validation summary for future reference
       summary_stats <- list(
         report_path = report_path,
@@ -847,24 +1051,32 @@ list(
           )
         })
       )
-      
+
       # Save summary
       saveRDS(summary_stats, "output/validation_summary.rds")
-      
+
       # Print summary to console
       cat("\n========== VALIDATION REPORT SUMMARY ==========\n")
       cat("Report generated:", report_path, "\n")
       cat("Total stages validated:", summary_stats$total_validations, "\n")
       cat("Passed:", summary_stats$passed, "\n")
       cat("Failed:", summary_stats$failed, "\n")
-      cat("Mode:", ifelse(summary_stats$dev_mode, "DEVELOPMENT", "PRODUCTION"), "\n")
-      cat("Overall status:", ifelse(summary_stats$failed == 0, "✅ SUCCESS", "❌ FAILURES DETECTED"), "\n")
+      cat(
+        "Mode:",
+        ifelse(summary_stats$dev_mode, "DEVELOPMENT", "PRODUCTION"),
+        "\n"
+      )
+      cat(
+        "Overall status:",
+        ifelse(summary_stats$failed == 0, "✅ SUCCESS", "❌ FAILURES DETECTED"),
+        "\n"
+      )
       cat("===============================================\n\n")
-      
+
       summary_stats
     }
   ),
-  
+
   ## Export data (only after validation passes)
   tar_target(
     name = geocoded_export,
@@ -898,7 +1110,7 @@ list(
       name = geocode_writeup,
       command = {
         message("Skipping geocode_writeup in DEV_MODE")
-        "./doc/geocoding_procedure.html"  # Return expected output path
+        "./doc/geocoding_procedure.html" # Return expected output path
       }
     )
   }

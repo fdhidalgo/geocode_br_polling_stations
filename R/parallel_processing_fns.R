@@ -8,13 +8,15 @@
 #' @export
 create_crew_controllers <- function() {
   # Controller for memory-intensive CNEFE operations
+  # With 116GB available memory, we can safely run 4 CNEFE workers
+  # Each state typically uses 10-20GB, so 4 workers = 40-80GB peak
   cnefe_controller <- crew::crew_controller_local(
     name = "cnefe_heavy",
-    workers = 1,  # Single-threaded for memory efficiency
+    workers = 4,  # Limited parallelism for memory efficiency
     seconds_idle = 60,  # Keep worker alive for 60 seconds when idle
     seconds_wall = 7200,  # 2 hour wall time limit per worker
     seconds_timeout = 600,  # 10 minute timeout for dispatcher communications
-    tasks_max = 1,  # Process one task at a time
+    tasks_max = 1,  # Process one task at a time per worker
     reset_globals = TRUE,  # Clean memory between tasks
     reset_packages = FALSE,
     reset_options = FALSE,

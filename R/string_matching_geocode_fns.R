@@ -462,13 +462,13 @@ make_model_data <- function(
   
   # Process geocodebr data to long format
   if (!is.null(geocodebr_match) && nrow(geocodebr_match) > 0) {
-    # Create long format with precision info
+    # Create long format with precision info - use same column names as melted data
     geocodebr_long <- geocodebr_match[!is.na(match_lat_geocodebr), .(
       local_id,
       type = "geocodebr",
-      value.long = match_long_geocodebr,
-      value.lat = match_lat_geocodebr,
-      value.mindist = mindist_geocodebr,  # Always 0 for geocodebr
+      long = match_long_geocodebr,
+      lat = match_lat_geocodebr,
+      mindist = mindist_geocodebr,  # Always 0 for geocodebr
       # Add precision as a numeric score (higher = better)
       precision_score = fcase(
         precisao_geocodebr == "numero", 3,
@@ -479,7 +479,7 @@ make_model_data <- function(
     )]
     # Adjust mindist to reflect precision (lower = better in the model)
     # Municipality precision gets penalty, street/number precision gets bonus
-    geocodebr_long[, value.mindist := (3 - precision_score) * 0.1]
+    geocodebr_long[, mindist := (3 - precision_score) * 0.1]
   } else {
     geocodebr_long <- data.table()
   }

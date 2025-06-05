@@ -350,6 +350,7 @@ match_stbairro_agrocnefe_muni <- function(
   out_data
 }
 
+
 make_model_data <- function(
   cnefe10_stbairro_match,
   cnefe22_stbairro_match,
@@ -357,6 +358,7 @@ make_model_data <- function(
   schools_cnefe22_match,
   agrocnefe_stbairro_match,
   inep_string_match,
+  geocodebr_match = NULL,  # New parameter with NULL default for backward compatibility
   muni_demo,
   muni_area,
   locais,
@@ -457,283 +459,29 @@ make_model_data <- function(
   } else {
     inep_string_match <- data.table()
   }
-
-  # Prepare municipal demographic data
-  muni_demo[, logpop := log(POP)]
-  muni_demo[, pct_rural := 100 * pesoRUR / POP]
-  muni_demo <- muni_demo[
-    ANO == 2010,
-    .(cod_localidade_ibge = Codmun7, logpop, pct_rural)
-  ]
-
-  # Define synonyms for school names
-  school_syns <- c(
-    "e m e i",
-    "esc inf",
-    "esc mun",
-    "unidade escolar",
-    "centro educacional",
-    "escola municipal",
-    "colegio estadual",
-    "cmei",
-    "emeif",
-    "emeief",
-    "grupo escolar",
-    "escola estadual",
-    "erem",
-    "colegio municipal",
-    "centro de ensino infantil",
-    "escola mul",
-    "e m",
-    "grupo municipal",
-    "e e",
-    "creche",
-    "escola",
-    "colegio",
-    "em",
-    "de referencia",
-    "centro comunitario",
-    "grupo",
-    "de referencia em ensino medio",
-    "intermediaria",
-    "ginasio municipal",
-    "ginasio",
-    "emef",
-    "centro de educacao infantil",
-    "esc",
-    "ee",
-    "e f",
-    "cei",
-    "emei",
-    "ensino fundamental",
-    "ensino medio",
-    "eeief",
-    "eef",
-    "e f",
-    "ens fun",
-    "eem",
-    "eeem",
-    "est ens med",
-    "est ens fund",
-    "ens fund",
-    "mul",
-    "professora",
-    "professor",
-    "eepg",
-    "eemg",
-    "prof",
-    "ensino fundamental"
-  )
-
-  # Prepare address features
-  addr_features <- locais[, .(
-    local_id,
-    nm_locvot,
-    ds_endereco,
-    ds_bairro,
-    normalized_addr,
-    normalized_name
-  )]
-  addr_features[,
-    norm_name := stringi::stri_trans_general(nm_locvot, "Latin-ASCII") |>
-      str_to_lower() |>
-      str_remove_all("\\.") |>
-      str_remove_all("[[:punct:]]") |>
-      str_squish()
-  ]
-  addr_features[,
-    centro := fifelse(grepl("\\bcentro\\b", normalized_addr) == TRUE, 1, 0)
-  ]
-  addr_features[,
-    zona_rural := fifelse(
-      grepl("\\brural\\b", ds_endereco, ignore.case = TRUE, useBytes = TRUE) ==
-        TRUE |
-        grepl("\\brural\\b", ds_bairro, ignore.case = TRUE, useBytes = TRUE) ==
-          TRUE,
-      1,
-      0
-    )
-  ]
-  addr_features[,
-    school := fifelse(
-      grepl(paste0("\\b", school_syns, "\\b", collapse = "|"), norm_name) ==
-        TRUE,
-      1,
-      0
-    )
-  ]
-  addr_features[, length_norm_name := nchar(norm_name)]
-  addr_features[, length_norm_addr := nchar(normalized_addr)]
-
-  addr_features <- addr_features[, .(
-    local_id,
-    centro,
-    zona_rural,
-    school,
-    length_norm_name,
-    length_norm_addr
-  )]
-
-  # Combine matching data from multiple sources
-  final_list <- list(
-    cnefe_stbairro_match,
-    schools_cnefe_match,
-    inep_string_match
-  )
-  # Remove empty data.tables
-  final_list <- final_list[sapply(final_list, nrow) > 0]
   
-  if (length(final_list) == 0) {
-    warning("No matching data available for model training")
-    return(NULL)
-  }
-  
-  matching_data <- rbindlist(final_list, use.names = TRUE, fill = TRUE) |>
-    merge(
-      locais[, .(local_id, ano, cod_localidade_ibge)],
-      all.x = TRUE,
-      all.y = FALSE
-    ) |>
-    merge(muni_demo, by = "cod_localidade_ibge", all.x = TRUE, all.y = FALSE) |>
-    merge(addr_features, by = "local_id", all.x = TRUE, all.y = FALSE) |>
-    merge(muni_area, by = "cod_localidade_ibge", all.x = TRUE, all.y = FALSE)
-
-  matching_data[, area := as.double(area)]
-  matching_data[, logpop := as.double(logpop)]
-  matching_data[, pct_rural := as.double(pct_rural)]
-
-  # Combine matching data with geocoded data
-  model_data <- merge(
-    tsegeocoded_locais[, .(local_id, tse_lat, tse_long)],
-    matching_data,
-    by = "local_id",
-    all.x = TRUE,
-    all.y = TRUE
-  )
-  ## Calculate the distance between the geocoded data and the matching data in kilometers
-  model_data[,
-    dist := geosphere::distHaversine(
-      cbind(long, lat),
-      cbind(tse_long, tse_lat),
-      r = 6378.137
-    )
-  ]
-  model_data[, ano := NULL]
-  model_data[, tse_lat := NULL]
-  model_data[, tse_long := NULL]
-
-  # Filter out rows with missing values
-  model_data <- model_data[!is.na(mindist) & !is.na(long) & !is.na(lat)]
-
-  model_data
-}
-
-make_model_data <- function(
-  cnefe10_stbairro_match,
-  cnefe22_stbairro_match,
-  schools_cnefe10_match,
-  schools_cnefe22_match,
-  agrocnefe_stbairro_match,
-  inep_string_match,
-  muni_demo,
-  muni_area,
-  locais,
-  tsegeocoded_locais
-) {
-  # Assign the year to each dataset (check for NULL/empty first)
-  if (!is.null(cnefe10_stbairro_match) && nrow(cnefe10_stbairro_match) > 0) {
-    cnefe10_stbairro_match[, ano := 2010]
-  }
-  if (!is.null(agrocnefe_stbairro_match) && nrow(agrocnefe_stbairro_match) > 0) {
-    agrocnefe_stbairro_match[, ano := 2017]
-  }
-  if (!is.null(cnefe22_stbairro_match) && nrow(cnefe22_stbairro_match) > 0) {
-    cnefe22_stbairro_match[, ano := 2022]
-  }
-  if (!is.null(schools_cnefe10_match) && nrow(schools_cnefe10_match) > 0) {
-    schools_cnefe10_match[, ano := 2010]
-  }
-  if (!is.null(schools_cnefe22_match) && nrow(schools_cnefe22_match) > 0) {
-    schools_cnefe22_match[, ano := 2022]
-  }
-
-  # Combine CNEFE neighborhood and address data
-  cnefe_list <- list(
-    cnefe10_stbairro_match,
-    cnefe22_stbairro_match,
-    agrocnefe_stbairro_match
-  )
-  # Remove NULL entries
-  cnefe_list <- cnefe_list[!sapply(cnefe_list, is.null)]
-  cnefe_list <- cnefe_list[sapply(cnefe_list, nrow) > 0]
-  
-  if (length(cnefe_list) > 0) {
-    cnefe_stbairro_match <- rbindlist(cnefe_list, use.names = TRUE, fill = TRUE)
-  } else {
-    cnefe_stbairro_match <- data.table()
-  }
-  
-  schools_list <- list(schools_cnefe10_match, schools_cnefe22_match)
-  schools_list <- schools_list[!sapply(schools_list, is.null)]
-  schools_list <- schools_list[sapply(schools_list, nrow) > 0]
-  
-  if (length(schools_list) > 0) {
-    schools_cnefe_match <- rbindlist(schools_list, use.names = TRUE, fill = TRUE)
-  } else {
-    schools_cnefe_match <- data.table()
-  }
-
-  # Melt the CNEFE data to long format
-  if (nrow(cnefe_stbairro_match) > 0) {
-    cnefe_stbairro_match <- melt(
-      cnefe_stbairro_match,
-      id.vars = c("local_id", "ano"),
-      measure.vars = patterns(long = "long", lat = "lat", mindist = "mindist"),
-      variable.name = "type",
-      value.name = "value",
-      variable.factor = FALSE
-    )
-    cnefe_stbairro_match[,
-      type := paste0(fifelse(type == 1, "st_cnefe", "bairro_cnefe"), "_", ano)
-    ]
-    cnefe_stbairro_match[, ano := NULL]
-  }
-
-  # Melt the schools CNEFE data to long format
-  if (nrow(schools_cnefe_match) > 0) {
-    schools_cnefe_match <- melt(
-      schools_cnefe_match,
-      id.vars = c("local_id", "ano"),
-      measure.vars = patterns(long = "long", lat = "lat", mindist = "mindist"),
-      variable.name = "type",
-      value.name = "value",
-      variable.factor = FALSE
-    )
-    schools_cnefe_match[,
-      type := paste0(
-        fifelse(type == 1, "schools_cnefe_name", "schools_cnefe_addr"),
-        "_",
-        ano
+  # Process geocodebr data to long format
+  if (!is.null(geocodebr_match) && nrow(geocodebr_match) > 0) {
+    # Create long format with precision info
+    geocodebr_long <- geocodebr_match[!is.na(match_lat_geocodebr), .(
+      local_id,
+      type = "geocodebr",
+      value.long = match_long_geocodebr,
+      value.lat = match_lat_geocodebr,
+      value.mindist = mindist_geocodebr,  # Always 0 for geocodebr
+      # Add precision as a numeric score (higher = better)
+      precision_score = fcase(
+        precisao_geocodebr == "numero", 3,
+        precisao_geocodebr == "logradouro", 2,
+        precisao_geocodebr == "municipio", 1,
+        default = 0
       )
-    ]
-    schools_cnefe_match[, ano := NULL]
-  }
-
-  # Melt the INEP data to long format
-  if (!is.null(inep_string_match) && nrow(inep_string_match) > 0) {
-    inep_string_match <- melt(
-      inep_string_match,
-      id.vars = c("local_id"),
-      measure.vars = patterns(long = "long", lat = "lat", mindist = "mindist"),
-      variable.name = "type",
-      value.name = "value",
-      variable.factor = FALSE
-    )
-    inep_string_match[,
-      type := fifelse(type == 1, "schools_inep_name", "schools_inep_addr")
-    ]
+    )]
+    # Adjust mindist to reflect precision (lower = better in the model)
+    # Municipality precision gets penalty, street/number precision gets bonus
+    geocodebr_long[, value.mindist := (3 - precision_score) * 0.1]
   } else {
-    inep_string_match <- data.table()
+    geocodebr_long <- data.table()
   }
 
   # Prepare municipal demographic data
@@ -853,11 +601,22 @@ make_model_data <- function(
   )]
 
   # Combine string matching data from multiple sources
-  matching_data <- rbindlist(list(
+  # Build list of non-empty data.tables
+  match_list <- list(
     cnefe_stbairro_match,
     schools_cnefe_match,
-    inep_string_match
-  )) |>
+    inep_string_match,
+    geocodebr_long
+  )
+  # Remove empty data.tables
+  match_list <- match_list[sapply(match_list, function(x) !is.null(x) && nrow(x) > 0)]
+  
+  if (length(match_list) == 0) {
+    warning("No matching data available for model training")
+    return(NULL)
+  }
+  
+  matching_data <- rbindlist(match_list, use.names = TRUE, fill = TRUE) |>
     merge(
       locais[, .(local_id, ano, cod_localidade_ibge)],
       all.x = TRUE,

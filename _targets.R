@@ -48,13 +48,15 @@ tar_option_set(
     "targets",
     "data.table",
     "stringr",
+    "stringi",
     "bonsai",
     # "future", # Replaced by crew/mirai
     "reclin2",
     # "future.apply", # No longer needed with dynamic branching
     "validate",
     "geosphere",
-    "sf"
+    "sf",
+    "geocodebr"
   ),
   format = "qs", # default storage format,
   memory = "transient",
@@ -65,10 +67,12 @@ tar_option_set(
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- FALSE # Process only AC, RR, AP, RO states when TRUE
+DEV_MODE <- TRUE # Process only AC, RR, AP, RO states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
+# Load geocodebr matching functions
+source("./R/geocodebr_matching.R")
 # Load parallel processing functions
 source("./R/parallel_processing_fns.R")
 source("./R/parallel_integration_fns.R")
@@ -88,6 +92,11 @@ source("./R/state_filtering.R")
 
 # Get pipeline configuration based on development mode
 pipeline_config <- get_pipeline_config(DEV_MODE)
+
+# Override dev states for faster testing
+if (DEV_MODE) {
+  pipeline_config$dev_states <- c("AC")  # Just AC for now
+}
 
 # Print configuration info
 if (pipeline_config$dev_mode) {
@@ -887,6 +896,57 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
+  # geocodebr matching with dynamic branching
+  tar_target(
+    name = geocodebr_match_muni,
+    command = {
+      match_geocodebr_muni(
+        locais_muni = locais[
+          cod_localidade_ibge == municipalities_for_matching
+        ],
+        muni_ids = muni_ids[id_munic_7 == municipalities_for_matching]
+      )
+    },
+    pattern = map(municipalities_for_matching),
+    iteration = "list", # Keep branches as list for rbindlist
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "light_tasks")
+    )
+  ),
+  tar_target(
+    name = geocodebr_match,
+    command = rbindlist(geocodebr_match_muni, fill = TRUE, use.names = TRUE),
+    storage = "worker",
+    retrieval = "worker"
+  ),
+  tar_target(
+    name = validate_geocodebr_match,
+    command = {
+      result <- validate_string_match_stage(
+        match_data = geocodebr_match,
+        stage_name = "geocodebr_match",
+        id_col = "local_id",
+        score_col = "mindist_geocodebr"
+      )
+      
+      # Report precision breakdown
+      if (nrow(geocodebr_match) > 0) {
+        precision_summary <- geocodebr_match[, .N, by = precisao_geocodebr]
+        message("geocodebr precision breakdown:")
+        print(precision_summary)
+        
+        # Calculate street-level precision percentage
+        total_matches <- nrow(geocodebr_match)
+        street_level <- precision_summary[precisao_geocodebr == "logradouro", N]
+        if (length(street_level) > 0) {
+          pct_street <- 100 * street_level / total_matches
+          message(sprintf("Street-level precision: %.1f%%", pct_street))
+        }
+      }
+      
+      result
+    }
+  ),
   ## Combine string matching data for modeling
   tar_target(
     name = model_data,
@@ -897,6 +957,7 @@ list(
       schools_cnefe22_match = schools_cnefe22_match,
       agrocnefe_stbairro_match = agrocnefe_stbairro_match,
       inep_string_match = inep_string_match,
+      geocodebr_match = geocodebr_match,
       muni_demo = muni_demo,
       muni_area = muni_area,
       locais = locais,

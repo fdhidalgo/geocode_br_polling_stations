@@ -1,0 +1,674 @@
+---
+title: "Brazilian Polling Station Data Quality Report"
+subtitle: "Automated Sanity Checks for 2024 Data Integration"
+author: "Pipeline Automated Report"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    code-fold: true
+    theme: cosmo
+    fig-width: 10
+    fig-height: 6
+    self-contained: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+# Load required libraries
+library(data.table)
+library(ggplot2)
+library(DT)
+library(knitr)
+library(targets)
+
+# Set ggplot theme
+theme_set(theme_minimal(base_size = 12))
+
+# Custom color palette
+colors <- c(
+  "good" = "#28a745",
+  "warning" = "#ffc107", 
+  "danger" = "#dc3545",
+  "primary" = "#007bff",
+  "secondary" = "#6c757d"
+)
+```
+
+```{r}
+#| label: load-data
+
+# Load targets data
+tar_load(c(panel_ids, geocoded_locais))
+
+# Basic statistics
+total_stations <- uniqueN(geocoded_locais$local_id)
+total_records <- nrow(geocoded_locais)
+years_covered <- sort(unique(geocoded_locais$ano))
+states_covered <- sort(unique(geocoded_locais$sg_uf))
+```
+
+## Executive Summary {.unnumbered}
+
+::::: {.callout-note}
+**Report Generated**: `r format(Sys.time(), "%Y-%m-%d %H:%M:%S")`
+
+**Data Coverage**: 
+- Years: `r paste(range(years_covered), collapse = " - ")`
+- States: `r ifelse(length(states_covered) > 5, paste0(length(states_covered), " states"), paste(states_covered, collapse = ", "))`
+- Total Polling Stations: `r format(total_stations, big.mark = ",")`
+- Total Records: `r format(total_records, big.mark = ",")`
+:::::
+
+```{r}
+#| label: calculate-warnings
+
+# Data quality checks
+warnings <- list()
+
+# Check panel coverage
+panel_coverage <- uniqueN(panel_ids$local_id) / total_stations * 100
+if (panel_coverage < 90) {
+  warnings$panel <- paste0("Low panel ID coverage: ", round(panel_coverage, 1), "%")
+}
+
+# Check geocoding coverage
+geocoding_rate <- geocoded_locais[, sum(!is.na(final_lat) & !is.na(final_long)) / .N * 100]
+if (geocoding_rate < 95) {
+  warnings$geocoding <- paste0("Geocoding coverage below 95%: ", round(geocoding_rate, 1), "%")
+}
+
+# Check for recent year data
+if (!2024 %in% years_covered) {
+  warnings$year <- "2024 data not found in dataset"
+}
+```
+
+```{r}
+#| label: display-warnings
+#| results: asis
+
+if (length(warnings) > 0) {
+  cat("\n### ⚠️ Data Quality Warnings\n\n")
+  for (w in warnings) {
+    cat("- ", w, "\n")
+  }
+  cat("\n")
+} else {
+  cat("\n### ✅ All Quality Checks Passed\n\n")
+}
+```
+
+## 1. Year-over-Year Polling Station Changes
+
+```{r}
+#| label: yoy-analysis
+
+# Calculate year-over-year changes
+yoy_summary <- geocoded_locais[, .(
+  n_stations = uniqueN(local_id),
+  n_with_coords = sum(!is.na(final_lat) & !is.na(final_long)),
+  geocoding_rate = sum(!is.na(final_lat) & !is.na(final_long)) / .N * 100
+), by = .(ano, sg_uf)][order(ano, sg_uf)]
+
+# National level summary
+national_summary <- geocoded_locais[, .(
+  n_stations = uniqueN(local_id),
+  n_records = .N
+), by = ano][order(ano)]
+
+# Calculate changes
+national_summary[, `:=`(
+  stations_change = n_stations - shift(n_stations),
+  pct_change = round((n_stations - shift(n_stations)) / shift(n_stations) * 100, 2)
+)]
+```
+
+### National Trends
+
+```{r}
+#| label: national-trends-plot
+#| fig-cap: "Number of polling stations over time"
+
+ggplot(national_summary, aes(x = ano)) +
+  geom_line(aes(y = n_stations), size = 1.2, color = colors["primary"]) +
+  geom_point(aes(y = n_stations), size = 3, color = colors["primary"]) +
+  geom_text(aes(y = n_stations, label = format(n_stations, big.mark = ",")), 
+            vjust = -1, size = 3) +
+  scale_x_continuous(breaks = years_covered) +
+  scale_y_continuous(labels = scales::comma, expand = c(0.1, 0.1)) +
+  labs(
+    title = "Total Polling Stations by Year",
+    x = "Year",
+    y = "Number of Polling Stations"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#| label: yoy-changes-table
+
+# Create table with highlighting
+national_summary_display <- national_summary[, .(
+  Year = ano,
+  `Polling Stations` = format(n_stations, big.mark = ","),
+  `Change` = ifelse(is.na(stations_change), "--", 
+                    paste0(ifelse(stations_change > 0, "+", ""), 
+                           format(stations_change, big.mark = ","))),
+  `% Change` = ifelse(is.na(pct_change), "--", 
+                      paste0(ifelse(pct_change > 0, "+", ""), pct_change, "%"))
+)]
+
+datatable(
+  national_summary_display,
+  options = list(
+    pageLength = 15,
+    dom = 't',
+    columnDefs = list(
+      list(className = 'dt-center', targets = '_all')
+    )
+  ),
+  rownames = FALSE,
+  caption = "Year-over-Year Changes in Polling Station Counts"
+) %>%
+  formatStyle(
+    'Change',
+    color = styleInterval(0, c('red', 'green')),
+    fontWeight = 'bold'
+  ) %>%
+  formatStyle(
+    '% Change',
+    backgroundColor = styleInterval(
+      c(-10, -5, 5, 10), 
+      c('#ffcccc', '#ffe6cc', 'white', '#ccffcc', '#ff9999')
+    )
+  )
+```
+
+### State-Level Analysis
+
+```{r}
+#| label: state-changes-plot
+#| fig-height: 10
+#| fig-cap: "Year-over-year percentage changes by state"
+
+# Calculate state-level changes
+state_changes <- yoy_summary[order(sg_uf, ano)]
+state_changes[, pct_change := (n_stations - shift(n_stations)) / shift(n_stations) * 100, 
+              by = sg_uf]
+
+# Filter to show only changes (not first year)
+state_changes_plot <- state_changes[!is.na(pct_change)]
+
+if (nrow(state_changes_plot) > 0) {
+  p <- ggplot(state_changes_plot, aes(x = ano, y = pct_change)) +
+    geom_col(aes(fill = pct_change > 0), width = 0.7) +
+    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+    scale_fill_manual(values = c("TRUE" = colors["good"], "FALSE" = colors["danger"]),
+                      labels = c("Decrease", "Increase"),
+                      name = "Direction") +
+    scale_x_continuous(breaks = years_covered) +
+    scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+    facet_wrap(~sg_uf, scales = "free_y", ncol = 3) +
+    labs(
+      title = "Year-over-Year Percentage Changes in Polling Stations by State",
+      x = "Year",
+      y = "Percentage Change"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "top"
+    )
+  
+  print(p)
+} else {
+  cat("Insufficient data for state-level year-over-year analysis (only one year present).")
+}
+```
+
+## 2. Municipality-Level Analysis
+
+```{r}
+#| label: municipality-analysis
+
+# Municipality-level summary
+muni_summary <- geocoded_locais[, .(
+  n_stations = uniqueN(local_id),
+  n_years = uniqueN(ano),
+  first_year = min(ano),
+  last_year = max(ano),
+  avg_geocoding = mean(!is.na(final_lat) & !is.na(final_long)) * 100
+), by = .(cod_localidade_ibge, nm_localidade, sg_uf)]
+
+# Find municipalities with extreme changes
+if (2022 %in% years_covered & 2024 %in% years_covered) {
+  muni_2022 <- geocoded_locais[ano == 2022, .(
+    n_2022 = uniqueN(local_id)
+  ), by = .(cod_localidade_ibge, nm_localidade, sg_uf)]
+  
+  muni_2024 <- geocoded_locais[ano == 2024, .(
+    n_2024 = uniqueN(local_id)
+  ), by = .(cod_localidade_ibge, nm_localidade, sg_uf)]
+  
+  # Merge by municipality code only to avoid name encoding issues
+  muni_changes <- merge(muni_2022[, .(cod_localidade_ibge, n_2022)], 
+                        muni_2024[, .(cod_localidade_ibge, n_2024)], 
+                        by = "cod_localidade_ibge", 
+                        all = TRUE)
+  
+  # Add municipality info from either year
+  muni_info <- unique(rbind(
+    muni_2022[, .(cod_localidade_ibge, nm_localidade, sg_uf)],
+    muni_2024[, .(cod_localidade_ibge, nm_localidade, sg_uf)]
+  ))
+  muni_changes <- merge(muni_changes, muni_info, by = "cod_localidade_ibge", all.x = TRUE)
+  muni_changes[is.na(n_2022), n_2022 := 0]
+  muni_changes[is.na(n_2024), n_2024 := 0]
+  muni_changes[, `:=`(
+    change = n_2024 - n_2022,
+    pct_change = ifelse(n_2022 > 0, (n_2024 - n_2022) / n_2022 * 100, NA_real_)
+  )]
+  
+  extreme_changes <- muni_changes[abs(pct_change) > 30 & !is.na(pct_change)][order(-abs(pct_change))]
+}
+```
+
+### Municipalities Overview
+
+```{r}
+#| label: muni-summary-stats
+
+summary_stats <- data.table(
+  Metric = c(
+    "Total Municipalities",
+    "Average Stations per Municipality",
+    "Municipalities with 100% Geocoding",
+    "Municipalities Present All Years"
+  ),
+  Value = c(
+    format(nrow(muni_summary), big.mark = ","),
+    round(mean(muni_summary$n_stations), 1),
+    format(sum(muni_summary$avg_geocoding == 100), big.mark = ","),
+    format(sum(muni_summary$n_years == length(years_covered)), big.mark = ",")
+  )
+)
+
+kable(summary_stats, align = c("l", "r"))
+```
+
+### Extreme Municipality Changes
+
+The following table shows municipalities that experienced extreme changes (more than 30% increase or decrease) in the number of polling stations between 2022 and 2024. These cases may warrant further investigation.
+
+```{r}
+#| label: extreme-changes-table
+#| tbl-cap: "Municipalities with Extreme Changes (>30% increase or decrease) from 2022 to 2024"
+
+if (exists("extreme_changes") && nrow(extreme_changes) > 0) {
+  extreme_display <- extreme_changes[1:min(20, .N), .(
+    Municipality = nm_localidade,
+    State = sg_uf,
+    `2022 Stations` = n_2022,
+    `2024 Stations` = n_2024,
+    `Change` = paste0(ifelse(change > 0, "+", ""), change),
+    `% Change` = paste0(round(pct_change, 1), "%")
+  )]
+  
+  datatable(
+    extreme_display,
+    options = list(
+      pageLength = 10,
+      columnDefs = list(
+        list(className = 'dt-center', targets = 2:5)
+      )
+    ),
+    rownames = FALSE
+  ) %>%
+    formatStyle(
+      '% Change',
+      color = styleInterval(c(-30, 30), c(colors["danger"], colors["warning"], colors["danger"])),
+      fontWeight = 'bold'
+    )
+} else {
+  cat("No extreme municipality changes detected or insufficient data for 2022-2024 comparison.")
+}
+```
+
+## 3. Panel ID Quality Analysis
+
+```{r}
+#| label: panel-analysis
+
+# Merge panel IDs with geocoded data to get temporal information
+panel_temporal <- merge(
+  geocoded_locais[, .(local_id, ano, cod_localidade_ibge, sg_uf)],
+  panel_ids[, .(local_id, panel_id)],
+  by = "local_id",
+  all.x = TRUE
+)
+
+# Calculate panel longevity
+panel_longevity <- panel_temporal[!is.na(panel_id), .(
+  years_present = uniqueN(ano),
+  first_year = min(ano),
+  last_year = max(ano),
+  states_present = uniqueN(sg_uf),
+  municipalities = uniqueN(cod_localidade_ibge)
+), by = panel_id]
+
+# Categorize panel quality
+max_years <- length(years_covered)
+panel_longevity[, quality := fcase(
+  years_present == max_years, "Complete",
+  years_present >= max_years * 0.75, "High",
+  years_present >= max_years * 0.5, "Medium",
+  default = "Low"
+)]
+```
+
+### Panel Coverage Statistics
+
+```{r}
+#| label: panel-coverage-stats
+
+coverage_stats <- data.table(
+  Metric = c(
+    "Total Unique Panels",
+    "Stations with Panel IDs",
+    "Panel Coverage Rate",
+    "Complete Panels (all years)",
+    "High Quality Panels (≥75% years)",
+    "Panels Spanning Multiple States"
+  ),
+  Value = c(
+    format(uniqueN(panel_ids$panel_id), big.mark = ","),
+    format(uniqueN(panel_ids$local_id), big.mark = ","),
+    paste0(round(uniqueN(panel_ids$local_id) / total_stations * 100, 1), "%"),
+    format(sum(panel_longevity$quality == "Complete"), big.mark = ","),
+    format(sum(panel_longevity$quality %in% c("Complete", "High")), big.mark = ","),
+    format(sum(panel_longevity$states_present > 1), big.mark = ",")
+  )
+)
+
+kable(coverage_stats, align = c("l", "r"))
+```
+
+### Panel Longevity Distribution
+
+```{r}
+#| label: panel-longevity-plot
+#| fig-cap: "Distribution of panel longevity (years present in data)"
+
+ggplot(panel_longevity, aes(x = years_present)) +
+  geom_histogram(binwidth = 1, fill = colors["primary"], alpha = 0.8, color = "white") +
+  geom_vline(xintercept = max_years * 0.75, linetype = "dashed", 
+             color = colors["warning"], size = 1) +
+  scale_x_continuous(breaks = 1:max_years) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Panel ID Longevity Distribution",
+    subtitle = paste0("Dashed line indicates high quality threshold (", 
+                      round(max_years * 0.75), "+ years)"),
+    x = "Number of Years Present",
+    y = "Number of Panels"
+  )
+```
+
+```{r}
+#| label: panel-quality-summary
+
+quality_summary <- panel_longevity[, .(
+  Count = .N,
+  Percentage = round(.N / nrow(panel_longevity) * 100, 1)
+), by = quality][order(factor(quality, levels = c("Complete", "High", "Medium", "Low")))]
+
+quality_summary_display <- quality_summary[, .(
+  Quality = quality,
+  Count = format(Count, big.mark = ","),
+  Percentage = paste0(Percentage, "%")
+)]
+
+datatable(
+  quality_summary_display,
+  options = list(
+    pageLength = 10,
+    dom = 't',
+    columnDefs = list(
+      list(className = 'dt-center', targets = 1:2)
+    )
+  ),
+  rownames = FALSE,
+  caption = "Panel Quality Distribution"
+) %>%
+  formatStyle(
+    'Quality',
+    backgroundColor = styleEqual(
+      c("Complete", "High", "Medium", "Low"),
+      c("#d4edda", "#fff3cd", "#f8d7da", "#f5c6cb")
+    )
+  )
+```
+
+## 4. Geocoding Coverage Analysis
+
+```{r}
+#| label: geocoding-analysis
+
+# Calculate geocoding coverage by year and state
+geocoding_coverage <- geocoded_locais[, .(
+  total = .N,
+  geocoded = sum(!is.na(final_lat) & !is.na(final_long)),
+  rate = sum(!is.na(final_lat) & !is.na(final_long)) / .N * 100
+), by = .(ano, sg_uf)]
+
+# National geocoding by year
+national_geocoding <- geocoded_locais[, .(
+  total = .N,
+  geocoded = sum(!is.na(final_lat) & !is.na(final_long)),
+  rate = sum(!is.na(final_lat) & !is.na(final_long)) / .N * 100
+), by = ano][order(ano)]
+```
+
+### Geocoding Coverage by Year
+
+```{r}
+#| label: geocoding-time-series
+#| fig-cap: "Geocoding coverage rate over time"
+
+ggplot(national_geocoding, aes(x = ano, y = rate)) +
+  geom_line(size = 1.2, color = colors["primary"]) +
+  geom_point(size = 3, color = colors["primary"]) +
+  geom_hline(yintercept = 95, linetype = "dashed", color = colors["warning"], alpha = 0.7) +
+  geom_text(aes(label = paste0(round(rate, 1), "%")), vjust = -1, size = 3) +
+  scale_x_continuous(breaks = years_covered) +
+  scale_y_continuous(limits = c(0, 105), breaks = seq(0, 100, 20)) +
+  labs(
+    title = "National Geocoding Coverage by Year",
+    subtitle = "Dashed line indicates 95% target",
+    x = "Year",
+    y = "Geocoding Coverage (%)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### State-Level Geocoding Heatmap
+
+```{r}
+#| label: geocoding-heatmap
+#| fig-height: 8
+#| fig-cap: "Geocoding coverage by state and year"
+
+if (length(unique(geocoding_coverage$sg_uf)) > 1) {
+  ggplot(geocoding_coverage, aes(x = factor(ano), y = sg_uf, fill = rate)) +
+    geom_tile(color = "white", size = 0.5) +
+    geom_text(aes(label = round(rate, 0)), size = 3) +
+    scale_fill_gradient2(
+      low = colors["danger"], 
+      mid = colors["warning"], 
+      high = colors["good"],
+      midpoint = 85,
+      limits = c(0, 100),
+      name = "Coverage %"
+    ) +
+    labs(
+      title = "Geocoding Coverage Heatmap",
+      x = "Year",
+      y = "State"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid = element_blank()
+    )
+} else {
+  # Single state view
+  single_state <- unique(geocoding_coverage$sg_uf)
+  ggplot(geocoding_coverage, aes(x = factor(ano), y = 1, fill = rate)) +
+    geom_tile(color = "white", size = 0.5) +
+    geom_text(aes(label = paste0(round(rate, 1), "%")), size = 4) +
+    scale_fill_gradient2(
+      low = colors["danger"], 
+      mid = colors["warning"], 
+      high = colors["good"],
+      midpoint = 85,
+      limits = c(0, 100),
+      name = "Coverage %"
+    ) +
+    labs(
+      title = paste("Geocoding Coverage -", single_state),
+      x = "Year",
+      y = ""
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      panel.grid = element_blank()
+    )
+}
+```
+
+## 5. Data Quality Summary
+
+```{r}
+#| label: quality-summary
+
+# Compile all quality metrics
+quality_metrics <- list()
+
+# Panel coverage
+panel_coverage_val <- uniqueN(panel_ids$local_id) / total_stations * 100
+quality_metrics$panel_coverage <- list(
+  metric = "Panel ID Coverage",
+  value = round(panel_coverage_val, 1),
+  threshold = 90,
+  status = ifelse(panel_coverage_val >= 90, "Pass", "Warning")
+)
+
+# Geocoding coverage
+geocoding_rate_val <- geocoded_locais[, sum(!is.na(final_lat) & !is.na(final_long)) / .N * 100]
+quality_metrics$geocoding <- list(
+  metric = "Geocoding Coverage",
+  value = round(geocoding_rate_val, 1),
+  threshold = 95,
+  status = ifelse(geocoding_rate_val >= 95, "Pass", "Warning")
+)
+
+# Year-over-year stability (max change)
+if (nrow(national_summary) > 1) {
+  max_change <- max(abs(national_summary$pct_change), na.rm = TRUE)
+  quality_metrics$stability <- list(
+    metric = "Maximum YoY Change",
+    value = round(max_change, 1),
+    threshold = 15,
+    status = ifelse(max_change <= 15, "Pass", "Warning")
+  )
+}
+
+# Data completeness
+data_complete_val <- length(years_covered) == max_years
+quality_metrics$completeness <- list(
+  metric = "Years Coverage",
+  value = paste(length(years_covered), "of", max_years),
+  threshold = max_years,
+  status = ifelse(data_complete_val, "Pass", "Warning")
+)
+```
+
+### Quality Metrics Dashboard
+
+```{r}
+#| label: quality-dashboard
+
+# Create summary table
+quality_df <- rbindlist(quality_metrics, idcol = "check")
+quality_display <- quality_df[, .(
+  Metric = metric,
+  Value = ifelse(check %in% c("panel_coverage", "geocoding", "stability"), 
+                 paste0(value, "%"), 
+                 as.character(value)),
+  Threshold = ifelse(check %in% c("panel_coverage", "geocoding", "stability"),
+                     paste0(threshold, "%"),
+                     as.character(threshold)),
+  Status = status
+)]
+
+datatable(
+  quality_display,
+  options = list(
+    pageLength = 10,
+    dom = 't',
+    columnDefs = list(
+      list(className = 'dt-center', targets = 1:3)
+    )
+  ),
+  rownames = FALSE,
+  caption = "Data Quality Metrics Summary"
+) %>%
+  formatStyle(
+    'Status',
+    backgroundColor = styleEqual(
+      c("Pass", "Warning"),
+      c("#d4edda", "#fff3cd")
+    ),
+    fontWeight = 'bold'
+  )
+```
+
+### Final Assessment
+
+```{r}
+#| label: final-assessment
+#| results: asis
+
+# Count warnings
+n_warnings <- sum(sapply(quality_metrics, function(x) x$status == "Warning"))
+n_checks <- length(quality_metrics)
+
+if (n_warnings == 0) {
+  cat("\n::: {.callout-tip}\n")
+  cat("## ✅ All Quality Checks Passed\n\n")
+  cat("The polling station data meets all quality thresholds. The data integration appears successful with high quality metrics across all dimensions.\n")
+  cat(":::\n")
+} else {
+  cat("\n::: {.callout-warning}\n")
+  cat("## ⚠️ Quality Issues Detected\n\n")
+  cat(paste0(n_warnings, " out of ", n_checks, " quality checks raised warnings. "))
+  cat("Please review the specific metrics above for details.\n")
+  cat(":::\n")
+}
+```
+
+---
+
+<div style="text-align: center; color: #6c757d; font-size: 0.9em; margin-top: 50px;">
+Report generated by the Brazilian Polling Station Geocoding Pipeline<br>
+`r R.version.string`
+</div>

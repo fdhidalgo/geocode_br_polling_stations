@@ -143,13 +143,20 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
 }
 
 clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
-  # Read the data from the 2018, 2020, and 2022 election files
+  # Read the data from the 2018, 2020, 2022, and 2024 election files
   loc18 <- fread(tse_files[1], encoding = "Latin-1")
   loc20 <- fread(tse_files[2], encoding = "Latin-1")
   loc22 <- fread(tse_files[3], encoding = "Latin-1")
-
-  # Combine the data from all three years into a single data frame
-  locs <- rbindlist(list(loc18, loc20, loc22), fill = TRUE)
+  
+  # Check if 2024 file exists (for backward compatibility)
+  if (length(tse_files) >= 4 && file.exists(tse_files[4])) {
+    loc24 <- fread(tse_files[4], encoding = "Latin-1")
+    # Combine the data from all four years into a single data frame
+    locs <- rbindlist(list(loc18, loc20, loc22, loc24), fill = TRUE)
+  } else {
+    # Combine the data from three years into a single data frame
+    locs <- rbindlist(list(loc18, loc20, loc22), fill = TRUE)
+  }
 
   # Only keep columns that are present in all data sets
   locs <- locs[,
@@ -273,7 +280,22 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
 }
 
 import_locais <- function(locais_file, muni_ids) {
-  locais_data <- fread(locais_file, encoding = "UTF-8")
+  # Try to detect encoding by checking if it's a TSE file
+  is_tse_file <- grepl("eleitorado_local_votacao", locais_file)
+  
+  if (is_tse_file) {
+    # TSE files are Latin-1 encoded
+    locais_data <- fread(locais_file, encoding = "Latin-1")
+    
+    # Convert all character columns to UTF-8
+    char_cols <- names(locais_data)[sapply(locais_data, is.character)]
+    for (col in char_cols) {
+      locais_data[, (col) := iconv(get(col), from = "latin1", to = "UTF-8", sub = "")]
+    }
+  } else {
+    # Other files should be UTF-8
+    locais_data <- fread(locais_file, encoding = "UTF-8")
+  }
 
   # Clean column names
   setnames(locais_data, janitor::make_clean_names(names(locais_data)))

@@ -588,7 +588,7 @@ list(
   ## Import Locais de Votação Data
   tar_target(
     name = locais_file,
-    command = "./data/polling_stations_2006_2022.csv.gz",
+    command = "./data/polling_stations_2006_2024.csv.gz",
     format = "file"
   ),
   tar_target(
@@ -641,7 +641,8 @@ list(
     command = c(
       "./data/eleitorado_local_votacao_2018.csv.gz",
       "./data/eleitorado_local_votacao_2020.csv.gz",
-      "./data/eleitorado_local_votacao_2022.csv.gz"
+      "./data/eleitorado_local_votacao_2022.csv.gz",
+      "./data/eleitorado_local_votacao_2024.csv.gz"
     ),
     format = "file"
   ),
@@ -663,7 +664,7 @@ list(
       if (nrow(df_data) > 0) {
         make_panel_1block(
           df_data,
-          years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022),
+          years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022, 2024),
           blocking_column = "cod_localidade_ibge",
           scoring_columns = c("normalized_name", "normalized_addr")
         )
@@ -720,7 +721,7 @@ list(
     name = panel_ids_states,
     command = make_panel_1block(
       block = locais[sg_uf == panel_state],
-      years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022),
+      years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
       blocking_column = "cod_localidade_ibge",
       scoring_columns = c("normalized_name", "normalized_addr")
     ),
@@ -1157,6 +1158,12 @@ list(
     },
     format = "file"
   ),
+  ## Sanity Check Report
+  tar_quarto(
+    name = sanity_check_report,
+    path = "reports/polling_station_sanity_check.qmd"
+  ),
+  
   ## Methodology and Evaluation
   # Only render in production mode
   if (!pipeline_config$dev_mode) {

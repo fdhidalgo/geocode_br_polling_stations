@@ -70,3 +70,5 @@ backup/
 # Taskmaster reports
 .taskmaster/reports/
 
+# Validation reports
+output/validation_reports/

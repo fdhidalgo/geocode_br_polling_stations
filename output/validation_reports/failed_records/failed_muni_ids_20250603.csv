@@ -1,2 +1,0 @@
-failed_rule,rule_expression,record_index,_id,id_munic_7,id_munic_6,id_TSE,id_RF,id_BCB,municipio,id_comarca,id_estado,estado_abrev,estado,existia_1991,existia_2000,existia_2010,existe
-has_column_Cod_Mun,"""Cod_Mun"" %vin% names(.)",1,1,1200013,120001,1120,643,50830,Acrelândia,1200013,12,AC,Acre,0,1,1,1

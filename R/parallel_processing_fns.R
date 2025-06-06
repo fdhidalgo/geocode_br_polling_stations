@@ -1,57 +1,82 @@
+#' DEPRECATED: This file is no longer used
+#' 
+#' The project now uses a single unified crew controller configured directly in _targets.R
+#' This file is kept for reference but is not sourced by the pipeline.
+#' 
+#' Original functionality:
 #' Create differentiated crew controllers for parallel processing
 #'
-#' Sets up two separate crew controllers with different resource profiles:
-#' - cnefe_heavy: Single-threaded controller for memory-intensive CNEFE operations
-#' - light_tasks: Multi-core controller for lighter parallel tasks
+#' Sets up three separate crew controllers with different resource profiles:
+#' - cnefe_heavy: Limited workers for memory-intensive CNEFE operations
+#' - string_match: Optimized for CPU-intensive string matching operations
+#' - light_tasks: High-concurrency controller for lightweight tasks
 #'
-#' @return List with two crew controllers: cnefe and light
+#' @return List with three crew controllers: cnefe, string_match, and light
 #' @export
 create_crew_controllers <- function() {
+  # Get system info
+  n_cores <- parallel::detectCores()
+  
   # Controller for memory-intensive CNEFE operations
-  # With 116GB available memory, we can safely run 4 CNEFE workers
-  # Each state typically uses 10-20GB, so 4 workers = 40-80GB peak
+  # Each CNEFE state can use 20-40GB, so limit to 2 workers max
   cnefe_controller <- crew::crew_controller_local(
     name = "cnefe_heavy",
-    workers = 4,  # Limited parallelism for memory efficiency
-    seconds_idle = 60,  # Keep worker alive for 60 seconds when idle
+    workers = 2,  # Keep limited to prevent memory allocation errors
+    seconds_idle = 30,  # Quick cleanup to free memory
     seconds_wall = 7200,  # 2 hour wall time limit per worker
     seconds_timeout = 600,  # 10 minute timeout for dispatcher communications
     tasks_max = 1,  # Process one task at a time per worker
     reset_globals = TRUE,  # Clean memory between tasks
-    reset_packages = FALSE,
+    reset_packages = TRUE,  # Also reset packages to free more memory
     reset_options = FALSE,
     garbage_collection = TRUE  # Force garbage collection between tasks
   )
   
-  # Controller for lighter parallel tasks
-  # Use most cores for light tasks (leave 2 for system + CNEFE controller)
-  n_cores <- parallel::detectCores()
-  light_workers <- max(1, floor(n_cores * 0.75))  # Use 75% of cores
+  # Controller for string matching operations
+  # CPU-intensive but not memory-heavy, so we can use more workers
+  string_match_workers <- max(4, min(n_cores - 2, floor(n_cores * 0.9)))
+  
+  string_match_controller <- crew::crew_controller_local(
+    name = "string_match",
+    workers = string_match_workers,  # Use most cores for string matching
+    seconds_idle = 60,  # Keep workers warm for batch processing
+    seconds_wall = 3600,  # 1 hour wall time limit
+    seconds_timeout = 300,  # 5 minute timeout
+    tasks_max = 10000,  # High limit for many small tasks
+    reset_globals = FALSE,  # Keep globals for performance
+    reset_packages = FALSE,
+    reset_options = FALSE,
+    garbage_collection = FALSE  # Skip GC for speed
+  )
+  
+  # Controller for general light tasks (validation, small operations)
+  # Balance between parallelism and system responsiveness
+  light_workers <- max(2, min(n_cores - 4, floor(n_cores * 0.5)))
   
   light_controller <- crew::crew_controller_local(
     name = "light_tasks",
     workers = light_workers,
-    seconds_idle = 10,  # Quick idle timeout for dynamic scaling
-    seconds_wall = 3600,  # 1 hour wall time limit per worker
-    seconds_timeout = 300,  # 5 minute timeout
-    tasks_max = 1000,  # Higher limit but not infinite to prevent runaway
+    seconds_idle = 5,  # Very quick idle timeout for dynamic tasks
+    seconds_wall = 1800,  # 30 minute wall time limit
+    seconds_timeout = 180,  # 3 minute timeout
+    tasks_max = 5000,  # Medium limit
     reset_globals = FALSE,  # Keep globals for performance
     reset_packages = FALSE,
     reset_options = FALSE,
-    garbage_collection = FALSE,  # Skip GC for light tasks to improve speed
-    launch_max = light_workers * 2  # Allow relaunching workers if they fail
+    garbage_collection = FALSE  # Skip GC for light tasks
   )
   
-  # Return both controllers
+  # Return all three controllers
   list(
     cnefe = cnefe_controller,
+    string_match = string_match_controller,
     light = light_controller
   )
 }
 
 #' Route task to appropriate controller based on task type
 #'
-#' @param task_type Character string: "cnefe" or "light"
+#' @param task_type Character string: "cnefe", "string_match", or "light"
 #' @param task_function Function to execute
 #' @param ... Additional arguments to pass to task_function
 #' @param packages Character vector of packages required by the task
@@ -68,10 +93,12 @@ route_task <- function(task_type, task_function, ..., packages = c("data.table")
   # Select appropriate controller
   controller <- if (task_type == "cnefe") {
     controllers$cnefe
+  } else if (task_type == "string_match") {
+    controllers$string_match
   } else if (task_type == "light") {
     controllers$light
   } else {
-    stop("Unknown task type: ", task_type, ". Use 'cnefe' or 'light'.")
+    stop("Unknown task type: ", task_type, ". Use 'cnefe', 'string_match', or 'light'.")
   }
   
   # Push task to controller
@@ -159,6 +186,11 @@ monitor_resource_usage <- function(controllers) {
   
   # Get controller status
   cnefe_status <- controllers$cnefe$summary()
+  string_match_status <- if (!is.null(controllers$string_match)) {
+    controllers$string_match$summary()
+  } else {
+    list(active = 0, queue = 0, complete = 0)
+  }
   light_status <- controllers$light$summary()
   
   # Get system memory
@@ -172,11 +204,13 @@ monitor_resource_usage <- function(controllers) {
   
   list(
     cnefe_status = cnefe_status,
+    string_match_status = string_match_status,
     light_status = light_status,
     memory_usage_mb = sum(mem_info[, "used"]),
     system_memory_pct = mem_pct,
     active_workers = sum(
       cnefe_status$active %||% 0,
+      string_match_status$active %||% 0,
       light_status$active %||% 0
     ),
     timestamp = Sys.time()
@@ -235,6 +269,12 @@ cleanup_controllers <- function(controllers) {
     message("CNEFE controller terminated")
   }
   
+  # Terminate string match controller
+  if (!is.null(controllers$string_match)) {
+    controllers$string_match$terminate()
+    message("String match controller terminated")
+  }
+  
   # Terminate light controller
   if (!is.null(controllers$light)) {
     controllers$light$terminate()
@@ -271,18 +311,26 @@ initialize_crew_controllers <- function() {
                   as.numeric(system("free -g | awk 'NR==2{print $2}'", intern = TRUE))))
   
   message("\nCNEFE Controller (memory-intensive tasks):")
-  message(sprintf("  - Workers: %d (single-threaded)", controllers$cnefe$workers))
+  message(sprintf("  - Workers: %d (memory-optimized)", controllers$cnefe$workers))
   message(sprintf("  - Tasks per worker: %d", controllers$cnefe$tasks_max))
   message("  - Memory management: reset_globals=TRUE, garbage_collection=TRUE")
+  message("  - Idle timeout: 30 seconds")
+  
+  message("\nString Match Controller (CPU-intensive tasks):")
+  message(sprintf("  - Workers: %d (%.0f%% of cores)", 
+                  controllers$string_match$workers,
+                  (controllers$string_match$workers / parallel::detectCores()) * 100))
+  message(sprintf("  - Tasks per worker: %d", controllers$string_match$tasks_max))
+  message("  - Memory management: reset_globals=FALSE, garbage_collection=FALSE")
   message("  - Idle timeout: 60 seconds")
   
-  message("\nLight Controller (parallel tasks):")
+  message("\nLight Controller (general parallel tasks):")
   message(sprintf("  - Workers: %d (%.0f%% of cores)", 
                   controllers$light$workers,
                   (controllers$light$workers / parallel::detectCores()) * 100))
   message(sprintf("  - Tasks per worker: %d", controllers$light$tasks_max))
   message("  - Memory management: reset_globals=FALSE, garbage_collection=FALSE")
-  message("  - Idle timeout: 10 seconds")
+  message("  - Idle timeout: 5 seconds")
   message("================================================\n")
   
   invisible(controllers)
@@ -313,6 +361,11 @@ print_controller_status <- function(controllers = NULL) {
   message(sprintf("  - Active: %s", status$cnefe_status$active %||% FALSE))
   message(sprintf("  - Queue: %d tasks", status$cnefe_status$queue %||% 0))
   message(sprintf("  - Complete: %d tasks", status$cnefe_status$complete %||% 0))
+  
+  message("\nString Match Controller:")
+  message(sprintf("  - Active: %s", status$string_match_status$active %||% FALSE))
+  message(sprintf("  - Queue: %d tasks", status$string_match_status$queue %||% 0))
+  message(sprintf("  - Complete: %d tasks", status$string_match_status$complete %||% 0))
   
   message("\nLight Controller:")
   message(sprintf("  - Active: %s", status$light_status$active %||% FALSE))

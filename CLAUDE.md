@@ -82,12 +82,13 @@ The project uses `targets` package for pipeline management with these stages:
 
 ### Claude Code Requirements
 - **IMPORTANT**: Always explain major function changes and get user approval before proceeding
-- Use DEV_MODE for testing pipeline changes
-- Run validation after changes: `R -e "targets::tar_make()"`
+- Run validation after changes: `R -e "targets::tar_make()"`, unless pipeline will take too long. In that case, ask user to run the pipeline and report results. 
 
 ### Git Commit Guidelines
 - **Format**: Imperative mood, <50 chars, reference issues (e.g., "Fix duplicate rows. Closes #3")
-- **Perfect commits**: Implementation + tests + docs + issue reference
+- There are two types of commits:
+  - **Perfect commits**: Implementation + tests + docs + issue reference. Use these after a major change. 
+  - **Minor commits**: While working on a feature, commit often. Use these for smaller changes.
 - Use GitHub issues for context and decision documentation
 
 ### Refactoring Guidelines
@@ -102,62 +103,57 @@ The project uses `targets` package for pipeline management with these stages:
 - Critical for merges: Check join keys, row counts, NA patterns
 - Add validation as targets in pipeline
 
-## Task Management with Task Master MCP
+## Task Management with Task Master CLI
 
-This project uses Task Master AI for development task management. Tasks are stored in `.taskmaster/tasks/`.
+This project uses Task Master AI CLI for development task management. Tasks are stored in `.taskmaster/tasks/`.
 
-**IMPORTANT**: Always use `projectRoot = "/home/dhidalgo/projects/geocode_br_polling_stations"` for all task functions.
+**IMPORTANT**: All task-master commands should be run from the project root directory: `/home/dhidalgo/projects/geocode_br_polling_stations`
 
 ### Essential Task Commands
-```r
+```bash
 # Core workflow
-mcp__taskmaster-ai__get_tasks(projectRoot = "...")              # View all tasks
-mcp__taskmaster-ai__next_task(projectRoot = "...")              # Get next task to work on
-mcp__taskmaster-ai__get_task(id = "1", projectRoot = "...")     # View specific task
-mcp__taskmaster-ai__set_task_status(id = "1", status = "done", projectRoot = "...")
+task-master list                                    # View all tasks
+task-master next                                    # Get next task to work on
+task-master show <id>                               # View specific task
+task-master set-status --id=<id> --status=done     # Set task status
 
 # Task management
-mcp__taskmaster-ai__expand_task(id = "1", projectRoot = "...", research = TRUE)  # Break down complex tasks
-mcp__taskmaster-ai__update_task(id = "5", prompt = "changes", projectRoot = "...")
-mcp__taskmaster-ai__add_task(prompt = "description", dependencies = "1,2", projectRoot = "...")
+task-master expand --id=<id> --research             # Break down complex tasks
+task-master update-task --id=<id> --prompt="changes"
+task-master add-task --prompt="description" --dependencies=1,2
 
 # Analysis
-mcp__taskmaster-ai__analyze_project_complexity(projectRoot = "...", research = TRUE)
-mcp__taskmaster-ai__complexity_report(projectRoot = "...")
+task-master analyze-complexity --research
+task-master complexity-report
 ```
 
 ### Current Project Tasks
-The project has 10 major tasks in `.taskmaster/tasks/tasks.json`. A PRD already exists in `.taskmaster/docs/prd.txt`.
+The project lists major tasks in `.taskmaster/tasks/tasks.json`. A PRD already exists in `.taskmaster/docs/prd.txt`.
 
 ### Task Workflow
 **IMPORTANT**: Always ask user to review tasks/subtasks before executing. Never proceed without explicit approval.
-**CRITICAL**: Never mark a task as "done" without explicit permission from the user. Always ask for confirmation before using `set_task_status` with status="done".
+**CRITICAL**: Never mark a task as "done" without explicit permission from the user. Always ask for confirmation before using `task-master set-status --id=<id> --status=done`.
 **COMMIT REQUIREMENT**: When about to mark a main task (not subtask) as "done", always offer to clean up the project directory and move unneeded files to the backup folder. 
 
-1. Use `mcp__taskmaster-ai__next_task()` to find ready tasks
-2. Expand complex tasks with `mcp__taskmaster-ai__expand_task()`
-3. Update status with `mcp__taskmaster-ai__set_task_status()`
+1. Use `task-master next` to find ready tasks
+2. Expand complex tasks with `task-master expand --id=<id>`
+3. Update status with `task-master set-status --id=<id> --status=<status>`
 4. Test changes in DEV_MODE before marking complete
 5. Ask user for permission before marking any task as "done"
 6. When marking a main task as "done", offer to create a commit
 
 ### Key Task Master Patterns
-```r
+```bash
 # When requirements change
-mcp__taskmaster-ai__update(from = "5", prompt = "explanation", research = TRUE, projectRoot = "...")
+task-master update --from=<id> --prompt="explanation" --research
 
 # Add bugs as tasks
-mcp__taskmaster-ai__add_task(prompt = "Fix bug: ...", priority = "high", projectRoot = "...")
+task-master add-task --prompt="Fix bug: ..." --priority=high
 
 # Break down complex work
-mcp__taskmaster-ai__expand_task(id = "7", research = TRUE, projectRoot = "...")
+task-master expand --id=<id> --research
 ```
 
-## Known Issues
-- **Data Quality**: Dataset may contain duplicates (Issue #3)
-- **Dynamic branching**: Migrate from `future_lapply` to targets branching (Issue #12)
-- **String matching**: Multiple implementations need consolidation (Issue #8)
-- **Portuguese text**: Be aware of abbreviations and accents in string matching 
 
 ## Workflow Guidelines
-- When using the todo list feature, ask me to approve each todo on the list before you proceed
+- Anytime you are asked to make a substantial change, please make a plan and get approval before proceeding.

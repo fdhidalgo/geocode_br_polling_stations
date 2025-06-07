@@ -10,19 +10,19 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
     cnefe22 <- fread(
       cnefe22_file,
       drop = c(
-      "NOM_COMP_ELEM1",
-      "VAL_COMP_ELEM1",
-      "NOM_COMP_ELEM2",
-      "VAL_COMP_ELEM2",
-      "NOM_COMP_ELEM3",
-      "VAL_COMP_ELEM3",
-      "NOM_COMP_ELEM4",
-      "VAL_COMP_ELEM4",
-      "NOM_COMP_ELEM5",
-      "VAL_COMP_ELEM5",
-      "NUM_QUADRA",
-      "NUM_FACE",
-      "COD_UNICO_ENDERECO"
+      "nom_comp_elem1",
+      "val_comp_elem1",
+      "nom_comp_elem2",
+      "val_comp_elem2",
+      "nom_comp_elem3",
+      "val_comp_elem3",
+      "nom_comp_elem4",
+      "val_comp_elem4",
+      "nom_comp_elem5",
+      "val_comp_elem5",
+      "num_quadra",
+      "num_face",
+      "cod_unico_endereco"
     )
   )
   } else {

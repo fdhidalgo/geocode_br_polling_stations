@@ -94,8 +94,9 @@ read_cnefe_chunked <- function(file_path, chunk_size = 5e6, process_fn = NULL) {
 #' @param muni_ids Municipality identifiers
 #' @param tract_centroids Census tract centroids
 #' @param use_chunks Whether to use chunked reading for large files
-#' @return Cleaned CNEFE data
-clean_cnefe10_efficient <- function(cnefe_file, muni_ids, tract_centroids, use_chunks = TRUE) {
+#' @param extract_schools Whether to extract schools as a separate dataset
+#' @return Cleaned CNEFE data (list if extract_schools=TRUE, data.table otherwise)
+clean_cnefe10_efficient <- function(cnefe_file, muni_ids, tract_centroids, use_chunks = TRUE, extract_schools = FALSE) {
   
   # Define the processing function for each chunk
   process_chunk <- function(cnefe_chunk) {
@@ -237,6 +238,29 @@ clean_cnefe10_efficient <- function(cnefe_file, muni_ids, tract_centroids, use_c
     norm_street = normalize_address(street)
   )]
   
+  # Extract schools if requested
+  if (extract_schools) {
+    message("Extracting schools...")
+    schools <- addr[especie_lab == "estabelecimento de ensino"]
+    
+    if (nrow(schools) > 0) {
+      # Normalize school descriptions
+      schools[, norm_desc := normalize_school(desc)]
+      message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
+    } else {
+      message("No schools found in this dataset")
+    }
+    
+    gc(verbose = FALSE)
+    message("CNEFE processing complete")
+    
+    # Return both datasets as a list
+    return(list(
+      data = addr,
+      schools = schools
+    ))
+  }
+  
   gc(verbose = FALSE)
   message("CNEFE processing complete")
   
@@ -278,8 +302,9 @@ monitor_memory <- function() {
 #' @param cnefe_file CNEFE file or data
 #' @param muni_ids Municipality identifiers  
 #' @param tract_centroids Tract centroids
-#' @return Cleaned CNEFE data
-clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids) {
+#' @param extract_schools Whether to extract schools as a separate attribute
+#' @return Cleaned CNEFE data (list with 'data' and optionally 'schools' if extract_schools=TRUE)
+clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools = FALSE) {
   # Monitor memory before processing
   mem_before <- monitor_memory()
   message(sprintf("Memory before CNEFE processing: R=%.1f GB, System=%.1f%% used",
@@ -291,7 +316,8 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids) {
     cnefe_file = cnefe_file,
     muni_ids = muni_ids,
     tract_centroids = tract_centroids,
-    use_chunks = TRUE
+    use_chunks = TRUE,
+    extract_schools = extract_schools
   )
   
   # Monitor memory after processing

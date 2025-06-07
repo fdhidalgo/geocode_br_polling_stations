@@ -49,9 +49,9 @@ options(
 controller_memory <- crew::crew_controller_local(
   name = "memory_limited",
   workers = 6,  # Limit to 6 workers to prevent memory exhaustion
-  seconds_idle = 60,  # Reasonable idle timeout
-  seconds_wall = 7200,  # 2 hours for longer CNEFE processing
-  seconds_timeout = 600,  # 10 minute timeout for larger operations
+  seconds_idle = 300,  # Increase idle timeout for long-running tasks
+  seconds_wall = 36000,  # 10 hours for longer CNEFE processing
+  seconds_timeout = 32400,  # 9 hours timeout (was timing out at 8h 25m)
   tasks_max = 10000,  # High limit for many tasks
   reset_globals = FALSE,  # Keep globals for performance
   reset_packages = FALSE,
@@ -64,8 +64,8 @@ controller_standard <- crew::crew_controller_local(
   name = "standard",
   workers = 28,  # Use most cores for parallel processing
   seconds_idle = 60,  # Reasonable idle timeout
-  seconds_wall = 3600,  # 1 hour wall time
-  seconds_timeout = 300,  # 5 minute timeout
+  seconds_wall = 14400,  # 4 hours wall time (increased from 1 hour)
+  seconds_timeout = 3600,  # 1 hour timeout (increased from 5 minutes)
   tasks_max = 10000,  # High limit for many tasks
   reset_globals = FALSE,  # Keep globals for performance
   reset_packages = FALSE,
@@ -111,9 +111,11 @@ tar_option_set(
     "geosphere",
     "sf"
   ),
-  format = "qs", # default storage format,
-  memory = "transient",
-  garbage_collection = TRUE,
+  format = "qs", # default storage format - better compression
+  memory = "transient", # Free memory after each target
+  garbage_collection = TRUE, # Force gc() after each target
+  storage = "main", # Default to main storage (override for large objects)
+  retrieval = "main", # Default to main retrieval (override for large objects)
   controller = controller_group, # Use controller group
   resources = tar_resources(
     crew = tar_resources_crew(controller = "standard") # Default to standard controller
@@ -123,7 +125,7 @@ tar_option_set(
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- FALSE # Process only AC, RR, AP, RO states when TRUE
+DEV_MODE <- TRUE # Process only AC, RR, AP, RO states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
@@ -360,20 +362,71 @@ list(
         substr(setor_code, 1, 2) %in% state_codes
       ]
       
-      # Clean the state data
+      # Clean the state data and extract schools
       result <- clean_cnefe10(
         cnefe_file = state_data,
         muni_ids = state_muni_ids,
-        tract_centroids = state_tract_centroids
+        tract_centroids = state_tract_centroids,
+        extract_schools = TRUE
       )
       
       # Force garbage collection after processing each state
       gc(verbose = FALSE)
       
-      result
+      # Return the cleaned data (schools are now in result$schools)
+      result$data
     },
     pattern = map(cnefe10_states),
-    format = "fst_dt",
+    format = "qs",
+    iteration = "list", # Keep branches as list for rbindlist
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
+  ),
+  # Extract schools by state for CNEFE10
+  tar_target(
+    name = schools_cnefe10_by_state,
+    command = {
+      # Read state file
+      state_file <- file.path(
+        "data/cnefe_2010",
+        paste0("cnefe_2010_", cnefe10_states, ".csv.gz")
+      )
+      
+      # Read state data with appropriate separator
+      state_data <- fread(
+        state_file,
+        sep = ",",  # Partitioned files use comma
+        encoding = "UTF-8",
+        verbose = FALSE,
+        showProgress = FALSE
+      )
+      
+      # Get municipality IDs for this state
+      state_muni_ids <- muni_ids[estado_abrev == cnefe10_states]
+      
+      # Get tract centroids for this state
+      state_codes <- unique(substr(as.character(state_muni_ids$id_munic_7), 1, 2))
+      state_tract_centroids <- tract_centroids[
+        substr(setor_code, 1, 2) %in% state_codes
+      ]
+      
+      # Clean the state data and extract schools
+      result <- clean_cnefe10(
+        cnefe_file = state_data,
+        muni_ids = state_muni_ids,
+        tract_centroids = state_tract_centroids,
+        extract_schools = TRUE
+      )
+      
+      # Force garbage collection after processing each state
+      gc(verbose = FALSE)
+      
+      # Return only the schools
+      result$schools
+    },
+    pattern = map(cnefe10_states),
+    format = "qs",
     iteration = "list", # Keep branches as list for rbindlist
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
@@ -396,8 +449,9 @@ list(
       # Return combined dataset
       combined
     },
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
+    retrieval = "worker"
   ),
   # Get list of states to process based on mode
   tar_target(
@@ -463,7 +517,7 @@ list(
       result
     },
     pattern = map(cnefe22_states),
-    format = "fst_dt",
+    format = "qs",
     iteration = "list", # Keep branches as list for rbindlist
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
@@ -483,8 +537,9 @@ list(
       # Return combined dataset
       combined
     },
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
+    retrieval = "worker"
   ),
   tar_target(
     name = validate_cnefe22_clean,
@@ -511,13 +566,24 @@ list(
     }
   ),
 
-  ## Subset on schools in 2010 CNEFE
+  ## Combine state-level school extracts for 2010 CNEFE
   tar_target(
     name = schools_cnefe10,
-    command = cnefe10[especie_lab == "estabelecimento de ensino"][,
-      norm_desc := normalize_school(desc)
-    ],
-    format = "fst_dt",
+    command = {
+      # Combine all state school extracts
+      schools <- rbindlist(
+        schools_cnefe10_by_state,
+        use.names = TRUE,
+        fill = TRUE
+      )
+      
+      # Force garbage collection
+      gc(verbose = FALSE)
+      
+      # Return combined schools dataset
+      schools
+    },
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -532,7 +598,7 @@ list(
       ),
       by = .(id_munic_7, norm_street)
     ][n > 1],
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -547,7 +613,7 @@ list(
       ),
       by = .(id_munic_7, norm_bairro)
     ][n > 1],
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -576,7 +642,7 @@ list(
       agro_cnefe_files = agro_cnefe_files,
       muni_ids = muni_ids
     ),
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -591,7 +657,7 @@ list(
       ),
       by = .(id_munic_7, norm_street)
     ][n > 1],
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -606,7 +672,7 @@ list(
       ),
       by = .(id_munic_7, norm_bairro)
     ][n > 1],
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -614,8 +680,9 @@ list(
     ## Extract schools frome 2022 CNEFE
     name = schools_cnefe22,
     command = get_cnefe22_schools(cnefe22),
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
+    retrieval = "worker"
   ),
   ## Create a dataset of streets in 2022 CNEFE
   tar_target(
@@ -628,7 +695,7 @@ list(
       ),
       by = .(id_munic_7, norm_street)
     ][n > 1],
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -643,7 +710,7 @@ list(
       ),
       by = .(id_munic_7, norm_bairro)
     ][n > 1],
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -777,7 +844,7 @@ list(
         data.table()
       }
     },
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -860,6 +927,7 @@ list(
     name = inep_string_match,
     command = rbindlist(inep_string_match_muni),
     storage = "worker",
+    retrieval = "worker"
   ),
   tar_target(
     name = validate_inep_match,
@@ -904,6 +972,7 @@ list(
     name = schools_cnefe10_match,
     command = rbindlist(schools_cnefe10_match_muni),
     storage = "worker",
+    retrieval = "worker"
   ),
   # Schools CNEFE 2022 matching with dynamic branching
   tar_target(
@@ -925,6 +994,7 @@ list(
     name = schools_cnefe22_match,
     command = rbindlist(schools_cnefe22_match_muni),
     storage = "worker",
+    retrieval = "worker"
   ),
   # CNEFE 2010 street/neighborhood matching with dynamic branching
   tar_target(
@@ -950,6 +1020,7 @@ list(
     name = cnefe10_stbairro_match,
     command = rbindlist(cnefe10_stbairro_match_muni),
     storage = "worker",
+    retrieval = "worker"
   ),
   # CNEFE 2022 street/neighborhood matching with dynamic branching
   tar_target(
@@ -975,6 +1046,7 @@ list(
     name = cnefe22_stbairro_match,
     command = rbindlist(cnefe22_stbairro_match_muni),
     storage = "worker",
+    retrieval = "worker"
   ),
   # Agro CNEFE street/neighborhood matching with dynamic branching
   tar_target(
@@ -999,6 +1071,7 @@ list(
     name = agrocnefe_stbairro_match,
     command = rbindlist(agrocnefe_stbairro_match_muni),
     storage = "worker",
+    retrieval = "worker"
   ),
   ## Combine string matching data for modeling
   tar_target(
@@ -1044,7 +1117,7 @@ list(
   tar_target(
     name = model_predictions,
     command = get_predictions(trained_model, model_data),
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -1068,7 +1141,7 @@ list(
   tar_target(
     name = geocoded_locais,
     command = finalize_coords(locais, model_predictions, tsegeocoded_locais),
-    format = "fst_dt",
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),

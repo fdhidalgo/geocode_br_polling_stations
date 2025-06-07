@@ -194,8 +194,8 @@ create_municipality_batches <- function(muni_codes, batch_size = 50) {
   # Split municipalities into batches
   batches <- split(muni_codes, batch_indices)
   
-  # Name batches for easier tracking
-  names(batches) <- paste0("batch_", seq_len(n_batches))
+  # Remove names to ensure clean iteration
+  batches <- unname(batches)
   
   # Log batch creation
   message(sprintf(
@@ -204,4 +204,44 @@ create_municipality_batches <- function(muni_codes, batch_size = 50) {
   ))
   
   batches
+}
+
+#' Create municipality batch assignments for flattened parallel processing
+#'
+#' This function creates a data.table with municipality codes and their
+#' corresponding batch IDs. This flattened structure avoids vector length
+#' issues when using pattern = map() in targets.
+#'
+#' @param muni_codes Vector of municipality codes to batch
+#' @param batch_size Target size for each batch (default: 50)
+#' @return data.table with columns muni_code and batch_id
+#' @export
+#' @examples
+#' # Create batch assignments for municipalities
+#' assignments <- create_municipality_batch_assignments(unique(locais$cod_localidade_ibge))
+#' # Use with targets: pattern = map(unique(assignments$batch_id))
+create_municipality_batch_assignments <- function(muni_codes, batch_size = 50) {
+  # Ensure we have unique municipality codes
+  muni_codes <- unique(muni_codes)
+  n_munis <- length(muni_codes)
+  n_batches <- ceiling(n_munis / batch_size)
+  
+  # Create batch IDs using rep with appropriate lengths
+  batch_ids <- rep(seq_len(n_batches), 
+                   each = batch_size, 
+                   length.out = n_munis)
+  
+  # Create the assignment table
+  batch_assignments <- data.table(
+    muni_code = muni_codes,
+    batch_id = batch_ids
+  )
+  
+  # Log batch creation
+  message(sprintf(
+    "Created %d batch assignments for %d municipalities (avg size: %.1f)",
+    n_batches, n_munis, n_munis / n_batches
+  ))
+  
+  batch_assignments
 }

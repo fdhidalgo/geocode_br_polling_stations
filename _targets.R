@@ -919,27 +919,36 @@ list(
     command = unique(locais$cod_localidade_ibge)
   ),
   
-  # Create municipality batches to reduce dynamic branches
+  # Create municipality batch assignments for flattened parallel processing
   tar_target(
-    name = municipality_batches,
-    command = create_municipality_batches(
+    name = municipality_batch_assignments,
+    command = create_municipality_batch_assignments(
       municipalities_for_matching,
       batch_size = ifelse(pipeline_config$dev_mode, 10, 50)
     )
   ),
+  
+  # Extract unique batch IDs for dynamic branching
+  tar_target(
+    name = batch_ids,
+    command = unique(municipality_batch_assignments$batch_id)
+  ),
 
-  # INEP string matching with batched dynamic branching
+  # INEP string matching - process municipalities in batches
   tar_target(
     name = inep_string_match_batch,
     command = {
+      # Get municipalities for this batch
+      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
+      
       # Process all municipalities in this batch
-      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
-      batch_results <- lapply(municipality_batches, function(muni_code) {
+      batch_results <- lapply(batch_munis, function(muni_code) {
         match_inep_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
           inep_muni = inep_data[id_munic_7 == muni_code]
         )
       })
+      
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -948,14 +957,19 @@ list(
         data.table()
       }
     },
-    pattern = map(municipality_batches),
-    iteration = "list", # Keep branches as list for rbindlist
+    pattern = map(batch_ids),
+    iteration = "list",
+    deployment = "worker",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "standard")
+    )
   ),
   tar_target(
     name = inep_string_match,
-    command = rbindlist(inep_string_match_batch),
-    storage = "worker",
-    retrieval = "worker"
+    command = rbindlist(inep_string_match_batch, use.names = TRUE, fill = TRUE),
+    deployment = "main"
   ),
   tar_target(
     name = validate_inep_match,
@@ -984,14 +998,17 @@ list(
   tar_target(
     name = schools_cnefe10_match_batch,
     command = {
+      # Get municipalities for this batch
+      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
+      
       # Process all municipalities in this batch
-      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
-      batch_results <- lapply(municipality_batches, function(muni_code) {
+      batch_results <- lapply(batch_munis, function(muni_code) {
         match_schools_cnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
           schools_cnefe_muni = schools_cnefe10[id_munic_7 == muni_code]
         )
       })
+      
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1000,8 +1017,14 @@ list(
         data.table()
       }
     },
-    pattern = map(municipality_batches),
-    iteration = "list", # Keep branches as list for rbindlist
+    pattern = map(batch_ids),
+    iteration = "list",
+    deployment = "worker",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "standard")
+    )
   ),
   tar_target(
     name = schools_cnefe10_match,
@@ -1009,28 +1032,21 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  # Schools CNEFE 2022 matching with batched dynamic branching
+  # Schools CNEFE 2022 matching - process municipalities in batches
   tar_target(
     name = schools_cnefe22_match_batch,
     command = {
+      # Get municipalities for this batch
+      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
+      
       # Process all municipalities in this batch
-      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
-      
-      # Debug: Print what we received
-      message("Batch class: ", class(municipality_batches))
-      message("Batch length: ", length(municipality_batches))
-      if (length(municipality_batches) > 0) {
-        message("First element: ", municipality_batches[[1]])
-      }
-      
-      current_batch <- municipality_batches
-      
-      batch_results <- lapply(current_batch, function(muni_code) {
+      batch_results <- lapply(batch_munis, function(muni_code) {
         match_schools_cnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
           schools_cnefe_muni = schools_cnefe22[id_munic_7 == muni_code]
         )
       })
+      
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1039,28 +1055,36 @@ list(
         data.table()
       }
     },
-    pattern = map(municipality_batches),
-    iteration = "list", # Keep branches as list for rbindlist
+    pattern = map(batch_ids),
+    iteration = "list",
+    deployment = "worker",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "standard")
+    )
   ),
   tar_target(
     name = schools_cnefe22_match,
-    command = rbindlist(schools_cnefe22_match_batch),
-    storage = "worker",
-    retrieval = "worker"
+    command = rbindlist(schools_cnefe22_match_batch, use.names = TRUE, fill = TRUE),
+    deployment = "main"
   ),
   # CNEFE 2010 street/neighborhood matching with batched dynamic branching
   tar_target(
     name = cnefe10_stbairro_match_batch,
     command = {
+      # Get municipalities for this batch
+      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
+      
       # Process all municipalities in this batch
-      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
-      batch_results <- lapply(municipality_batches, function(muni_code) {
+      batch_results <- lapply(batch_munis, function(muni_code) {
         match_stbairro_cnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
           cnefe_st_muni = cnefe10_st[id_munic_7 == muni_code],
           cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == muni_code]
         )
       })
+      
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1069,10 +1093,13 @@ list(
         data.table()
       }
     },
-    pattern = map(municipality_batches),
-    iteration = "list", # Keep branches as list for rbindlist
+    pattern = map(batch_ids),
+    iteration = "list",
+    deployment = "worker",
+    storage = "worker",
+    retrieval = "worker",
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "memory_limited")
+      crew = tar_resources_crew(controller = "standard")
     )
   ),
   tar_target(
@@ -1085,15 +1112,18 @@ list(
   tar_target(
     name = cnefe22_stbairro_match_batch,
     command = {
+      # Get municipalities for this batch
+      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
+      
       # Process all municipalities in this batch
-      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
-      batch_results <- lapply(municipality_batches, function(muni_code) {
+      batch_results <- lapply(batch_munis, function(muni_code) {
         match_stbairro_cnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
           cnefe_st_muni = cnefe22_st[id_munic_7 == muni_code],
           cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == muni_code]
         )
       })
+      
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1102,8 +1132,11 @@ list(
         data.table()
       }
     },
-    pattern = map(municipality_batches),
-    iteration = "list", # Keep branches as list for rbindlist
+    pattern = map(batch_ids),
+    iteration = "list",
+    deployment = "worker",
+    storage = "worker",
+    retrieval = "worker",
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
     )
@@ -1118,15 +1151,18 @@ list(
   tar_target(
     name = agrocnefe_stbairro_match_batch,
     command = {
+      # Get municipalities for this batch
+      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
+      
       # Process all municipalities in this batch
-      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
-      batch_results <- lapply(municipality_batches, function(muni_code) {
+      batch_results <- lapply(batch_munis, function(muni_code) {
         match_stbairro_agrocnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
           agrocnefe_st_muni = agrocnefe_st[id_munic_7 == muni_code],
           agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == muni_code]
         )
       })
+      
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1135,8 +1171,14 @@ list(
         data.table()
       }
     },
-    pattern = map(municipality_batches),
-    iteration = "list", # Keep branches as list for rbindlist
+    pattern = map(batch_ids),
+    iteration = "list",
+    deployment = "worker",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "standard")
+    )
   ),
   tar_target(
     name = agrocnefe_stbairro_match,

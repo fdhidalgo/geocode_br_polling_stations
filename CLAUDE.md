@@ -11,7 +11,7 @@ This R project geocodes Brazilian polling stations (2006-2022) using administrat
 ## Key Commands
 
 ### Development Mode (IMPORTANT)
-**Always use development mode when testing pipeline changes** - the full pipeline takes hours. Set `DEV_MODE = TRUE` in `_targets.R` to work with a small subset of data:
+**Always use development mode when testing pipeline changes** - the full pipeline takes hours. Set `DEV_MODE = TRUE` in `_targets.R` to work with a small subset of data (AC and RR states only):
 
 ```bash
 # Check if dev mode is enabled

@@ -68,8 +68,8 @@ get_pipeline_config <- function(dev_mode = FALSE) {
     # Development mode flag
     dev_mode = dev_mode,
     
-    # Small states for rapid development
-    dev_states = c("AC", "RR", "AP", "RO"),
+    # Small states for rapid development (reduced to 2 for faster testing)
+    dev_states = c("AC", "RR"),
     
     # All Brazilian states
     prod_states = c("AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", 

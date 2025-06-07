@@ -164,3 +164,44 @@ check_and_adjust_resources <- function() {
   
   invisible(status)
 }
+
+#' Create balanced batches of municipalities for parallel processing
+#'
+#' This function creates balanced batches of municipality codes to reduce
+#' the number of dynamic branches in the targets pipeline. This helps
+#' prevent bottlenecks when crew dispatches thousands of fine-grained tasks.
+#'
+#' @param muni_codes Vector of municipality codes to batch
+#' @param batch_size Target size for each batch (default: 50)
+#' @return Named list of municipality code batches
+#' @export
+#' @examples
+#' # Create batches of 50 municipalities each
+#' batches <- create_municipality_batches(unique(locais$cod_localidade_ibge))
+#' length(batches)  # Will be ~112 for 5571 municipalities
+create_municipality_batches <- function(muni_codes, batch_size = 50) {
+  # Ensure we have unique municipality codes
+  muni_codes <- unique(muni_codes)
+  
+  n_munis <- length(muni_codes)
+  n_batches <- ceiling(n_munis / batch_size)
+  
+  # Create balanced batches using cut
+  batch_indices <- cut(seq_along(muni_codes), 
+                      breaks = n_batches, 
+                      labels = FALSE)
+  
+  # Split municipalities into batches
+  batches <- split(muni_codes, batch_indices)
+  
+  # Name batches for easier tracking
+  names(batches) <- paste0("batch_", seq_len(n_batches))
+  
+  # Log batch creation
+  message(sprintf(
+    "Created %d batches from %d municipalities (avg size: %.1f)",
+    n_batches, n_munis, n_munis / n_batches
+  ))
+  
+  batches
+}

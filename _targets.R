@@ -44,15 +44,24 @@ options(
 # Load parallel processing functions
 # source("./R/parallel_processing_fns.R") # No longer needed with unified controller
 
+# Enable crew logging for debugging (optional)
+if (!dir.exists("crew_logs")) dir.create("crew_logs")
+options(
+  crew.log_directory = "crew_logs",
+  crew.log_rotate = TRUE
+)
+
 # Create two controllers: one memory-limited for CNEFE operations, one standard
 # Memory-limited controller for CNEFE cleaning and street/neighborhood matching
 controller_memory <- crew::crew_controller_local(
   name = "memory_limited",
   workers = 6,  # Limit to 6 workers to prevent memory exhaustion
-  seconds_idle = 300,  # Increase idle timeout for long-running tasks
+  seconds_idle = 300,  # Keep workers alive for batched work
   seconds_wall = 36000,  # 10 hours for longer CNEFE processing
   seconds_timeout = 32400,  # 9 hours timeout (was timing out at 8h 25m)
-  tasks_max = 10000,  # High limit for many tasks
+  tasks_max = 10,  # Lower limit to force worker redistribution
+  tasks_timers = 1,  # Start idle timer after first task
+  seconds_interval = 0.1,  # Faster polling for task dispatch
   reset_globals = FALSE,  # Keep globals for performance
   reset_packages = FALSE,
   reset_options = FALSE,
@@ -63,10 +72,12 @@ controller_memory <- crew::crew_controller_local(
 controller_standard <- crew::crew_controller_local(
   name = "standard",
   workers = 28,  # Use most cores for parallel processing
-  seconds_idle = 60,  # Reasonable idle timeout
+  seconds_idle = 60,  # Shorter idle for faster worker recycling
   seconds_wall = 14400,  # 4 hours wall time (increased from 1 hour)
   seconds_timeout = 3600,  # 1 hour timeout (increased from 5 minutes)
-  tasks_max = 10000,  # High limit for many tasks
+  tasks_max = 50,  # Moderate limit to improve task distribution
+  tasks_timers = 1,  # Start idle timer after first task
+  seconds_interval = 0.05,  # Very fast polling for quick dispatch
   reset_globals = FALSE,  # Keep globals for performance
   reset_packages = FALSE,
   reset_options = FALSE,
@@ -79,22 +90,21 @@ controller_group <- crew::crew_controller_group(
   controller_standard
 )
 
-# Start both controllers
-controller_memory$start()
-controller_standard$start()
-
-# Register cleanup on exit
-on.exit(
-  {
-    if (!is.null(controller_memory)) {
-      controller_memory$terminate()
-    }
-    if (!is.null(controller_standard)) {
-      controller_standard$terminate()
-    }
-  },
-  add = TRUE
-)
+# Only start controllers when tar_make() is running
+# This prevents orphaned workers when sourcing _targets.R interactively
+if (targets::tar_active()) {
+  controller_group$start()
+  
+  # Register cleanup on exit
+  on.exit(
+    {
+      if (!is.null(controller_group)) {
+        controller_group$terminate()
+      }
+    },
+    add = TRUE
+  )
+}
 
 # Set target options:
 tar_option_set(
@@ -125,7 +135,7 @@ tar_option_set(
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- TRUE # Process only AC, RR, AP, RO states when TRUE
+DEV_MODE <- TRUE # Process only AC, RR states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
@@ -908,24 +918,37 @@ list(
     name = municipalities_for_matching,
     command = unique(locais$cod_localidade_ibge)
   ),
-
-  # INEP string matching with dynamic branching
+  
+  # Create municipality batches to reduce dynamic branches
   tar_target(
-    name = inep_string_match_muni,
+    name = municipality_batches,
+    command = create_municipality_batches(
+      municipalities_for_matching,
+      batch_size = ifelse(pipeline_config$dev_mode, 10, 50)
+    )
+  ),
+
+  # INEP string matching with batched dynamic branching
+  tar_target(
+    name = inep_string_match_batch,
     command = {
-      match_inep_muni(
-        locais_muni = locais[
-          cod_localidade_ibge == municipalities_for_matching
-        ],
-        inep_muni = inep_data[id_munic_7 == municipalities_for_matching]
-      )
+      # Process all municipalities in this batch
+      # When mapped, municipality_batches is a vector of codes for this specific batch
+      batch_results <- lapply(municipality_batches, function(muni_code) {
+        match_inep_muni(
+          locais_muni = locais[cod_localidade_ibge == muni_code],
+          inep_muni = inep_data[id_munic_7 == muni_code]
+        )
+      })
+      # Combine results for this batch
+      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
     },
-    pattern = map(municipalities_for_matching),
+    pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
   ),
   tar_target(
     name = inep_string_match,
-    command = rbindlist(inep_string_match_muni),
+    command = rbindlist(inep_string_match_batch),
     storage = "worker",
     retrieval = "worker"
   ),
@@ -952,65 +975,69 @@ list(
       result
     }
   ),
-  # Schools CNEFE 2010 matching with dynamic branching
+  # Schools CNEFE 2010 matching with batched dynamic branching
   tar_target(
-    name = schools_cnefe10_match_muni,
+    name = schools_cnefe10_match_batch,
     command = {
-      match_schools_cnefe_muni(
-        locais_muni = locais[
-          cod_localidade_ibge == municipalities_for_matching
-        ],
-        schools_cnefe_muni = schools_cnefe10[
-          id_munic_7 == municipalities_for_matching
-        ]
-      )
+      # Process all municipalities in this batch
+      # When mapped, municipality_batches is a vector of codes for this specific batch
+      batch_results <- lapply(municipality_batches, function(muni_code) {
+        match_schools_cnefe_muni(
+          locais_muni = locais[cod_localidade_ibge == muni_code],
+          schools_cnefe_muni = schools_cnefe10[id_munic_7 == muni_code]
+        )
+      })
+      # Combine results for this batch
+      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
     },
-    pattern = map(municipalities_for_matching),
+    pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
   ),
   tar_target(
     name = schools_cnefe10_match,
-    command = rbindlist(schools_cnefe10_match_muni),
+    command = rbindlist(schools_cnefe10_match_batch),
     storage = "worker",
     retrieval = "worker"
   ),
-  # Schools CNEFE 2022 matching with dynamic branching
+  # Schools CNEFE 2022 matching with batched dynamic branching
   tar_target(
-    name = schools_cnefe22_match_muni,
+    name = schools_cnefe22_match_batch,
     command = {
-      match_schools_cnefe_muni(
-        locais_muni = locais[
-          cod_localidade_ibge == municipalities_for_matching
-        ],
-        schools_cnefe_muni = schools_cnefe22[
-          id_munic_7 == municipalities_for_matching
-        ]
-      )
+      # Process all municipalities in this batch
+      batch_results <- lapply(municipality_batches, function(muni_code) {
+        match_schools_cnefe_muni(
+          locais_muni = locais[cod_localidade_ibge == muni_code],
+          schools_cnefe_muni = schools_cnefe22[id_munic_7 == muni_code]
+        )
+      })
+      # Combine results for this batch
+      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
     },
-    pattern = map(municipalities_for_matching),
+    pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
   ),
   tar_target(
     name = schools_cnefe22_match,
-    command = rbindlist(schools_cnefe22_match_muni),
+    command = rbindlist(schools_cnefe22_match_batch),
     storage = "worker",
     retrieval = "worker"
   ),
-  # CNEFE 2010 street/neighborhood matching with dynamic branching
+  # CNEFE 2010 street/neighborhood matching with batched dynamic branching
   tar_target(
-    name = cnefe10_stbairro_match_muni,
+    name = cnefe10_stbairro_match_batch,
     command = {
-      match_stbairro_cnefe_muni(
-        locais_muni = locais[
-          cod_localidade_ibge == municipalities_for_matching
-        ],
-        cnefe_st_muni = cnefe10_st[id_munic_7 == municipalities_for_matching],
-        cnefe_bairro_muni = cnefe10_bairro[
-          id_munic_7 == municipalities_for_matching
-        ]
-      )
+      # Process all municipalities in this batch
+      batch_results <- lapply(municipality_batches, function(muni_code) {
+        match_stbairro_cnefe_muni(
+          locais_muni = locais[cod_localidade_ibge == muni_code],
+          cnefe_st_muni = cnefe10_st[id_munic_7 == muni_code],
+          cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == muni_code]
+        )
+      })
+      # Combine results for this batch
+      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
     },
-    pattern = map(municipalities_for_matching),
+    pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
@@ -1018,25 +1045,26 @@ list(
   ),
   tar_target(
     name = cnefe10_stbairro_match,
-    command = rbindlist(cnefe10_stbairro_match_muni),
+    command = rbindlist(cnefe10_stbairro_match_batch),
     storage = "worker",
     retrieval = "worker"
   ),
-  # CNEFE 2022 street/neighborhood matching with dynamic branching
+  # CNEFE 2022 street/neighborhood matching with batched dynamic branching
   tar_target(
-    name = cnefe22_stbairro_match_muni,
+    name = cnefe22_stbairro_match_batch,
     command = {
-      match_stbairro_cnefe_muni(
-        locais_muni = locais[
-          cod_localidade_ibge == municipalities_for_matching
-        ],
-        cnefe_st_muni = cnefe22_st[id_munic_7 == municipalities_for_matching],
-        cnefe_bairro_muni = cnefe22_bairro[
-          id_munic_7 == municipalities_for_matching
-        ]
-      )
+      # Process all municipalities in this batch
+      batch_results <- lapply(municipality_batches, function(muni_code) {
+        match_stbairro_cnefe_muni(
+          locais_muni = locais[cod_localidade_ibge == muni_code],
+          cnefe_st_muni = cnefe22_st[id_munic_7 == muni_code],
+          cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == muni_code]
+        )
+      })
+      # Combine results for this batch
+      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
     },
-    pattern = map(municipalities_for_matching),
+    pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
@@ -1044,32 +1072,31 @@ list(
   ),
   tar_target(
     name = cnefe22_stbairro_match,
-    command = rbindlist(cnefe22_stbairro_match_muni),
+    command = rbindlist(cnefe22_stbairro_match_batch),
     storage = "worker",
     retrieval = "worker"
   ),
-  # Agro CNEFE street/neighborhood matching with dynamic branching
+  # Agro CNEFE street/neighborhood matching with batched dynamic branching
   tar_target(
-    name = agrocnefe_stbairro_match_muni,
+    name = agrocnefe_stbairro_match_batch,
     command = {
-      match_stbairro_agrocnefe_muni(
-        locais_muni = locais[
-          cod_localidade_ibge == municipalities_for_matching
-        ],
-        agrocnefe_st_muni = agrocnefe_st[
-          id_munic_7 == municipalities_for_matching
-        ],
-        agrocnefe_bairro_muni = agrocnefe_bairro[
-          id_munic_7 == municipalities_for_matching
-        ]
-      )
+      # Process all municipalities in this batch
+      batch_results <- lapply(municipality_batches, function(muni_code) {
+        match_stbairro_agrocnefe_muni(
+          locais_muni = locais[cod_localidade_ibge == muni_code],
+          agrocnefe_st_muni = agrocnefe_st[id_munic_7 == muni_code],
+          agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == muni_code]
+        )
+      })
+      # Combine results for this batch
+      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
     },
-    pattern = map(municipalities_for_matching),
+    pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
   ),
   tar_target(
     name = agrocnefe_stbairro_match,
-    command = rbindlist(agrocnefe_stbairro_match_muni),
+    command = rbindlist(agrocnefe_stbairro_match_batch),
     storage = "worker",
     retrieval = "worker"
   ),

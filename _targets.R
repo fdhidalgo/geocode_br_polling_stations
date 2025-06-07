@@ -933,15 +933,20 @@ list(
     name = inep_string_match_batch,
     command = {
       # Process all municipalities in this batch
-      # When mapped, municipality_batches is a vector of codes for this specific batch
+      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
       batch_results <- lapply(municipality_batches, function(muni_code) {
         match_inep_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
           inep_muni = inep_data[id_munic_7 == muni_code]
         )
       })
-      # Combine results for this batch
-      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      # Remove NULL results and combine
+      batch_results <- batch_results[!sapply(batch_results, is.null)]
+      if (length(batch_results) > 0) {
+        rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      } else {
+        data.table()
+      }
     },
     pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
@@ -980,15 +985,20 @@ list(
     name = schools_cnefe10_match_batch,
     command = {
       # Process all municipalities in this batch
-      # When mapped, municipality_batches is a vector of codes for this specific batch
+      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
       batch_results <- lapply(municipality_batches, function(muni_code) {
         match_schools_cnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
           schools_cnefe_muni = schools_cnefe10[id_munic_7 == muni_code]
         )
       })
-      # Combine results for this batch
-      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      # Remove NULL results and combine
+      batch_results <- batch_results[!sapply(batch_results, is.null)]
+      if (length(batch_results) > 0) {
+        rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      } else {
+        data.table()
+      }
     },
     pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
@@ -1004,14 +1014,30 @@ list(
     name = schools_cnefe22_match_batch,
     command = {
       # Process all municipalities in this batch
-      batch_results <- lapply(municipality_batches, function(muni_code) {
+      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
+      
+      # Debug: Print what we received
+      message("Batch class: ", class(municipality_batches))
+      message("Batch length: ", length(municipality_batches))
+      if (length(municipality_batches) > 0) {
+        message("First element: ", municipality_batches[[1]])
+      }
+      
+      current_batch <- municipality_batches
+      
+      batch_results <- lapply(current_batch, function(muni_code) {
         match_schools_cnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
           schools_cnefe_muni = schools_cnefe22[id_munic_7 == muni_code]
         )
       })
-      # Combine results for this batch
-      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      # Remove NULL results and combine
+      batch_results <- batch_results[!sapply(batch_results, is.null)]
+      if (length(batch_results) > 0) {
+        rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      } else {
+        data.table()
+      }
     },
     pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
@@ -1027,6 +1053,7 @@ list(
     name = cnefe10_stbairro_match_batch,
     command = {
       # Process all municipalities in this batch
+      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
       batch_results <- lapply(municipality_batches, function(muni_code) {
         match_stbairro_cnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
@@ -1034,8 +1061,13 @@ list(
           cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == muni_code]
         )
       })
-      # Combine results for this batch
-      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      # Remove NULL results and combine
+      batch_results <- batch_results[!sapply(batch_results, is.null)]
+      if (length(batch_results) > 0) {
+        rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      } else {
+        data.table()
+      }
     },
     pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
@@ -1054,6 +1086,7 @@ list(
     name = cnefe22_stbairro_match_batch,
     command = {
       # Process all municipalities in this batch
+      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
       batch_results <- lapply(municipality_batches, function(muni_code) {
         match_stbairro_cnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
@@ -1061,8 +1094,13 @@ list(
           cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == muni_code]
         )
       })
-      # Combine results for this batch
-      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      # Remove NULL results and combine
+      batch_results <- batch_results[!sapply(batch_results, is.null)]
+      if (length(batch_results) > 0) {
+        rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      } else {
+        data.table()
+      }
     },
     pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist
@@ -1081,6 +1119,7 @@ list(
     name = agrocnefe_stbairro_match_batch,
     command = {
       # Process all municipalities in this batch
+      # When pattern = map() is used, municipality_batches is a vector of codes for this specific batch
       batch_results <- lapply(municipality_batches, function(muni_code) {
         match_stbairro_agrocnefe_muni(
           locais_muni = locais[cod_localidade_ibge == muni_code],
@@ -1088,8 +1127,13 @@ list(
           agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == muni_code]
         )
       })
-      # Combine results for this batch
-      rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      # Remove NULL results and combine
+      batch_results <- batch_results[!sapply(batch_results, is.null)]
+      if (length(batch_results) > 0) {
+        rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      } else {
+        data.table()
+      }
     },
     pattern = map(municipality_batches),
     iteration = "list", # Keep branches as list for rbindlist

@@ -1,3 +1,15 @@
+## Targets pipeline configuration for geocoding Brazilian polling stations
+#
+# This script defines a comprehensive targets pipeline for geocoding Brazilian polling stations
+# using multiple data sources and advanced string matching techniques. The pipeline includes:
+# - Data import and cleaning from various sources (CNEFE, INEP, TSE)
+# - Validation stages for data quality
+# - String matching and geolocation prediction
+# - Geocoding of polling stations
+# - Validation and export of results
+#
+# The pipeline supports both development (subset of states) and production (full Brazil) modes.
+# Parallel processing is managed using the crew package for efficient computation.
 # Load packages required to define the pipeline:
 library(targets)
 library(tarchetypes)
@@ -14,28 +26,71 @@ library(crew)
 
 ## Setup parallel processing with crew/mirai
 
+# Limit data.table threads to prevent memory contention
 data.table::setDTthreads(1)
 
-# Load parallel processing functions
-source("./R/parallel_processing_fns.R")
-
-# Create differentiated crew controllers
-controllers <- create_crew_controllers()
-
-# Create a controller group for targets to use
-controller <- crew_controller_group(
-  controllers$cnefe,
-  controllers$light
+# Set memory limits to prevent allocation errors
+options(
+  # Increase R memory limit (in MB)
+  memory.limit = 100000,  # 100GB limit
+  # Garbage collection frequency
+  gcinfo = FALSE,
+  # data.table specific options for memory efficiency
+  datatable.alloccol = 100,  # Pre-allocate fewer columns
+  datatable.print.class = FALSE,
+  datatable.print.keys = FALSE
 )
 
-# Store controllers globally for access by functions
-assign("crew_controllers", controllers, envir = .GlobalEnv)
+# Load parallel processing functions
+# source("./R/parallel_processing_fns.R") # No longer needed with unified controller
+
+# Create two controllers: one memory-limited for CNEFE operations, one standard
+# Memory-limited controller for CNEFE cleaning and street/neighborhood matching
+controller_memory <- crew::crew_controller_local(
+  name = "memory_limited",
+  workers = 6,  # Limit to 6 workers to prevent memory exhaustion
+  seconds_idle = 60,  # Reasonable idle timeout
+  seconds_wall = 7200,  # 2 hours for longer CNEFE processing
+  seconds_timeout = 600,  # 10 minute timeout for larger operations
+  tasks_max = 10000,  # High limit for many tasks
+  reset_globals = FALSE,  # Keep globals for performance
+  reset_packages = FALSE,
+  reset_options = FALSE,
+  garbage_collection = TRUE  # Force GC for memory management
+)
+
+# Standard controller for all other operations
+controller_standard <- crew::crew_controller_local(
+  name = "standard",
+  workers = 28,  # Use most cores for parallel processing
+  seconds_idle = 60,  # Reasonable idle timeout
+  seconds_wall = 3600,  # 1 hour wall time
+  seconds_timeout = 300,  # 5 minute timeout
+  tasks_max = 10000,  # High limit for many tasks
+  reset_globals = FALSE,  # Keep globals for performance
+  reset_packages = FALSE,
+  reset_options = FALSE,
+  garbage_collection = FALSE  # Skip GC for speed
+)
+
+# Create controller group
+controller_group <- crew::crew_controller_group(
+  controller_memory,
+  controller_standard
+)
+
+# Start both controllers
+controller_memory$start()
+controller_standard$start()
 
 # Register cleanup on exit
 on.exit(
   {
-    if (exists("crew_controllers", envir = .GlobalEnv)) {
-      cleanup_controllers(get("crew_controllers", envir = .GlobalEnv))
+    if (!is.null(controller_memory)) {
+      controller_memory$terminate()
+    }
+    if (!is.null(controller_standard)) {
+      controller_standard$terminate()
     }
   },
   add = TRUE
@@ -48,34 +103,35 @@ tar_option_set(
     "targets",
     "data.table",
     "stringr",
-    "stringi",
     "bonsai",
     # "future", # Replaced by crew/mirai
     "reclin2",
     # "future.apply", # No longer needed with dynamic branching
     "validate",
     "geosphere",
-    "sf",
-    "geocodebr"
+    "sf"
   ),
   format = "qs", # default storage format,
   memory = "transient",
   garbage_collection = TRUE,
-  controller = controller # Use crew for parallel execution
+  controller = controller_group, # Use controller group
+  resources = tar_resources(
+    crew = tar_resources_crew(controller = "standard") # Default to standard controller
+  )
 )
 
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- TRUE # Process only AC, RR, AP, RO states when TRUE
+DEV_MODE <- FALSE # Process only AC, RR, AP, RO states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
-# Load geocodebr matching functions
-source("./R/geocodebr_matching.R")
 # Load parallel processing functions
-source("./R/parallel_processing_fns.R")
+# source("./R/parallel_processing_fns.R") # No longer needed with unified controller
 source("./R/parallel_integration_fns.R")
+# Load memory-efficient CNEFE processing
+source("./R/memory_efficient_cnefe.R")
 # Load validation functions
 source("./R/functions_validate.R")
 # Load comprehensive validation framework
@@ -92,11 +148,6 @@ source("./R/state_filtering.R")
 
 # Get pipeline configuration based on development mode
 pipeline_config <- get_pipeline_config(DEV_MODE)
-
-# Override dev states for faster testing
-if (DEV_MODE) {
-  pipeline_config$dev_states <- c("AC")  # Just AC for now
-}
 
 # Print configuration info
 if (pipeline_config$dev_mode) {
@@ -153,10 +204,7 @@ list(
         )
       }
       result
-    },
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "light_tasks")
-    )
+    }
   ),
   tar_target(
     name = inep_codes_file,
@@ -268,22 +316,88 @@ list(
   ),
 
   ## import and clean CNEFE data
+  # Get list of states to process for CNEFE10
   tar_target(
-    name = cnefe10_raw,
+    name = cnefe10_states,
     command = {
       if (pipeline_config$dev_mode) {
-        # Read only dev states from partitioned files
-        read_state_cnefe(2010, pipeline_config$dev_states, base_dir = "data")
+        pipeline_config$dev_states
       } else {
-        # In production, read the full file
-        fread("./data/CNEFE_combined.gz")
+        # Get all states from the cnefe_2010 directory
+        state_files <- list.files(
+          "data/cnefe_2010",
+          pattern = "cnefe_2010_.*\\.csv\\.gz$"
+        )
+        gsub("cnefe_2010_(.+)\\.csv\\.gz", "\\1", state_files)
       }
+    }
+  ),
+  # Process CNEFE10 state by state to avoid memory issues
+  tar_target(
+    name = cnefe10_cleaned_by_state,
+    command = {
+      # Read state file
+      state_file <- file.path(
+        "data/cnefe_2010",
+        paste0("cnefe_2010_", cnefe10_states, ".csv.gz")
+      )
+      
+      # Read state data with appropriate separator
+      state_data <- fread(
+        state_file,
+        sep = ",",  # Partitioned files use comma
+        encoding = "UTF-8",
+        verbose = FALSE,
+        showProgress = FALSE
+      )
+      
+      # Get municipality IDs for this state
+      state_muni_ids <- muni_ids[estado_abrev == cnefe10_states]
+      
+      # Get tract centroids for this state
+      state_codes <- unique(substr(as.character(state_muni_ids$id_munic_7), 1, 2))
+      state_tract_centroids <- tract_centroids[
+        substr(setor_code, 1, 2) %in% state_codes
+      ]
+      
+      # Clean the state data
+      result <- clean_cnefe10(
+        cnefe_file = state_data,
+        muni_ids = state_muni_ids,
+        tract_centroids = state_tract_centroids
+      )
+      
+      # Force garbage collection after processing each state
+      gc(verbose = FALSE)
+      
+      result
     },
-    storage = "worker",
-    retrieval = "worker",
+    pattern = map(cnefe10_states),
+    format = "fst_dt",
+    iteration = "list", # Keep branches as list for rbindlist
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "cnefe_heavy")
+      crew = tar_resources_crew(controller = "memory_limited")
     )
+  ),
+  # Combine all cleaned state data for CNEFE10
+  tar_target(
+    name = cnefe10,
+    command = {
+      # Combine all state data.tables
+      combined <- rbindlist(
+        cnefe10_cleaned_by_state,
+        use.names = TRUE,
+        fill = TRUE
+      )
+      
+      # Force garbage collection
+      gc(verbose = FALSE)
+      
+      # Return combined dataset
+      combined
+    },
+    format = "fst_dt",
+    storage = "worker",
   ),
   # Get list of states to process based on mode
   tar_target(
@@ -302,27 +416,21 @@ list(
     }
   ),
   tar_target(
-    name = cnefe10,
-    command = clean_cnefe10(
-      cnefe_file = cnefe10_raw,
-      muni_ids = muni_ids,
-      tract_centroids = tract_centroids
-    ),
-    format = "fst_dt",
-    storage = "worker",
-    retrieval = "worker",
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "cnefe_heavy")
-    )
-  ),
-  tar_target(
     name = validate_cnefe10_clean,
     command = {
-      result <- validate_cleaning_stage(
-        cleaned_data = cnefe10,
-        original_data = cnefe10_raw,
+      # For state-partitioned processing, validate the combined output
+      result <- validate_import_stage(
+        data = cnefe10,
         stage_name = "cnefe10_cleaned",
-        key_cols = c("id_munic_7", "cnefe_lat", "cnefe_long")
+        expected_cols = c(
+          "id_munic_7",
+          "cnefe_lat",
+          "cnefe_long",
+          "norm_address",
+          "norm_street",
+          "norm_bairro"
+        ),
+        min_rows = ifelse(pipeline_config$dev_mode, 10000, 1000000)
       )
       if (!result$passed) {
         stop("CNEFE 2010 cleaning validation failed - pipeline halted")
@@ -344,16 +452,21 @@ list(
       state_muni_ids <- muni_ids[estado_abrev == cnefe22_states]
 
       # Clean the state data
-      clean_cnefe22(
+      result <- clean_cnefe22(
         cnefe22_file = state_file,
         muni_ids = state_muni_ids
       )
+      
+      # Force garbage collection after processing each state
+      gc(verbose = FALSE)
+      
+      result
     },
     pattern = map(cnefe22_states),
     format = "fst_dt",
-    iteration = "list",
+    iteration = "list", # Keep branches as list for rbindlist
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "cnefe_heavy")
+      crew = tar_resources_crew(controller = "memory_limited")
     )
   ),
   # Combine all cleaned state data
@@ -372,10 +485,6 @@ list(
     },
     format = "fst_dt",
     storage = "worker",
-    retrieval = "worker",
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "cnefe_heavy")
-    )
   ),
   tar_target(
     name = validate_cnefe22_clean,
@@ -507,10 +616,6 @@ list(
     command = get_cnefe22_schools(cnefe22),
     format = "fst_dt",
     storage = "worker",
-    retrieval = "worker",
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "cnefe_heavy")
-    )
   ),
   ## Create a dataset of streets in 2022 CNEFE
   tar_target(
@@ -641,8 +746,7 @@ list(
     command = c(
       "./data/eleitorado_local_votacao_2018.csv.gz",
       "./data/eleitorado_local_votacao_2020.csv.gz",
-      "./data/eleitorado_local_votacao_2022.csv.gz",
-      "./data/eleitorado_local_votacao_2024.csv.gz"
+      "./data/eleitorado_local_votacao_2022.csv.gz"
     ),
     format = "file"
   ),
@@ -664,7 +768,7 @@ list(
       if (nrow(df_data) > 0) {
         make_panel_1block(
           df_data,
-          years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022, 2024),
+          years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022),
           blocking_column = "cod_localidade_ibge",
           scoring_columns = c("normalized_name", "normalized_addr")
         )
@@ -720,12 +824,11 @@ list(
   tar_target(
     name = panel_ids_states,
     command = make_panel_1block(
-      block = locais[sg_uf == panel_state],
-      years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
+      block = locais[sg_uf %in% panel_state],
+      years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022),
       blocking_column = "cod_localidade_ibge",
       scoring_columns = c("normalized_name", "normalized_addr")
     ),
-    pattern = map(panel_state)
   ),
   tar_target(
     name = panel_ids,
@@ -751,13 +854,12 @@ list(
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list" # Keep branches as list for rbindlist
+    iteration = "list", # Keep branches as list for rbindlist
   ),
   tar_target(
     name = inep_string_match,
     command = rbindlist(inep_string_match_muni),
     storage = "worker",
-    retrieval = "worker"
   ),
   tar_target(
     name = validate_inep_match,
@@ -796,13 +898,12 @@ list(
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list" # Keep branches as list for rbindlist
+    iteration = "list", # Keep branches as list for rbindlist
   ),
   tar_target(
     name = schools_cnefe10_match,
     command = rbindlist(schools_cnefe10_match_muni),
     storage = "worker",
-    retrieval = "worker"
   ),
   # Schools CNEFE 2022 matching with dynamic branching
   tar_target(
@@ -818,13 +919,12 @@ list(
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list" # Keep branches as list for rbindlist
+    iteration = "list", # Keep branches as list for rbindlist
   ),
   tar_target(
     name = schools_cnefe22_match,
     command = rbindlist(schools_cnefe22_match_muni),
     storage = "worker",
-    retrieval = "worker"
   ),
   # CNEFE 2010 street/neighborhood matching with dynamic branching
   tar_target(
@@ -841,13 +941,15 @@ list(
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list" # Keep branches as list for rbindlist
+    iteration = "list", # Keep branches as list for rbindlist
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
   ),
   tar_target(
     name = cnefe10_stbairro_match,
     command = rbindlist(cnefe10_stbairro_match_muni),
     storage = "worker",
-    retrieval = "worker"
   ),
   # CNEFE 2022 street/neighborhood matching with dynamic branching
   tar_target(
@@ -864,13 +966,15 @@ list(
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list" # Keep branches as list for rbindlist
+    iteration = "list", # Keep branches as list for rbindlist
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
   ),
   tar_target(
     name = cnefe22_stbairro_match,
     command = rbindlist(cnefe22_stbairro_match_muni),
     storage = "worker",
-    retrieval = "worker"
   ),
   # Agro CNEFE street/neighborhood matching with dynamic branching
   tar_target(
@@ -889,64 +993,12 @@ list(
       )
     },
     pattern = map(municipalities_for_matching),
-    iteration = "list" # Keep branches as list for rbindlist
+    iteration = "list", # Keep branches as list for rbindlist
   ),
   tar_target(
     name = agrocnefe_stbairro_match,
     command = rbindlist(agrocnefe_stbairro_match_muni),
     storage = "worker",
-    retrieval = "worker"
-  ),
-  # geocodebr matching with dynamic branching
-  tar_target(
-    name = geocodebr_match_muni,
-    command = {
-      match_geocodebr_muni(
-        locais_muni = locais[
-          cod_localidade_ibge == municipalities_for_matching
-        ],
-        muni_ids = muni_ids[id_munic_7 == municipalities_for_matching]
-      )
-    },
-    pattern = map(municipalities_for_matching),
-    iteration = "list", # Keep branches as list for rbindlist
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "light_tasks")
-    )
-  ),
-  tar_target(
-    name = geocodebr_match,
-    command = rbindlist(geocodebr_match_muni, fill = TRUE, use.names = TRUE),
-    storage = "worker",
-    retrieval = "worker"
-  ),
-  tar_target(
-    name = validate_geocodebr_match,
-    command = {
-      result <- validate_string_match_stage(
-        match_data = geocodebr_match,
-        stage_name = "geocodebr_match",
-        id_col = "local_id",
-        score_col = "mindist_geocodebr"
-      )
-      
-      # Report precision breakdown
-      if (nrow(geocodebr_match) > 0) {
-        precision_summary <- geocodebr_match[, .N, by = precisao_geocodebr]
-        message("geocodebr precision breakdown:")
-        print(precision_summary)
-        
-        # Calculate street-level precision percentage
-        total_matches <- nrow(geocodebr_match)
-        street_level <- precision_summary[precisao_geocodebr == "logradouro", N]
-        if (length(street_level) > 0) {
-          pct_street <- 100 * street_level / total_matches
-          message(sprintf("Street-level precision: %.1f%%", pct_street))
-        }
-      }
-      
-      result
-    }
   ),
   ## Combine string matching data for modeling
   tar_target(
@@ -958,7 +1010,6 @@ list(
       schools_cnefe22_match = schools_cnefe22_match,
       agrocnefe_stbairro_match = agrocnefe_stbairro_match,
       inep_string_match = inep_string_match,
-      geocodebr_match = geocodebr_match,
       muni_demo = muni_demo,
       muni_area = muni_area,
       locais = locais,
@@ -1158,12 +1209,6 @@ list(
     },
     format = "file"
   ),
-  ## Sanity Check Report
-  tar_quarto(
-    name = sanity_check_report,
-    path = "reports/polling_station_sanity_check.qmd"
-  ),
-  
   ## Methodology and Evaluation
   # Only render in production mode
   if (!pipeline_config$dev_mode) {

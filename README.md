@@ -98,7 +98,7 @@ This project uses:
 - **`renv`** for reproducible package management
 - **`targets`** for pipeline orchestration
 - **`data.table`** for efficient data manipulation
-- **`future`** for parallel processing
+- **`crew`** for parallel processing with unified controller
 
 ### Project Structure
 
@@ -191,7 +191,7 @@ The project will use pre-commit hooks for:
 ### Best Practices
 
 1. **Memory Management**: Monitor memory usage with large datasets
-2. **Parallel Processing**: Use municipality-level parallelization
+2. **Parallel Processing**: Uses unified crew controller with 28 workers
 3. **Validation**: Add checks after major data transformations
 4. **Documentation**: Update function documentation when modifying code
 
@@ -255,7 +255,7 @@ Please report bugs or request features through [GitHub Issues](https://github.co
 
 ### Common Issues
 
-1. **Memory errors**: Reduce parallel workers in `_targets.R`
+1. **Memory errors**: Reduce workers in unified controller (currently 28) in `_targets.R`
 2. **Package conflicts**: Run `renv::status()` and `renv::restore()`
 3. **Missing data files**: Check [Data Sources](#data-sources) for download links
 4. **Pipeline failures**: Use `targets::tar_meta()` to inspect errors

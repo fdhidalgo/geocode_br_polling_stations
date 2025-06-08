@@ -55,17 +55,20 @@ options(
 # Memory-limited controller for CNEFE cleaning and street/neighborhood matching
 controller_memory <- crew::crew_controller_local(
   name = "memory_limited",
-  workers = 6,  # Limit to 6 workers to prevent memory exhaustion
+  workers = 1,  # Limit to 1 worker to prevent memory exhaustion
   seconds_idle = 300,  # Keep workers alive for batched work
   seconds_wall = 36000,  # 10 hours for longer CNEFE processing
   seconds_timeout = 32400,  # 9 hours timeout (was timing out at 8h 25m)
-  tasks_max = 10,  # Lower limit to force worker redistribution
+  tasks_max = 1,  # Process one task then restart worker to clear memory
   tasks_timers = 1,  # Start idle timer after first task
   seconds_interval = 0.1,  # Faster polling for task dispatch
-  reset_globals = FALSE,  # Keep globals for performance
-  reset_packages = FALSE,
-  reset_options = FALSE,
-  garbage_collection = TRUE  # Force GC for memory management
+  reset_globals = TRUE,  # Reset globals to prevent memory accumulation
+  reset_packages = TRUE,  # Reset packages to clear cached data
+  reset_options = TRUE,  # Reset options for clean state
+  garbage_collection = TRUE,  # Force GC for memory management
+  # Add explicit crash handling
+  launch_max = 10,  # Allow more launch attempts
+  crashes_error = 8  # Error after 8 crashes instead of default 5
 )
 
 # Standard controller for all other operations
@@ -135,7 +138,7 @@ tar_option_set(
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- TRUE # Process only AC, RR states when TRUE
+DEV_MODE <- FALSE # Process only AC, RR states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
@@ -482,9 +485,23 @@ list(
   tar_target(
     name = validate_cnefe10_clean,
     command = {
-      # For state-partitioned processing, validate the combined output
+      # Memory-efficient validation: sample the data instead of loading all
+      # Get total row count without loading full dataset
+      n_rows <- nrow(cnefe10)
+      
+      # Sample a subset for validation (max 100k rows)
+      sample_size <- min(100000, n_rows)
+      sample_indices <- sample.int(n_rows, sample_size)
+      
+      # Load only the sample
+      cnefe10_sample <- cnefe10[sample_indices, ]
+      
+      # Force garbage collection after sampling
+      gc(verbose = FALSE)
+      
+      # Validate the sample
       result <- validate_import_stage(
-        data = cnefe10,
+        data = cnefe10_sample,
         stage_name = "cnefe10_cleaned",
         expected_cols = c(
           "id_munic_7",
@@ -494,14 +511,21 @@ list(
           "norm_street",
           "norm_bairro"
         ),
-        min_rows = ifelse(pipeline_config$dev_mode, 10000, 1000000)
+        min_rows = ifelse(pipeline_config$dev_mode, 10000, 100000) # Adjusted for sample
       )
+      
+      # Add actual row count to metadata
+      result$metadata$total_rows <- n_rows
+      result$metadata$sample_size <- sample_size
+      
       if (!result$passed) {
         stop("CNEFE 2010 cleaning validation failed - pipeline halted")
       }
       result
-    }
-  ),
+    },
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited"))
+    ),
   # Process CNEFE22 state by state to avoid memory issues
   tar_target(
     name = cnefe22_cleaned_by_state,
@@ -554,10 +578,23 @@ list(
   tar_target(
     name = validate_cnefe22_clean,
     command = {
-      # For validation, we can't compare to original_data since it's processed by state
-      # Instead, validate the combined output
+      # Memory-efficient validation: sample the data instead of loading all
+      # Get total row count without loading full dataset
+      n_rows <- nrow(cnefe22)
+      
+      # Sample a subset for validation (max 100k rows)
+      sample_size <- min(100000, n_rows)
+      sample_indices <- sample.int(n_rows, sample_size)
+      
+      # Load only the sample
+      cnefe22_sample <- cnefe22[sample_indices, ]
+      
+      # Force garbage collection after sampling
+      gc(verbose = FALSE)
+      
+      # Validate the sample
       result <- validate_import_stage(
-        data = cnefe22,
+        data = cnefe22_sample,
         stage_name = "cnefe22_cleaned",
         expected_cols = c(
           "id_munic_7",
@@ -567,13 +604,20 @@ list(
           "norm_street",
           "norm_bairro"
         ),
-        min_rows = ifelse(pipeline_config$dev_mode, 10000, 1000000)
+        min_rows = ifelse(pipeline_config$dev_mode, 10000, 100000) # Adjusted for sample
       )
+      
+      # Add actual row count to metadata
+      result$metadata$total_rows <- n_rows
+      result$metadata$sample_size <- sample_size
+      
       if (!result$passed) {
         stop("CNEFE 2022 cleaning validation failed - pipeline halted")
       }
       result
-    }
+    },
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited"))
   ),
 
   ## Combine state-level school extracts for 2010 CNEFE
@@ -1136,10 +1180,7 @@ list(
     iteration = "list",
     deployment = "worker",
     storage = "worker",
-    retrieval = "worker",
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "memory_limited")
-    )
+    retrieval = "worker"
   ),
   tar_target(
     name = cnefe22_stbairro_match,

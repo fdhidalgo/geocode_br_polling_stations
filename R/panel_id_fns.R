@@ -263,3 +263,54 @@ export_panel_ids <- function(panel_ids) {
   "./output/panel_ids.csv.gz"
 }
 
+# Wrapper function for single-state panel ID processing (for targets dynamic branching)
+process_panel_ids_single_state <- function(locais_full, state_code, years, blocking_column, scoring_columns) {
+  # Filter data for the specific state
+  state_data <- locais_full[sg_uf == state_code]
+  
+  # Check if there's data for this state
+  if (nrow(state_data) == 0) {
+    cat("No data found for state:", state_code, "\n")
+    return(data.table())
+  }
+  
+  # Process panel IDs for this state
+  result <- make_panel_1block(
+    block = state_data,
+    years = years,
+    blocking_column = blocking_column,
+    scoring_columns = scoring_columns
+  )
+  
+  # Add state identifier to the result for tracking
+  if (!is.null(result) && nrow(result) > 0) {
+    result[, sg_uf := state_code]
+  }
+  
+  return(result)
+}
+
+# Function to combine panel IDs from multiple states
+combine_state_panel_ids <- function(panel_ids_list) {
+  # Remove NULL or empty results
+  valid_results <- panel_ids_list[!sapply(panel_ids_list, function(x) is.null(x) || nrow(x) == 0)]
+  
+  if (length(valid_results) == 0) {
+    cat("No valid panel ID results to combine\n")
+    return(data.table())
+  }
+  
+  # Combine all state results
+  combined <- rbindlist(valid_results, fill = TRUE)
+  
+  # Remove state identifier if present (was only for tracking)
+  if ("sg_uf" %in% names(combined)) {
+    combined[, sg_uf := NULL]
+  }
+  
+  cat("Combined panel IDs from", length(valid_results), "states\n")
+  cat("Total panel IDs:", nrow(combined), "\n")
+  
+  return(combined)
+}
+

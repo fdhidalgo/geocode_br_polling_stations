@@ -67,7 +67,6 @@ controller_memory <- crew::crew_controller_local(
   reset_options = TRUE,  # Reset options for clean state
   garbage_collection = TRUE,  # Force GC for memory management
   # Add explicit crash handling
-  launch_max = 10,  # Allow more launch attempts
   crashes_error = 8  # Error after 8 crashes instead of default 5
 )
 
@@ -138,7 +137,7 @@ tar_option_set(
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- FALSE # Process only AC, RR states when TRUE
+DEV_MODE <- TRUE # Process only AC, RR states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
@@ -880,80 +879,75 @@ list(
     )
   ),
   ## Create panel ids to track polling stations across time
-  ## Create panel ids for Brasília
+  ## Define all states for panel ID processing
   tar_target(
-    name = panel_ids_df,
+    panel_states_all,
     command = {
-      # Only process DF if it exists in the data (production mode)
-      df_data <- locais[sg_uf == "DF"]
-      if (nrow(df_data) > 0) {
-        make_panel_1block(
-          df_data,
+      if (pipeline_config$dev_mode) {
+        # In dev mode, only process dev states
+        pipeline_config$dev_states
+      } else {
+        # In production, process all states
+        c(
+          "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO",
+          "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR",
+          "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"
+        )
+      }
+    }
+  ),
+  
+  ## Process panel IDs by state using dynamic branching
+  tar_target(
+    name = panel_ids_by_state,
+    command = {
+      # Handle DF differently due to different years
+      if (panel_states_all == "DF") {
+        process_panel_ids_single_state(
+          locais_full = locais,
+          state_code = panel_states_all,
           years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022),
           blocking_column = "cod_localidade_ibge",
           scoring_columns = c("normalized_name", "normalized_addr")
         )
       } else {
-        # Return empty data.table with expected structure
-        data.table()
+        process_panel_ids_single_state(
+          locais_full = locais,
+          state_code = panel_states_all,
+          years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022),
+          blocking_column = "cod_localidade_ibge",
+          scoring_columns = c("normalized_name", "normalized_addr")
+        )
       }
     },
-    format = "qs",
+    pattern = map(panel_states_all),
+    iteration = "list",
+    deployment = "worker",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "standard")
+    )
+  ),
+  
+  ## Combine panel IDs from all states
+  tar_target(
+    name = panel_ids_combined,
+    command = combine_state_panel_ids(panel_ids_by_state),
+    deployment = "main",
     storage = "worker",
     retrieval = "worker"
   ),
-  tar_target(
-    panel_state,
-    command = {
-      if (pipeline_config$dev_mode) {
-        # In dev mode, only process dev states (excluding DF which is handled separately)
-        setdiff(pipeline_config$dev_states, "DF")
-      } else {
-        # In production, process all states except DF
-        c(
-          "AC",
-          "AL",
-          "AM",
-          "AP",
-          "BA",
-          "CE",
-          "ES",
-          "GO",
-          "MA",
-          "MG",
-          "MS",
-          "MT",
-          "PA",
-          "PB",
-          "PE",
-          "PI",
-          "PR",
-          "RJ",
-          "RN",
-          "RO",
-          "RR",
-          "RS",
-          "SC",
-          "SE",
-          "SP",
-          "TO"
-        )
-      }
-    }
-  ),
-  ## Iterate over states (except Brasília) to create panel ids
-  tar_target(
-    name = panel_ids_states,
-    command = make_panel_1block(
-      block = locais[sg_uf %in% panel_state],
-      years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022),
-      blocking_column = "cod_localidade_ibge",
-      scoring_columns = c("normalized_name", "normalized_addr")
-    ),
-  ),
+  
+  ## Final panel IDs with coordinates
   tar_target(
     name = panel_ids,
-    command = make_panel_ids(panel_ids_df, panel_ids_states, tsegeocoded_locais)
+    command = {
+      # The combined panel IDs are already properly formatted
+      # Just need to add coordinates using the existing function
+      # Pass empty data.table for df_panels since all states are now combined
+      make_panel_ids(data.table(), panel_ids_combined, tsegeocoded_locais)
+    }
   ),
 
   # String Matching

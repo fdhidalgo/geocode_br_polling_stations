@@ -1436,6 +1436,11 @@ list(
     },
     format = "file"
   ),
+  ## Sanity Check Report
+  tar_quarto(
+    name = sanity_check_report,
+    path = "reports/polling_station_sanity_check.qmd"
+  ),
   ## Methodology and Evaluation
   # Only render in production mode
   if (!pipeline_config$dev_mode) {

@@ -121,7 +121,8 @@ tar_option_set(
     # "future.apply", # No longer needed with dynamic branching
     "validate",
     "geosphere",
-    "sf"
+    "sf",
+    "geocodebr"
   ),
   format = "qs", # default storage format - better compression
   memory = "transient", # Free memory after each target
@@ -141,6 +142,8 @@ DEV_MODE <- TRUE # Process only AC, RR states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
+# Load geocodebr matching functions
+source("./R/geocodebr_matching.R")
 # Load parallel processing functions
 # source("./R/parallel_processing_fns.R") # No longer needed with unified controller
 source("./R/parallel_integration_fns.R")
@@ -1221,6 +1224,72 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
+  # geocodebr matching with dynamic branching by batch
+  tar_target(
+    name = geocodebr_match_batch,
+    command = {
+      # Get municipalities for this batch
+      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
+      
+      # Process all municipalities in this batch
+      batch_results <- lapply(batch_munis, function(muni_code) {
+        match_geocodebr_muni(
+          locais_muni = locais[cod_localidade_ibge == muni_code],
+          muni_ids = muni_ids[id_munic_7 == muni_code]
+        )
+      })
+      
+      # Remove NULL results and combine
+      batch_results <- batch_results[!sapply(batch_results, is.null)]
+      if (length(batch_results) > 0) {
+        rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+      } else {
+        data.table()
+      }
+    },
+    pattern = map(batch_ids),
+    iteration = "list",
+    deployment = "worker",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "standard")
+    )
+  ),
+  tar_target(
+    name = geocodebr_match,
+    command = rbindlist(geocodebr_match_batch, fill = TRUE, use.names = TRUE),
+    storage = "worker",
+    retrieval = "worker"
+  ),
+  tar_target(
+    name = validate_geocodebr_match,
+    command = {
+      result <- validate_string_match_stage(
+        match_data = geocodebr_match,
+        stage_name = "geocodebr_match",
+        id_col = "local_id",
+        score_col = "mindist_geocodebr"
+      )
+      
+      # Report precision breakdown
+      if (nrow(geocodebr_match) > 0) {
+        precision_summary <- geocodebr_match[, .N, by = precisao_geocodebr]
+        message("geocodebr precision breakdown:")
+        print(precision_summary)
+        
+        # Calculate street-level precision percentage
+        total_matches <- nrow(geocodebr_match)
+        street_level <- precision_summary[precisao_geocodebr == "logradouro", N]
+        if (length(street_level) > 0) {
+          pct_street <- 100 * street_level / total_matches
+          message(sprintf("Street-level precision: %.1f%%", pct_street))
+        }
+      }
+      
+      result
+    }
+  ),
   ## Combine string matching data for modeling
   tar_target(
     name = model_data,
@@ -1231,6 +1300,7 @@ list(
       schools_cnefe22_match = schools_cnefe22_match,
       agrocnefe_stbairro_match = agrocnefe_stbairro_match,
       inep_string_match = inep_string_match,
+      geocodebr_match = geocodebr_match,
       muni_demo = muni_demo,
       muni_area = muni_area,
       locais = locais,

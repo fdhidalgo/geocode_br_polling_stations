@@ -1351,13 +1351,19 @@ list(
       )
 
       # Store original data references for failed record export
+      # ONLY for smaller datasets to avoid memory exhaustion
       for (name in names(validation_results)) {
+        # Skip CNEFE datasets which are too large to load into memory
+        if (name %in% c("cnefe10_cleaned", "cnefe22_cleaned")) {
+          validation_results[[name]]$metadata$data <- NULL
+          validation_results[[name]]$metadata$skip_export <- TRUE
+          next
+        }
+        
         validation_results[[name]]$metadata$data <- switch(
           name,
           muni_ids = muni_ids,
           inep_codes = inep_codes,
-          cnefe10_cleaned = cnefe10,
-          cnefe22_cleaned = cnefe22,
           inep_cleaned = inep_data,
           locais = locais,
           inep_string_match = inep_string_match,

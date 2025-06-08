@@ -41,6 +41,13 @@ generate_text_validation_report <- function(validation_results,
     # Export each stage's failures
     for (stage_name in names(validation_results)) {
       result <- validation_results[[stage_name]]
+      
+      # Skip export if marked or if data is not available
+      if (!is.null(result$metadata$skip_export) && result$metadata$skip_export) {
+        message(sprintf("Skipping failed record export for %s (dataset too large)", stage_name))
+        next
+      }
+      
       if (!result$passed && !is.null(result$metadata$data)) {
         # Extract and export failed records
         failed <- extract_failed_records(result, result$metadata$data)
@@ -65,13 +72,21 @@ generate_text_validation_report <- function(validation_results,
     result <- validation_results[[stage_name]]
     
     # Add stage header
-    report_lines <- c(report_lines,
+    stage_info <- c(
       paste("Stage:", stage_name),
       paste("  Type:", result$metadata$type),
       paste("  Passed:", result$passed),
-      paste("  Rows:", result$metadata$n_rows),
-      ""
+      paste("  Rows:", result$metadata$n_rows)
     )
+    
+    # Add note if export was skipped
+    if (!is.null(result$metadata$skip_export) && result$metadata$skip_export) {
+      stage_info <- c(stage_info, 
+        paste("  Note: Failed record export skipped (dataset too large)")
+      )
+    }
+    
+    report_lines <- c(report_lines, stage_info, "")
   }
   
   # Write report

@@ -366,7 +366,9 @@ assess_data_quality <- function(results, config) {
   
   # Check historical trends for extreme changes
   if (!is.null(results$historical_comparison) && 
-      results$historical_comparison$status != "insufficient_data") {
+      is.list(results$historical_comparison) &&
+      (is.null(results$historical_comparison$status) || 
+       results$historical_comparison$status != "insufficient_data")) {
     
     extreme_periods <- 0
     for (period in names(results$historical_comparison)) {
@@ -451,7 +453,9 @@ generate_quality_alerts <- function(results, config) {
   
   # Historical trend alerts
   if (!is.null(results$historical_comparison) && 
-      results$historical_comparison$status != "insufficient_data") {
+      is.list(results$historical_comparison) &&
+      (is.null(results$historical_comparison$status) || 
+       results$historical_comparison$status != "insufficient_data")) {
     
     for (period in names(results$historical_comparison)) {
       if (period != "summary" && is.list(results$historical_comparison[[period]])) {

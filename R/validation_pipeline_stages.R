@@ -791,10 +791,19 @@ validate_rbindlist_stage <- function(list_of_results = NULL,
     fill_used = fill
   )
   
-  if (!is.null(list_of_results)) {
-    metadata$min_chunk_rows <- min(rows_per_chunk)
-    metadata$max_chunk_rows <- max(rows_per_chunk)
-    metadata$mean_chunk_rows <- mean(rows_per_chunk)
+  if (!is.null(list_of_results) && length(rows_per_chunk) > 0) {
+    # Handle empty results gracefully
+    non_na_rows <- rows_per_chunk[!is.na(rows_per_chunk)]
+    if (length(non_na_rows) > 0) {
+      metadata$min_chunk_rows <- min(non_na_rows)
+      metadata$max_chunk_rows <- max(non_na_rows)
+      metadata$mean_chunk_rows <- mean(non_na_rows)
+    } else {
+      # All chunks were empty or NA
+      metadata$min_chunk_rows <- 0
+      metadata$max_chunk_rows <- 0
+      metadata$mean_chunk_rows <- 0
+    }
   }
   
   # Additional checks

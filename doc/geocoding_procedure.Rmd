@@ -101,14 +101,30 @@ For each polling station, we choose the candidate coordinate with the smallest p
 ### Example of String Matching
 
 ```{r load_data, message=FALSE, warning=FALSE}
-tar_load(
-  c(
-    inep_string_match, cnefe10_stbairro_match, cnefe22_stbairro_match,
-    schools_cnefe10_match, schools_cnefe22_match,
-    agrocnefe_stbairro_match, locais, model_predictions,
-    tsegeocoded_locais, panel_ids
+# When run via tar_render(), targets should be available without store argument
+# When run manually, we need to specify the store location
+tryCatch({
+  tar_load(
+    c(
+      inep_string_match, cnefe10_stbairro_match, cnefe22_stbairro_match,
+      schools_cnefe10_match, schools_cnefe22_match,
+      agrocnefe_stbairro_match, locais, model_predictions,
+      tsegeocoded_locais, panel_ids
+    )
   )
-)
+}, error = function(e) {
+  # Fallback for manual execution
+  project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
+  tar_load(
+    c(
+      inep_string_match, cnefe10_stbairro_match, cnefe22_stbairro_match,
+      schools_cnefe10_match, schools_cnefe22_match,
+      agrocnefe_stbairro_match, locais, model_predictions,
+      tsegeocoded_locais, panel_ids
+    ),
+    store = file.path(project_root, "_targets")
+  )
+})
 
 best_prediction <- model_predictions |>
   #  filter(!is.na(dist)) |>
@@ -149,13 +165,14 @@ The last column labeled "Error (km)" is the difference between the known geocode
 example_id <- 72922
 
 # Convert data.table objects to work with dplyr if needed
-example_polling_station <- as.data.frame(geocoded_locais[local_id == example_id])
-example_inep <- as.data.frame(inep_string_match[local_id == example_id])
-example_cnefe10_schools <- as.data.frame(schools_cnefe10_match[local_id == example_id])
-example_cnefe22_schools <- as.data.frame(schools_cnefe22_match[local_id == example_id])
-example_agrocnefe <- as.data.frame(agrocnefe_stbairro_match[local_id == example_id])
-example_cnefe10 <- as.data.frame(cnefe10_stbairro_match[local_id == example_id])
-example_cnefe22 <- as.data.frame(cnefe22_stbairro_match[local_id == example_id])
+# Filter data.tables and convert to data.frames
+example_polling_station <- as.data.frame(geocoded_locais[geocoded_locais$local_id == example_id, ])
+example_inep <- as.data.frame(inep_string_match[inep_string_match$local_id == example_id, ])
+example_cnefe10_schools <- as.data.frame(schools_cnefe10_match[schools_cnefe10_match$local_id == example_id, ])
+example_cnefe22_schools <- as.data.frame(schools_cnefe22_match[schools_cnefe22_match$local_id == example_id, ])
+example_agrocnefe <- as.data.frame(agrocnefe_stbairro_match[agrocnefe_stbairro_match$local_id == example_id, ])
+example_cnefe10 <- as.data.frame(cnefe10_stbairro_match[cnefe10_stbairro_match$local_id == example_id, ])
+example_cnefe22 <- as.data.frame(cnefe22_stbairro_match[cnefe22_stbairro_match$local_id == example_id, ])
 example_string_match <- tibble(match_type = c(
   "schools_inep_name", "schools_inep_addr",
   "schools_cnefe_name_2010", "schools_cnefe_addr_2010",
@@ -163,7 +180,7 @@ example_string_match <- tibble(match_type = c(
   "st_cnefe_2017", "st_cnefe_2010", "st_cnefe_2022", "bairro_cnefe_2017",
   "bairro_cnefe_2010", "bairro_cnefe_2022"
 )) |>
-  left_join(as.data.frame(model_predictions[local_id == example_id]))
+  left_join(as.data.frame(model_predictions[model_predictions$local_id == example_id, ]))
 
 
 table_data <- tibble(
@@ -189,61 +206,61 @@ table_data <- tibble(
     example_polling_station$normalized_bairro
   ),
   Match = c(
-    example_inep$match_inep_name,
-    example_inep$match_inep_addr,
-    example_cnefe10_schools$match_schools_cnefe_name,
-    example_cnefe10_schools$match_schools_cnefe_addr,
-    example_cnefe22_schools$match_schools_cnefe_name,
-    example_cnefe22_schools$match_schools_cnefe_addr,
-    example_agrocnefe$match_st_cnefe,
-    example_cnefe10$match_st_cnefe,
-    example_cnefe22$match_st_cnefe,
-    example_agrocnefe$match_bairro_cnefe,
-    example_cnefe10$match_bairro_cnefe,
-    example_cnefe22$match_bairro_cnefe
+    if(nrow(example_inep) > 0) example_inep$match_inep_name[1] else NA,
+    if(nrow(example_inep) > 0) example_inep$match_inep_addr[1] else NA,
+    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_schools_cnefe_name[1] else NA,
+    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_schools_cnefe_addr[1] else NA,
+    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_schools_cnefe_name[1] else NA,
+    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_schools_cnefe_addr[1] else NA,
+    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_st_cnefe[1] else NA,
+    if(nrow(example_cnefe10) > 0) example_cnefe10$match_st_cnefe[1] else NA,
+    if(nrow(example_cnefe22) > 0) example_cnefe22$match_st_cnefe[1] else NA,
+    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_bairro_cnefe[1] else NA,
+    if(nrow(example_cnefe10) > 0) example_cnefe10$match_bairro_cnefe[1] else NA,
+    if(nrow(example_cnefe22) > 0) example_cnefe22$match_bairro_cnefe[1] else NA
   ),
   `String Distance` = c(
-    example_inep$mindist_name_inep,
-    example_inep$mindist_addr_inep,
-    example_cnefe10_schools$mindist_name_schools_cnefe,
-    example_cnefe10_schools$mindist_addr_schools_cnefe,
-    example_cnefe22_schools$mindist_name_schools_cnefe,
-    example_cnefe22_schools$mindist_addr_schools_cnefe,
-    example_agrocnefe$mindist_st_cnefe,
-    example_cnefe10$mindist_st_cnefe,
-    example_cnefe22$mindist_st_cnefe,
-    example_agrocnefe$mindist_bairro_cnefe,
-    example_cnefe10$mindist_bairro_cnefe,
-    example_cnefe22$mindist_bairro_cnefe
+    if(nrow(example_inep) > 0) example_inep$mindist_name_inep[1] else NA,
+    if(nrow(example_inep) > 0) example_inep$mindist_addr_inep[1] else NA,
+    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$mindist_name_schools_cnefe[1] else NA,
+    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$mindist_addr_schools_cnefe[1] else NA,
+    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$mindist_name_schools_cnefe[1] else NA,
+    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$mindist_addr_schools_cnefe[1] else NA,
+    if(nrow(example_agrocnefe) > 0) example_agrocnefe$mindist_st_cnefe[1] else NA,
+    if(nrow(example_cnefe10) > 0) example_cnefe10$mindist_st_cnefe[1] else NA,
+    if(nrow(example_cnefe22) > 0) example_cnefe22$mindist_st_cnefe[1] else NA,
+    if(nrow(example_agrocnefe) > 0) example_agrocnefe$mindist_bairro_cnefe[1] else NA,
+    if(nrow(example_cnefe10) > 0) example_cnefe10$mindist_bairro_cnefe[1] else NA,
+    if(nrow(example_cnefe22) > 0) example_cnefe22$mindist_bairro_cnefe[1] else NA
   ),
   `Predicted Error (km)` = example_string_match$pred_dist,
   long = c(
-    example_inep$match_long_inep_name,
-    example_inep$match_long_inep_addr,
-    example_cnefe10_schools$match_long_schools_cnefe_name,
-    example_cnefe10_schools$match_long_schools_cnefe_addr,
-    example_cnefe22_schools$match_long_schools_cnefe_name,
-    example_cnefe22_schools$match_long_schools_cnefe_addr,
-    example_agrocnefe$match_long_st_cnefe,
-    example_cnefe10$match_long_st_cnefe,
-    example_cnefe22$match_long_st_cnefe,
-    example_agrocnefe$match_long_bairro_cnefe,
-    example_cnefe10$match_long_bairro_cnefe,
-    example_cnefe22$match_long_bairro_cnefe
+    if(nrow(example_inep) > 0) example_inep$match_long_inep_name[1] else NA,
+    if(nrow(example_inep) > 0) example_inep$match_long_inep_addr[1] else NA,
+    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_long_schools_cnefe_name[1] else NA,
+    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_long_schools_cnefe_addr[1] else NA,
+    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_long_schools_cnefe_name[1] else NA,
+    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_long_schools_cnefe_addr[1] else NA,
+    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_long_st_cnefe[1] else NA,
+    if(nrow(example_cnefe10) > 0) example_cnefe10$match_long_st_cnefe[1] else NA,
+    if(nrow(example_cnefe22) > 0) example_cnefe22$match_long_st_cnefe[1] else NA,
+    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_long_bairro_cnefe[1] else NA,
+    if(nrow(example_cnefe10) > 0) example_cnefe10$match_long_bairro_cnefe[1] else NA,
+    if(nrow(example_cnefe22) > 0) example_cnefe22$match_long_bairro_cnefe[1] else NA
   ),
   lat = c(
-    example_inep$match_lat_inep_name,
-    example_inep$match_lat_inep_addr,
-    example_cnefe10_schools$match_lat_schools_cnefe_name,
-    example_cnefe10_schools$match_lat_schools_cnefe_addr,
-    example_cnefe22_schools$match_lat_schools_cnefe_name,
-    example_cnefe22_schools$match_lat_schools_cnefe_addr,
-    example_agrocnefe$match_lat_st_cnefe,
-    example_cnefe10$match_lat_st_cnefe,
-    example_cnefe22$match_lat_st_cnefe,
-    example_agrocnefe$match_lat_bairro_cnefe,
-    example_cnefe10$match_lat_bairro_cnefe,
-    example_cnefe22$match_lat_bairro_cnefe
+    if(nrow(example_inep) > 0) example_inep$match_lat_inep_name[1] else NA,
+    if(nrow(example_inep) > 0) example_inep$match_lat_inep_addr[1] else NA,
+    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_lat_schools_cnefe_name[1] else NA,
+    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_lat_schools_cnefe_addr[1] else NA,
+    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_lat_schools_cnefe_name[1] else NA,
+    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_lat_schools_cnefe_addr[1] else NA,
+    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_lat_st_cnefe[1] else NA,
+    if(nrow(example_cnefe10) > 0) example_cnefe10$match_lat_st_cnefe[1] else NA,
+    if(nrow(example_cnefe22) > 0) example_cnefe22$match_lat_st_cnefe[1] else NA,
+    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_lat_bairro_cnefe[1] else NA,
+    if(nrow(example_cnefe10) > 0) example_cnefe10$match_lat_bairro_cnefe[1] else NA,
+    if(nrow(example_cnefe22) > 0) example_cnefe22$match_lat_bairro_cnefe[1] else NA
   )
 ) |>
   mutate(rank = rank(`Predicted Error (km)`, ties.method = "first")) |>
@@ -258,7 +275,7 @@ table_data <- tibble(
       r = 6378.137
     )
   ) |>
-  select(!long & !lat)
+  select(-long, -lat)
 
 
 table_data |>
@@ -284,13 +301,28 @@ table_data |>
 ## Estimating Geocoding Error
 
 ```{r gen_error_rate_data, warning=FALSE, message=FALSE}
-tar_load(c(geocoded_locais, tract_shp))
-google_geocoded_df <- readr::read_csv("./data/google_geocoded.csv") |>
-  select(cod_localidade_ibge, nr_zona, nr_locvot, google_long, google_lat) |>
-  left_join(filter(geocoded_locais, ano == 2018)) |>
-  filter(!is.na(tse_lat))
+# Load targets data with proper store handling
+tryCatch({
+  tar_load(c(geocoded_locais, tract_shp))
+}, error = function(e) {
+  # Fallback for manual execution
+  project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
+  tar_load(c(geocoded_locais, tract_shp), store = file.path(project_root, "_targets"))
+})
 
-rural_urban <- st_as_sf(filter(google_geocoded_df, !is.na(long)),
+# Check if Google geocoded data exists
+google_geocoded_file <- "./data/google_geocoded.csv"
+if (!file.exists(google_geocoded_file)) {
+  google_geocoded_file <- "../data/google_geocoded.csv"
+}
+
+if (file.exists(google_geocoded_file)) {
+  google_geocoded_df <- readr::read_csv(google_geocoded_file) |>
+    select(cod_localidade_ibge, nr_zona, nr_locvot, google_long, google_lat) |>
+    left_join(filter(geocoded_locais, ano == 2018)) |>
+    filter(!is.na(tse_lat))
+  
+  rural_urban <- st_as_sf(filter(google_geocoded_df, !is.na(tse_long)),
   coords = c("tse_long", "tse_lat"), crs = 4674
 ) |>
   st_join(tract_shp, left = TRUE, largest = TRUE) |>
@@ -298,16 +330,41 @@ rural_urban <- st_as_sf(filter(google_geocoded_df, !is.na(long)),
   as_tibble() |>
   select(local_id, zone)
 
-google_geocoded_df <- left_join(google_geocoded_df, unique(rural_urban))
+  google_geocoded_df <- left_join(google_geocoded_df, unique(rural_urban))
+} else {
+  # Create empty dataframe if Google geocoded file doesn't exist
+  google_geocoded_df <- data.frame()
+  message("Note: Google geocoded comparison data not found. Skipping error comparison section.")
+}
 ```
 
-To estimate the accuracy of our procedure, we use a subset of `r format(nrow(google_geocoded_df), nsmall=1, big.mark=",")` polling stations with coordinates to check the error of the coordinates generated by our procedure.  These "ground truth" coordinates were provided by the TSE, which for 2018 has coordinates for `r format(sum(geocoded_locais$ano == 2018 & !is.na(geocoded_locais$tse_long)), nsmall=1, big.mark = ",")`. We used the Google Maps API (as of October 2020) to geocode a large subset of these polling stations to compare our error rate to theirs.  We report the error rate at 3 quantiles: 25th, 50th (the median), and the 75th percentile.
+```{r error_intro, echo=FALSE, results='asis'}
+if (nrow(google_geocoded_df) > 0) {
+  cat(paste0(
+    "To estimate the accuracy of our procedure, we use a subset of ",
+    format(nrow(google_geocoded_df), nsmall=1, big.mark=","),
+    " polling stations with coordinates to check the error of the coordinates generated by our procedure. ",
+    "These \"ground truth\" coordinates were provided by the TSE, which for 2018 has coordinates for ",
+    format(sum(geocoded_locais$ano == 2018 & !is.na(geocoded_locais$tse_long)), nsmall=1, big.mark = ","),
+    ". We used the Google Maps API (as of October 2020) to geocode a large subset of these polling stations to compare our error rate to theirs. ",
+    "We report the error rate at 3 quantiles: 25th, 50th (the median), and the 75th percentile."
+  ))
+} else {
+  cat(paste0(
+    "To estimate the accuracy of our procedure, we would typically use a subset of polling stations with known coordinates. ",
+    "The TSE provided coordinates for ",
+    format(sum(geocoded_locais$ano == 2018 & !is.na(geocoded_locais$tse_long)), nsmall=1, big.mark = ","),
+    " polling stations in 2018. However, the Google Maps comparison data is not currently available."
+  ))
+}
+```
 
 In addition to reporting the error rate for the full sample, we also split the sample into polling stations located in rural census tracts versus urban census tracts.
 Finally, we compare our error rate to coordinates generated using the Google Maps [API](https://developers.google.com/maps/documentation/geocoding/overview).
 
 ```{r error_table, message=FALSE, warning=FALSE}
-error <- google_geocoded_df |>
+if (nrow(google_geocoded_df) > 0) {
+  error <- google_geocoded_df |>
   rowwise() |>
   mutate(
     dist = geosphere::distHaversine(
@@ -319,7 +376,8 @@ error <- google_geocoded_df |>
       p2 = c(google_long, google_lat)
     ) / 1000
   )
-tibble(
+  
+  tibble(
   Quantile = c("25th", "Median", "75th"),
   `Full Sample` = quantile(error$dist, probs = c(.25, .5, .75), na.rm = TRUE),
   `Urban` = quantile(error$dist[error$zone == "URBANO"], probs = c(.25, .5, .75), na.rm = TRUE),
@@ -347,10 +405,27 @@ tibble(
   ) |>
   tab_header(title = "Geocoding Error") |>
   tab_source_note("Error in kilometers.")
+} else {
+  # Display message when Google data is not available
+  cat("Google geocoded comparison data not available. Error comparison cannot be performed.")
+}
 ```
 
-As can be seen in the above table, the median error for our method is about `r round(median(error$dist, na.rm = TRUE), 2)` km.
-This median error is *lower* than the median error of coordinates produced by the Google Maps Geocoding API, which is `r round(median(error$google_dist, na.rm = TRUE), 2)` km.
-
-When we separate the sample by rural or urban, we see that our method is more accurate for both types of polling station.
-The difference is particularly large for rural polling stations, where our median error rate is `r round(median(error$dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km and the Google median error rate is `r round(median(error$google_dist[error$zone == "RURAL"], na.rm = TRUE), 2)` km, more than a 30 fold difference.
+```{r error_summary, echo=FALSE, results='asis'}
+if (exists("error") && nrow(error) > 0) {
+  cat(paste0(
+    "As can be seen in the above table, the median error for our method is about ",
+    round(median(error$dist, na.rm = TRUE), 2), " km.\n",
+    "This median error is *lower* than the median error of coordinates produced by the Google Maps Geocoding API, which is ",
+    round(median(error$google_dist, na.rm = TRUE), 2), " km.\n\n",
+    "When we separate the sample by rural or urban, we see that our method is more accurate for both types of polling station.\n",
+    "The difference is particularly large for rural polling stations, where our median error rate is ",
+    round(median(error$dist[error$zone == "RURAL"], na.rm = TRUE), 2),
+    " km and the Google median error rate is ",
+    round(median(error$google_dist[error$zone == "RURAL"], na.rm = TRUE), 2),
+    " km, more than a 30 fold difference."
+  ))
+} else {
+  cat("Error comparison analysis is not available without Google geocoded comparison data.")
+}
+```

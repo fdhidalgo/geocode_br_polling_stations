@@ -329,6 +329,31 @@ import_locais <- function(locais_file, muni_ids) {
   # Filter and add local_id
   locais_data[, local_id := .I]
 
+  # Fix 2024 municipality codes (TSE to IBGE conversion)
+  # In 2024, TSE switched from IBGE codes to their internal codes
+  if ("ano" %in% names(locais_data) && 2024 %in% unique(locais_data$ano)) {
+    message("Detected 2024 data - applying TSE to IBGE code conversion...")
+    
+    # Source the fix function if not already loaded
+    if (!exists("fix_municipality_codes_2024")) {
+      project_root <- rprojroot::find_root(rprojroot::is_rstudio_project)
+      fix_file <- file.path(project_root, "R", "fix_municipality_codes_2024.R")
+      if (file.exists(fix_file)) {
+        source(fix_file)
+      } else {
+        warning("Could not find fix_municipality_codes_2024.R - 2024 codes may be incorrect")
+      }
+    }
+    
+    # Apply fix if function is available
+    if (exists("fix_municipality_codes_2024")) {
+      # Apply fix - the function now handles both data formats
+      locais_data <- fix_municipality_codes_2024(locais_data, verbose = TRUE)
+      
+      message("2024 municipality codes fixed")
+    }
+  }
+
   return(locais_data)
 }
 

@@ -1,9 +1,16 @@
 ## Panel ID functions
 
 library(data.table)
+library(reclin2)
 source("R/data_table_utils.R")
 
 process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
+  # Check if best_pairs is NULL or empty
+  if (is.null(best_pairs) || nrow(best_pairs) == 0) {
+    # If no pairs for this year combination, return panel unchanged
+    return(panel)
+  }
+  
   # Standardize column names in best_pairs
   standardize_column_names(best_pairs, inplace = TRUE)
   
@@ -84,6 +91,29 @@ create_panel_dataset <- function(final_pairs_list, years) {
   first_year <- years[1]
   second_year <- years[2]
   best_pairs_first <- final_pairs_list[[paste0(first_year, "_", second_year)]]
+  
+  # Check if first pair is NULL or empty
+  if (is.null(best_pairs_first) || nrow(best_pairs_first) == 0) {
+    # Try to find the first non-empty pair
+    found_start <- FALSE
+    for (i in seq_along(years)[-length(years)]) {
+      year_from <- years[i]
+      year_to <- years[i + 1]
+      test_pairs <- final_pairs_list[[paste0(year_from, "_", year_to)]]
+      if (!is.null(test_pairs) && nrow(test_pairs) > 0) {
+        best_pairs_first <- test_pairs
+        first_year <- year_from
+        second_year <- year_to
+        found_start <- TRUE
+        break
+      }
+    }
+    
+    if (!found_start) {
+      # No valid pairs found at all
+      return(data.table())
+    }
+  }
   
   # Standardize column names
   standardize_column_names(best_pairs_first, inplace = TRUE)
@@ -271,6 +301,20 @@ process_panel_ids_single_state <- function(locais_full, state_code, years, block
   # Check if there's data for this state
   if (nrow(state_data) == 0) {
     cat("No data found for state:", state_code, "\n")
+    return(data.table())
+  }
+  
+  # Filter out rows with NA values in the blocking column
+  blocking_col_vals <- state_data[[blocking_column]]
+  if (any(is.na(blocking_col_vals))) {
+    n_na <- sum(is.na(blocking_col_vals))
+    cat("Warning: Removing", n_na, "rows with NA values in blocking column", blocking_column, "for state", state_code, "\n")
+    state_data <- state_data[!is.na(get(blocking_column))]
+  }
+  
+  # Check if there's still data after filtering
+  if (nrow(state_data) == 0) {
+    cat("No valid data found for state:", state_code, "after filtering NA values\n")
     return(data.table())
   }
   

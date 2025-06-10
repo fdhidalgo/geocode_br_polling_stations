@@ -132,7 +132,7 @@ tar_option_set(
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- TRUE # Process only AC, RR states when TRUE
+DEV_MODE <- FALSE # Process only AC, RR states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)

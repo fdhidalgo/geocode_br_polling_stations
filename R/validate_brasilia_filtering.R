@@ -23,6 +23,22 @@ validate_brasilia_filtering <- function(dt, stop_on_failure = TRUE) {
     summary = list()
   )
   
+  # Check if DF is in the dataset at all
+  has_df_data <- any(dt[[uf_col]] == "DF")
+  
+  if (!has_df_data) {
+    # No DF data in dataset (e.g., dev mode with only AC/RR)
+    validation_results$checks$no_df_data <- list(
+      passed = TRUE,
+      message = "SKIP: No Brasília (DF) data in dataset - validation not applicable",
+      details = NULL
+    )
+    validation_results$summary$has_df_data <- FALSE
+    validation_results$summary$total_records <- nrow(dt)
+    validation_results$summary$states_present <- unique(dt[[uf_col]])
+    return(validation_results)
+  }
+  
   # Check 1: No DF records in municipal years
   df_municipal <- dt[get(uf_col) == "DF" & get(year_col) %in% municipal_years]
   check1_passed <- nrow(df_municipal) == 0

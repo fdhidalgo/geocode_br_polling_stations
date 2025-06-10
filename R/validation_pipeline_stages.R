@@ -293,9 +293,12 @@ validate_merge_stage <- function(merged_data, left_data, right_data,
     # For one-to-many joins (e.g., fuzzy matching), expect at least n_left rows
     expected_range <- c(n_left, Inf)
   } else if (join_type == "inner") {
-    expected_range <- c(0, min(n_left, n_right))
+    expected_range <- c(0, if (!is.na(n_right)) min(n_left, n_right) else n_left)
   } else if (join_type == "full") {
-    expected_range <- c(max(n_left, n_right), n_left + n_right)
+    expected_range <- c(
+      if (!is.na(n_right)) max(n_left, n_right) else n_left,
+      if (!is.na(n_right)) n_left + n_right else n_left
+    )
   } else {
     expected_range <- c(NA, NA)
   }

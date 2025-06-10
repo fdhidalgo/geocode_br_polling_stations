@@ -132,7 +132,7 @@ tar_option_set(
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- FALSE # Process only AC, RR states when TRUE
+DEV_MODE <- TRUE # Process only AC, RR states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
@@ -212,7 +212,7 @@ list(
           "estado_abrev",
           "municipio"
         ),
-        min_rows = ifelse(pipeline_config$dev_mode, 100, 5000) # Brazil has ~5,570 municipalities
+        min_rows = ifelse(pipeline_config$dev_mode, 30, 5000) # AC+RR have ~37 municipalities, Brazil has ~5,570
       )
       if (!result$passed) {
         warning(
@@ -1598,10 +1598,12 @@ list(
     name = data_quality_monitoring,
     command = {
       # Load monitoring functions
-      source("R/data_quality_monitor.R")
+      source("R/data_quality_monitor_v2.R")
       
-      # Run comprehensive monitoring
-      results <- run_data_quality_monitoring(
+      # Run comprehensive monitoring with data passed as parameters
+      results <- run_data_quality_monitoring_v2(
+        geocoded_locais = geocoded_locais,
+        panel_ids = panel_ids,
         generate_alerts = TRUE,
         config_file = "config/data_quality_config.yaml"
       )

@@ -144,13 +144,36 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
 
 clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
   # Read the data from the 2018, 2020, 2022, and 2024 election files
-  loc18 <- fread(tse_files[1], encoding = "Latin-1")
-  loc20 <- fread(tse_files[2], encoding = "Latin-1")
-  loc22 <- fread(tse_files[3], encoding = "Latin-1")
+  # Wrap in tryCatch to handle encoding warnings better
+  loc18 <- tryCatch({
+    fread(tse_files[1], encoding = "Latin-1")
+  }, warning = function(w) {
+    message("Warning reading 2018 TSE file: ", conditionMessage(w))
+    suppressWarnings(fread(tse_files[1], encoding = "Latin-1"))
+  })
+  
+  loc20 <- tryCatch({
+    fread(tse_files[2], encoding = "Latin-1")
+  }, warning = function(w) {
+    message("Warning reading 2020 TSE file: ", conditionMessage(w))
+    suppressWarnings(fread(tse_files[2], encoding = "Latin-1"))
+  })
+  
+  loc22 <- tryCatch({
+    fread(tse_files[3], encoding = "Latin-1")
+  }, warning = function(w) {
+    message("Warning reading 2022 TSE file: ", conditionMessage(w))
+    suppressWarnings(fread(tse_files[3], encoding = "Latin-1"))
+  })
   
   # Check if 2024 file exists (for backward compatibility)
   if (length(tse_files) >= 4 && file.exists(tse_files[4])) {
-    loc24 <- fread(tse_files[4], encoding = "Latin-1")
+    loc24 <- tryCatch({
+      fread(tse_files[4], encoding = "Latin-1")
+    }, warning = function(w) {
+      message("Warning reading 2024 TSE file: ", conditionMessage(w))
+      suppressWarnings(fread(tse_files[4], encoding = "Latin-1"))
+    })
     # Combine the data from all four years into a single data frame
     locs <- rbindlist(list(loc18, loc20, loc22, loc24), fill = TRUE)
   } else {

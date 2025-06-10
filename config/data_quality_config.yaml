@@ -1,0 +1,27 @@
+# Data Quality Monitoring Configuration
+# Used by data_quality_monitor.R to control thresholds and alerts
+
+# Expected values based on Brazilian administrative data
+expected_municipality_count: 5570
+muni_count_tolerance: 50  # Allow ±50 municipalities for administrative changes
+
+# Thresholds for extreme changes
+extreme_change_threshold: 30  # percentage change to flag as extreme
+
+# Duplicate detection thresholds
+duplicate_thresholds:
+  coordinates: 10        # max acceptable coordinate duplicate groups
+  near_coordinates: 50   # max acceptable near-duplicate pairs
+  distance_meters: 100   # distance threshold for near-duplicates
+
+# Alert generation thresholds
+alert_thresholds:
+  municipality_discrepancy: 100   # difference from expected count
+  extreme_changes: 50            # number of municipalities with extreme changes
+  panel_coverage: 90            # minimum acceptable panel coverage percentage
+  geocoding_coverage: 95        # minimum acceptable geocoding coverage percentage
+
+# Historical comparison settings
+historical_comparison:
+  min_years_required: 2         # minimum years needed for comparison
+  years_to_compare: all         # 'all' or specific years like [2018, 2020, 2022, 2024]

@@ -1593,6 +1593,28 @@ list(
     },
     format = "file"
   ),
+  ## Data Quality Monitoring
+  tar_target(
+    name = data_quality_monitoring,
+    command = {
+      # Load monitoring functions
+      source("R/data_quality_monitor.R")
+      
+      # Run comprehensive monitoring
+      results <- run_data_quality_monitoring(
+        generate_alerts = TRUE,
+        config_file = "config/data_quality_config.yaml"
+      )
+      
+      # Save latest results for tracking
+      saveRDS(results, "output/latest_quality_results.rds")
+      
+      # Return results for downstream use
+      results
+    },
+    # Always run monitoring to catch issues early
+    cue = tar_cue(mode = "always")
+  ),
   ## Sanity Check Report
   tar_quarto(
     name = sanity_check_report,

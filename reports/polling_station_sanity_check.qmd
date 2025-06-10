@@ -47,7 +47,15 @@ colors <- c(
 #| label: load-data
 
 # Load targets data
-tar_load(c(panel_ids, geocoded_locais))
+# When run via tar_quarto(), targets should be available without store argument
+# When run manually, we need to specify the store location
+tryCatch({
+  tar_load(c(panel_ids, geocoded_locais))
+}, error = function(e) {
+  # Fallback for manual execution
+  project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
+  tar_load(c(panel_ids, geocoded_locais), store = file.path(project_root, "_targets"))
+})
 
 # Basic statistics
 total_stations <- uniqueN(geocoded_locais$local_id)
@@ -313,8 +321,9 @@ The following table shows municipalities that experienced extreme changes (more 
 #| tbl-cap: "Municipalities with Extreme Changes (>30% increase or decrease) from 2022 to 2024"
 
 if (exists("extreme_changes") && nrow(extreme_changes) > 0) {
+  # Ensure UTF-8 encoding for municipality names
   extreme_display <- extreme_changes[1:min(20, .N), .(
-    Municipality = nm_localidade,
+    Municipality = iconv(nm_localidade, from = "UTF-8", to = "UTF-8", sub = ""),
     State = sg_uf,
     `2022 Stations` = n_2022,
     `2024 Stations` = n_2024,

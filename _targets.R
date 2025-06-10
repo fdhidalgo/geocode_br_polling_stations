@@ -32,20 +32,16 @@ data.table::setDTthreads(1)
 # Set memory limits to prevent allocation errors
 options(
   # Increase R memory limit (in MB)
-  memory.limit = 100000,  # 100GB limit
+  memory.limit = 100000, # 100GB limit
   # Garbage collection frequency
-  gcinfo = FALSE,
-  # data.table specific options for memory efficiency
-  datatable.alloccol = 100,  # Pre-allocate fewer columns
-  datatable.print.class = FALSE,
-  datatable.print.keys = FALSE
+  gcinfo = FALSE
 )
 
-# Load parallel processing functions
-# source("./R/parallel_processing_fns.R") # No longer needed with unified controller
 
 # Enable crew logging for debugging (optional)
-if (!dir.exists("crew_logs")) dir.create("crew_logs")
+if (!dir.exists("crew_logs")) {
+  dir.create("crew_logs")
+}
 options(
   crew.log_directory = "crew_logs",
   crew.log_rotate = TRUE
@@ -55,35 +51,33 @@ options(
 # Memory-limited controller for CNEFE cleaning and street/neighborhood matching
 controller_memory <- crew::crew_controller_local(
   name = "memory_limited",
-  workers = 1,  # Limit to 1 worker to prevent memory exhaustion
-  seconds_idle = 300,  # Keep workers alive for batched work
-  seconds_wall = 36000,  # 10 hours for longer CNEFE processing
-  seconds_timeout = 32400,  # 9 hours timeout (was timing out at 8h 25m)
-  tasks_max = 1,  # Process one task then restart worker to clear memory
-  tasks_timers = 1,  # Start idle timer after first task
-  seconds_interval = 0.1,  # Faster polling for task dispatch
-  reset_globals = TRUE,  # Reset globals to prevent memory accumulation
-  reset_packages = TRUE,  # Reset packages to clear cached data
-  reset_options = TRUE,  # Reset options for clean state
-  garbage_collection = TRUE,  # Force GC for memory management
-  # Add explicit crash handling
-  crashes_error = 8  # Error after 8 crashes instead of default 5
+  workers = 2, # Limit to 2 workers to prevent memory exhaustion
+  seconds_idle = 300, # Keep workers alive for batched work
+  seconds_wall = 36000, # 10 hours for longer CNEFE processing
+  seconds_timeout = 32400, # 9 hours timeout (was timing out at 8h 25m)
+  tasks_max = 1, # Process one task then restart worker to clear memory
+  tasks_timers = 1, # Start idle timer after first task
+  seconds_interval = 0.1, # Faster polling for task dispatch
+  reset_globals = TRUE, # Reset globals to prevent memory accumulation
+  reset_packages = TRUE, # Reset packages to clear cached data
+  reset_options = TRUE, # Reset options for clean state
+  garbage_collection = TRUE, # Force GC for memory management
 )
 
 # Standard controller for all other operations
 controller_standard <- crew::crew_controller_local(
   name = "standard",
-  workers = 28,  # Use most cores for parallel processing
-  seconds_idle = 60,  # Shorter idle for faster worker recycling
-  seconds_wall = 14400,  # 4 hours wall time (increased from 1 hour)
-  seconds_timeout = 3600,  # 1 hour timeout (increased from 5 minutes)
-  tasks_max = 50,  # Moderate limit to improve task distribution
-  tasks_timers = 1,  # Start idle timer after first task
-  seconds_interval = 0.05,  # Very fast polling for quick dispatch
-  reset_globals = FALSE,  # Keep globals for performance
+  workers = 28, # Use most cores for parallel processing
+  seconds_idle = 60, # Shorter idle for faster worker recycling
+  seconds_wall = 14400, # 4 hours wall time (increased from 1 hour)
+  seconds_timeout = 3600, # 1 hour timeout (increased from 5 minutes)
+  tasks_max = 50, # Moderate limit to improve task distribution
+  tasks_timers = 1, # Start idle timer after first task
+  seconds_interval = 0.05, # Very fast polling for quick dispatch
+  reset_globals = FALSE, # Keep globals for performance
   reset_packages = FALSE,
   reset_options = FALSE,
-  garbage_collection = FALSE  # Skip GC for speed
+  garbage_collection = FALSE # Skip GC for speed
 )
 
 # Create controller group
@@ -96,7 +90,7 @@ controller_group <- crew::crew_controller_group(
 # This prevents orphaned workers when sourcing _targets.R interactively
 if (targets::tar_active()) {
   controller_group$start()
-  
+
   # Register cleanup on exit
   on.exit(
     {
@@ -138,7 +132,7 @@ tar_option_set(
 library(progressr)
 
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- TRUE # Process only AC, RR states when TRUE
+DEV_MODE <- FALSE # Process only AC, RR states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
@@ -153,6 +147,11 @@ source("./R/memory_efficient_cnefe.R")
 source("./R/functions_validate.R")
 # Load comprehensive validation framework
 source("./R/validation_pipeline_stages.R")
+# Load Brasília filtering functions
+source("./R/filter_brasilia_municipal.R")
+source("./R/validate_brasilia_filtering.R")
+source("./R/expected_municipality_counts.R")
+source("./R/update_validation_for_brasilia.R")
 source("./R/validation_reporting.R")
 source("./R/validation_report_renderer.R")
 # Load column mapping functions
@@ -358,25 +357,29 @@ list(
         "data/cnefe_2010",
         paste0("cnefe_2010_", cnefe10_states, ".csv.gz")
       )
-      
+
       # Read state data with appropriate separator
       state_data <- fread(
         state_file,
-        sep = ",",  # Partitioned files use comma
+        sep = ",", # Partitioned files use comma
         encoding = "UTF-8",
         verbose = FALSE,
         showProgress = FALSE
       )
-      
+
       # Get municipality IDs for this state
       state_muni_ids <- muni_ids[estado_abrev == cnefe10_states]
-      
+
       # Get tract centroids for this state
-      state_codes <- unique(substr(as.character(state_muni_ids$id_munic_7), 1, 2))
+      state_codes <- unique(substr(
+        as.character(state_muni_ids$id_munic_7),
+        1,
+        2
+      ))
       state_tract_centroids <- tract_centroids[
         substr(setor_code, 1, 2) %in% state_codes
       ]
-      
+
       # Clean the state data and extract schools
       result <- clean_cnefe10(
         cnefe_file = state_data,
@@ -384,10 +387,10 @@ list(
         tract_centroids = state_tract_centroids,
         extract_schools = TRUE
       )
-      
+
       # Force garbage collection after processing each state
       gc(verbose = FALSE)
-      
+
       # Return the cleaned data (schools are now in result$schools)
       result$data
     },
@@ -407,25 +410,29 @@ list(
         "data/cnefe_2010",
         paste0("cnefe_2010_", cnefe10_states, ".csv.gz")
       )
-      
+
       # Read state data with appropriate separator
       state_data <- fread(
         state_file,
-        sep = ",",  # Partitioned files use comma
+        sep = ",", # Partitioned files use comma
         encoding = "UTF-8",
         verbose = FALSE,
         showProgress = FALSE
       )
-      
+
       # Get municipality IDs for this state
       state_muni_ids <- muni_ids[estado_abrev == cnefe10_states]
-      
+
       # Get tract centroids for this state
-      state_codes <- unique(substr(as.character(state_muni_ids$id_munic_7), 1, 2))
+      state_codes <- unique(substr(
+        as.character(state_muni_ids$id_munic_7),
+        1,
+        2
+      ))
       state_tract_centroids <- tract_centroids[
         substr(setor_code, 1, 2) %in% state_codes
       ]
-      
+
       # Clean the state data and extract schools
       result <- clean_cnefe10(
         cnefe_file = state_data,
@@ -433,10 +440,10 @@ list(
         tract_centroids = state_tract_centroids,
         extract_schools = TRUE
       )
-      
+
       # Force garbage collection after processing each state
       gc(verbose = FALSE)
-      
+
       # Return only the schools
       result$schools
     },
@@ -457,10 +464,10 @@ list(
         use.names = TRUE,
         fill = TRUE
       )
-      
+
       # Force garbage collection
       gc(verbose = FALSE)
-      
+
       # Return combined dataset
       combined
     },
@@ -490,17 +497,17 @@ list(
       # Memory-efficient validation: sample the data instead of loading all
       # Get total row count without loading full dataset
       n_rows <- nrow(cnefe10)
-      
+
       # Sample a subset for validation (max 100k rows)
       sample_size <- min(100000, n_rows)
       sample_indices <- sample.int(n_rows, sample_size)
-      
+
       # Load only the sample
       cnefe10_sample <- cnefe10[sample_indices, ]
-      
+
       # Force garbage collection after sampling
       gc(verbose = FALSE)
-      
+
       # Validate the sample
       result <- validate_import_stage(
         data = cnefe10_sample,
@@ -515,19 +522,20 @@ list(
         ),
         min_rows = ifelse(pipeline_config$dev_mode, 10000, 100000) # Adjusted for sample
       )
-      
+
       # Add actual row count to metadata
       result$metadata$total_rows <- n_rows
       result$metadata$sample_size <- sample_size
-      
+
       if (!result$passed) {
         stop("CNEFE 2010 cleaning validation failed - pipeline halted")
       }
       result
     },
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "memory_limited"))
-    ),
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
+  ),
   # Process CNEFE22 state by state to avoid memory issues
   tar_target(
     name = cnefe22_cleaned_by_state,
@@ -546,10 +554,10 @@ list(
         cnefe22_file = state_file,
         muni_ids = state_muni_ids
       )
-      
+
       # Force garbage collection after processing each state
       gc(verbose = FALSE)
-      
+
       result
     },
     pattern = map(cnefe22_states),
@@ -583,17 +591,17 @@ list(
       # Memory-efficient validation: sample the data instead of loading all
       # Get total row count without loading full dataset
       n_rows <- nrow(cnefe22)
-      
+
       # Sample a subset for validation (max 100k rows)
       sample_size <- min(100000, n_rows)
       sample_indices <- sample.int(n_rows, sample_size)
-      
+
       # Load only the sample
       cnefe22_sample <- cnefe22[sample_indices, ]
-      
+
       # Force garbage collection after sampling
       gc(verbose = FALSE)
-      
+
       # Validate the sample
       result <- validate_import_stage(
         data = cnefe22_sample,
@@ -608,18 +616,19 @@ list(
         ),
         min_rows = ifelse(pipeline_config$dev_mode, 10000, 100000) # Adjusted for sample
       )
-      
+
       # Add actual row count to metadata
       result$metadata$total_rows <- n_rows
       result$metadata$sample_size <- sample_size
-      
+
       if (!result$passed) {
         stop("CNEFE 2022 cleaning validation failed - pipeline halted")
       }
       result
     },
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "memory_limited"))
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
   ),
 
   ## Combine state-level school extracts for 2010 CNEFE
@@ -632,10 +641,10 @@ list(
         use.names = TRUE,
         fill = TRUE
       )
-      
+
       # Force garbage collection
       gc(verbose = FALSE)
-      
+
       # Return combined schools dataset
       schools
     },
@@ -838,11 +847,35 @@ list(
       }
     }
   ),
+  # Filter Brasília from municipal election years
+  tar_target(
+    name = locais_filtered,
+    command = {
+      # Apply Brasília filtering
+      dt_filtered <- filter_brasilia_municipal_elections(locais)
+      
+      # Generate filtering report
+      report <- generate_brasilia_filtering_report(
+        dt_before = locais,
+        dt_after = dt_filtered,
+        output_file = "output/brasilia_filtering_report.rds"
+      )
+      
+      # Validate the filtering
+      validation <- validate_brasilia_filtering(dt_filtered, stop_on_failure = FALSE)
+      if (!validation$passed) {
+        warning("Brasília filtering validation failed - check the filtering logic")
+      }
+      
+      # Return filtered data
+      dt_filtered
+    }
+  ),
   tar_target(
     name = validate_locais,
     command = {
       result <- validate_import_stage(
-        data = locais,
+        data = locais_filtered,
         stage_name = "locais",
         expected_cols = c(
           "local_id",
@@ -878,7 +911,7 @@ list(
     command = clean_tsegeocoded_locais(
       tse_files = tse_files,
       muni_ids = muni_ids,
-      locais = locais
+      locais = locais_filtered
     )
   ),
   ## Create panel ids to track polling stations across time
@@ -892,14 +925,38 @@ list(
       } else {
         # In production, process all states
         c(
-          "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO",
-          "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR",
-          "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO"
+          "AC",
+          "AL",
+          "AM",
+          "AP",
+          "BA",
+          "CE",
+          "DF",
+          "ES",
+          "GO",
+          "MA",
+          "MG",
+          "MS",
+          "MT",
+          "PA",
+          "PB",
+          "PE",
+          "PI",
+          "PR",
+          "RJ",
+          "RN",
+          "RO",
+          "RR",
+          "RS",
+          "SC",
+          "SE",
+          "SP",
+          "TO"
         )
       }
     }
   ),
-  
+
   ## Process panel IDs by state using dynamic branching
   tar_target(
     name = panel_ids_by_state,
@@ -907,17 +964,17 @@ list(
       # Handle DF differently due to different years
       if (panel_states_all == "DF") {
         process_panel_ids_single_state(
-          locais_full = locais,
+          locais_full = locais_filtered,
           state_code = panel_states_all,
-          years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022),
+          years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022, 2024),
           blocking_column = "cod_localidade_ibge",
           scoring_columns = c("normalized_name", "normalized_addr")
         )
       } else {
         process_panel_ids_single_state(
-          locais_full = locais,
+          locais_full = locais_filtered,
           state_code = panel_states_all,
-          years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022),
+          years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
           blocking_column = "cod_localidade_ibge",
           scoring_columns = c("normalized_name", "normalized_addr")
         )
@@ -932,7 +989,7 @@ list(
       crew = tar_resources_crew(controller = "standard")
     )
   ),
-  
+
   ## Combine panel IDs from all states
   tar_target(
     name = panel_ids_combined,
@@ -941,7 +998,7 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  
+
   ## Final panel IDs with coordinates
   tar_target(
     name = panel_ids,
@@ -957,9 +1014,9 @@ list(
   # Create target for municipalities to iterate over
   tar_target(
     name = municipalities_for_matching,
-    command = unique(locais$cod_localidade_ibge)
+    command = unique(locais_filtered$cod_localidade_ibge)
   ),
-  
+
   # Create municipality batch assignments for flattened parallel processing
   tar_target(
     name = municipality_batch_assignments,
@@ -968,7 +1025,7 @@ list(
       batch_size = ifelse(pipeline_config$dev_mode, 10, 50)
     )
   ),
-  
+
   # Extract unique batch IDs for dynamic branching
   tar_target(
     name = batch_ids,
@@ -980,16 +1037,18 @@ list(
     name = inep_string_match_batch,
     command = {
       # Get municipalities for this batch
-      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
-      
+      batch_munis <- municipality_batch_assignments[
+        batch_id == batch_ids
+      ]$muni_code
+
       # Process all municipalities in this batch
       batch_results <- lapply(batch_munis, function(muni_code) {
         match_inep_muni(
-          locais_muni = locais[cod_localidade_ibge == muni_code],
+          locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
           inep_muni = inep_data[id_munic_7 == muni_code]
         )
       })
-      
+
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1040,16 +1099,18 @@ list(
     name = schools_cnefe10_match_batch,
     command = {
       # Get municipalities for this batch
-      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
-      
+      batch_munis <- municipality_batch_assignments[
+        batch_id == batch_ids
+      ]$muni_code
+
       # Process all municipalities in this batch
       batch_results <- lapply(batch_munis, function(muni_code) {
         match_schools_cnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == muni_code],
+          locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
           schools_cnefe_muni = schools_cnefe10[id_munic_7 == muni_code]
         )
       })
-      
+
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1078,16 +1139,18 @@ list(
     name = schools_cnefe22_match_batch,
     command = {
       # Get municipalities for this batch
-      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
-      
+      batch_munis <- municipality_batch_assignments[
+        batch_id == batch_ids
+      ]$muni_code
+
       # Process all municipalities in this batch
       batch_results <- lapply(batch_munis, function(muni_code) {
         match_schools_cnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == muni_code],
+          locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
           schools_cnefe_muni = schools_cnefe22[id_munic_7 == muni_code]
         )
       })
-      
+
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1107,7 +1170,11 @@ list(
   ),
   tar_target(
     name = schools_cnefe22_match,
-    command = rbindlist(schools_cnefe22_match_batch, use.names = TRUE, fill = TRUE),
+    command = rbindlist(
+      schools_cnefe22_match_batch,
+      use.names = TRUE,
+      fill = TRUE
+    ),
     deployment = "main"
   ),
   # CNEFE 2010 street/neighborhood matching with batched dynamic branching
@@ -1115,17 +1182,19 @@ list(
     name = cnefe10_stbairro_match_batch,
     command = {
       # Get municipalities for this batch
-      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
-      
+      batch_munis <- municipality_batch_assignments[
+        batch_id == batch_ids
+      ]$muni_code
+
       # Process all municipalities in this batch
       batch_results <- lapply(batch_munis, function(muni_code) {
         match_stbairro_cnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == muni_code],
+          locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
           cnefe_st_muni = cnefe10_st[id_munic_7 == muni_code],
           cnefe_bairro_muni = cnefe10_bairro[id_munic_7 == muni_code]
         )
       })
-      
+
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1154,17 +1223,19 @@ list(
     name = cnefe22_stbairro_match_batch,
     command = {
       # Get municipalities for this batch
-      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
-      
+      batch_munis <- municipality_batch_assignments[
+        batch_id == batch_ids
+      ]$muni_code
+
       # Process all municipalities in this batch
       batch_results <- lapply(batch_munis, function(muni_code) {
         match_stbairro_cnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == muni_code],
+          locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
           cnefe_st_muni = cnefe22_st[id_munic_7 == muni_code],
           cnefe_bairro_muni = cnefe22_bairro[id_munic_7 == muni_code]
         )
       })
-      
+
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1190,17 +1261,19 @@ list(
     name = agrocnefe_stbairro_match_batch,
     command = {
       # Get municipalities for this batch
-      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
-      
+      batch_munis <- municipality_batch_assignments[
+        batch_id == batch_ids
+      ]$muni_code
+
       # Process all municipalities in this batch
       batch_results <- lapply(batch_munis, function(muni_code) {
         match_stbairro_agrocnefe_muni(
-          locais_muni = locais[cod_localidade_ibge == muni_code],
+          locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
           agrocnefe_st_muni = agrocnefe_st[id_munic_7 == muni_code],
           agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == muni_code]
         )
       })
-      
+
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1229,16 +1302,18 @@ list(
     name = geocodebr_match_batch,
     command = {
       # Get municipalities for this batch
-      batch_munis <- municipality_batch_assignments[batch_id == batch_ids]$muni_code
-      
+      batch_munis <- municipality_batch_assignments[
+        batch_id == batch_ids
+      ]$muni_code
+
       # Process all municipalities in this batch
       batch_results <- lapply(batch_munis, function(muni_code) {
         match_geocodebr_muni(
-          locais_muni = locais[cod_localidade_ibge == muni_code],
+          locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
           muni_ids = muni_ids[id_munic_7 == muni_code]
         )
       })
-      
+
       # Remove NULL results and combine
       batch_results <- batch_results[!sapply(batch_results, is.null)]
       if (length(batch_results) > 0) {
@@ -1271,13 +1346,13 @@ list(
         id_col = "local_id",
         score_col = "mindist_geocodebr"
       )
-      
+
       # Report precision breakdown
       if (nrow(geocodebr_match) > 0) {
         precision_summary <- geocodebr_match[, .N, by = precisao_geocodebr]
         message("geocodebr precision breakdown:")
         print(precision_summary)
-        
+
         # Calculate street-level precision percentage
         total_matches <- nrow(geocodebr_match)
         street_level <- precision_summary[precisao_geocodebr == "logradouro", N]
@@ -1286,7 +1361,7 @@ list(
           message(sprintf("Street-level precision: %.1f%%", pct_street))
         }
       }
-      
+
       result
     }
   ),
@@ -1303,7 +1378,7 @@ list(
       geocodebr_match = geocodebr_match,
       muni_demo = muni_demo,
       muni_area = muni_area,
-      locais = locais,
+      locais = locais_filtered,
       tsegeocoded_locais = tsegeocoded_locais
     ),
     storage = "worker",
@@ -1314,7 +1389,7 @@ list(
     command = {
       result <- validate_merge_stage(
         merged_data = model_data,
-        left_data = locais,
+        left_data = locais_filtered,
         right_data = NULL, # Multiple sources merged
         stage_name = "model_data_merge",
         merge_keys = "local_id",
@@ -1423,13 +1498,13 @@ list(
           validation_results[[name]]$metadata$skip_export <- TRUE
           next
         }
-        
+
         validation_results[[name]]$metadata$data <- switch(
           name,
           muni_ids = muni_ids,
           inep_codes = inep_codes,
           inep_cleaned = inep_data,
-          locais = locais,
+          locais = locais_filtered,
           inep_string_match = inep_string_match,
           model_data_merge = model_data,
           model_predictions = model_predictions,
@@ -1437,6 +1512,18 @@ list(
         )
       }
 
+      # Add Brasília filtering report path
+      validation_results$brasilia_filtering <- list(
+        passed = TRUE,
+        metadata = list(
+          type = "preprocessing",
+          stage = "brasilia_filtering",
+          n_rows = nrow(locais_filtered),
+          report_path = "output/brasilia_filtering_report.rds",
+          note = "Brasília records filtered from municipal election years"
+        )
+      )
+      
       # Generate text validation report
       report_path <- generate_text_validation_report(
         validation_results = validation_results,

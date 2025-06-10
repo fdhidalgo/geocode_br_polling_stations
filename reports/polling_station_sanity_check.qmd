@@ -115,6 +115,51 @@ if (length(warnings) > 0) {
 }
 ```
 
+## Data Preprocessing Notes {.callout-info}
+
+### Brasília (DF) Filtering
+
+The Federal District (Brasília) has a special electoral status:
+- **No municipal elections**: As a Federal District, Brasília does not hold mayoral or city council elections
+- **Federal/State elections only**: Participates only in presidential, gubernatorial, senatorial, and legislative elections (every 4 years)
+
+**Filtering Applied**: 
+- Brasília polling stations have been removed from municipal election years (2008, 2012, 2016, 2020, 2024)
+- This filtering ensures accurate municipality counts and prevents false anomalies in year-over-year comparisons
+
+```{r}
+#| label: brasilia-filtering-summary
+
+# Check if Brasília appears in municipal years (should be 0 after filtering)
+municipal_years <- c(2008, 2012, 2016, 2020, 2024)
+federal_years <- c(2006, 2010, 2014, 2018, 2022)
+
+df_summary <- geocoded_locais[sg_uf == "DF", .(
+  n_stations = uniqueN(local_id),
+  n_records = .N
+), by = ano][order(ano)]
+
+if (nrow(df_summary) > 0) {
+  df_summary[, election_type := ifelse(ano %in% municipal_years, "Municipal", "Federal/State")]
+  
+  # Display summary
+  kable(df_summary, 
+        caption = "Brasília (DF) presence by election year",
+        col.names = c("Year", "Polling Stations", "Records", "Election Type"),
+        align = c("c", "r", "r", "c"))
+} else {
+  cat("No Brasília data found in the dataset.")
+}
+
+# Verify filtering worked
+df_in_municipal <- geocoded_locais[sg_uf == "DF" & ano %in% municipal_years, .N]
+if (df_in_municipal > 0) {
+  cat("\n⚠️ WARNING: Found", df_in_municipal, "Brasília records in municipal election years. Filtering may not have been applied correctly.\n")
+} else {
+  cat("\n✅ Brasília filtering verified: No records found in municipal election years.\n")
+}
+```
+
 ## 1. Year-over-Year Polling Station Changes
 
 ```{r}
@@ -244,40 +289,57 @@ if (nrow(state_changes_plot) > 0) {
 
 ## 2. Municipality-Level Analysis
 
+::: {.callout-note}
+**Note on Municipality Counts**: 
+- Brazil has approximately 5,570 municipalities
+- Brasília (DF) is counted as a municipality but only appears in federal/state election years
+- New municipalities may be created through administrative divisions (e.g., Mojuí dos Campos in 2010)
+- The total count may vary by year due to these administrative changes
+:::
+
 ```{r}
 #| label: municipality-analysis
 
-# Municipality-level summary
+# Municipality-level summary - FIXED to group by code only
 muni_summary <- geocoded_locais[, .(
   n_stations = uniqueN(local_id),
   n_years = uniqueN(ano),
   first_year = min(ano),
   last_year = max(ano),
-  avg_geocoding = mean(!is.na(final_lat) & !is.na(final_long)) * 100
-), by = .(cod_localidade_ibge, nm_localidade, sg_uf)]
+  avg_geocoding = mean(!is.na(final_lat) & !is.na(final_long)) * 100,
+  # Track name variations
+  n_names = uniqueN(nm_localidade),
+  primary_name = nm_localidade[which.max(.N)]  # Most common name
+), by = cod_localidade_ibge]
+
+# Add state info (most common state for each municipality)
+state_info <- geocoded_locais[, .N, by = .(cod_localidade_ibge, sg_uf)][
+  order(cod_localidade_ibge, -N)][
+  , .SD[1], by = cod_localidade_ibge][
+  , .(cod_localidade_ibge, sg_uf)]
+
+muni_summary <- merge(muni_summary, state_info, by = "cod_localidade_ibge")
 
 # Find municipalities with extreme changes
 if (2022 %in% years_covered & 2024 %in% years_covered) {
   muni_2022 <- geocoded_locais[ano == 2022, .(
     n_2022 = uniqueN(local_id)
-  ), by = .(cod_localidade_ibge, nm_localidade, sg_uf)]
+  ), by = cod_localidade_ibge]
   
   muni_2024 <- geocoded_locais[ano == 2024, .(
     n_2024 = uniqueN(local_id)
-  ), by = .(cod_localidade_ibge, nm_localidade, sg_uf)]
+  ), by = cod_localidade_ibge]
   
-  # Merge by municipality code only to avoid name encoding issues
-  muni_changes <- merge(muni_2022[, .(cod_localidade_ibge, n_2022)], 
-                        muni_2024[, .(cod_localidade_ibge, n_2024)], 
+  # Merge by municipality code only
+  muni_changes <- merge(muni_2022, muni_2024, 
                         by = "cod_localidade_ibge", 
                         all = TRUE)
   
-  # Add municipality info from either year
-  muni_info <- unique(rbind(
-    muni_2022[, .(cod_localidade_ibge, nm_localidade, sg_uf)],
-    muni_2024[, .(cod_localidade_ibge, nm_localidade, sg_uf)]
-  ))
-  muni_changes <- merge(muni_changes, muni_info, by = "cod_localidade_ibge", all.x = TRUE)
+  # Add municipality info from muni_summary
+  muni_changes <- merge(muni_changes, 
+                       muni_summary[, .(cod_localidade_ibge, nm_localidade = primary_name, sg_uf)], 
+                       by = "cod_localidade_ibge", 
+                       all.x = TRUE)
   muni_changes[is.na(n_2022), n_2022 := 0]
   muni_changes[is.na(n_2024), n_2024 := 0]
   muni_changes[, `:=`(

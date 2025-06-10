@@ -64,6 +64,13 @@ generate_text_validation_report <- function(validation_results,
     "========================",
     "",
     paste("Generated:", Sys.time()),
+    "",
+    "DATA PREPROCESSING NOTES",
+    "------------------------",
+    "Brasília (DF) Filtering Applied:",
+    "- Brasília polling stations removed from municipal election years (2008, 2012, 2016, 2020, 2024)",
+    "- This is correct behavior as the Federal District has no municipal elections",
+    "- Brasília records are preserved in federal/state election years",
     ""
   )
   
@@ -78,6 +85,20 @@ generate_text_validation_report <- function(validation_results,
       paste("  Passed:", result$passed),
       paste("  Rows:", result$metadata$n_rows)
     )
+    
+    # Add Brasília filtering note for locais stage
+    if (stage_name == "locais" && !is.null(result$metadata$data)) {
+      # Check if any year in the data is a municipal year
+      if ("ano" %in% names(result$metadata$data)) {
+        years <- unique(result$metadata$data$ano)
+        municipal_years <- intersect(years, c(2008, 2012, 2016, 2020, 2024))
+        if (length(municipal_years) > 0) {
+          stage_info <- c(stage_info,
+            paste("  Brasília Filter: Applied for years", paste(municipal_years, collapse = ", "))
+          )
+        }
+      }
+    }
     
     # Add note if export was skipped
     if (!is.null(result$metadata$skip_export) && result$metadata$skip_export) {

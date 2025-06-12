@@ -290,13 +290,49 @@ list(
   # Process CNEFE10 state by state to avoid memory issues
   tar_target(
     name = cnefe10_cleaned_by_state,
-    command = process_cnefe_state(
-      state = cnefe10_states,
-      year = 2010,
-      muni_ids = muni_ids,
-      tract_centroids = tract_centroids,
-      extract_schools = FALSE
-    ),
+    command = {
+      # Read state file
+      state_file <- file.path(
+        "data/cnefe_2010",
+        paste0("cnefe_2010_", cnefe10_states, ".csv.gz")
+      )
+
+      # Read state data with appropriate separator
+      state_data <- fread(
+        state_file,
+        sep = ",", # Partitioned files use comma
+        encoding = "UTF-8",
+        verbose = FALSE,
+        showProgress = FALSE
+      )
+
+      # Get municipality IDs for this state
+      state_muni_ids <- muni_ids[estado_abrev == cnefe10_states]
+
+      # Get tract centroids for this state
+      state_codes <- unique(substr(
+        as.character(state_muni_ids$id_munic_7),
+        1,
+        2
+      ))
+      state_tract_centroids <- tract_centroids[
+        substr(setor_code, 1, 2) %in% state_codes
+      ]
+
+      # Clean the state data and extract schools
+      result <- clean_cnefe10(
+        cnefe_file = state_data,
+        muni_ids = state_muni_ids,
+        tract_centroids = state_tract_centroids,
+        extract_schools = TRUE
+      )
+
+      # Force garbage collection after processing each state
+      gc(verbose = FALSE)
+
+      # Return the cleaned data (schools are now in result$schools)
+      result$data
+    },
     pattern = map(cnefe10_states),
     format = "qs",
     iteration = "list",
@@ -307,13 +343,49 @@ list(
   # Extract schools by state for CNEFE10
   tar_target(
     name = schools_cnefe10_by_state,
-    command = process_cnefe_state(
-      state = cnefe10_states,
-      year = 2010,
-      muni_ids = muni_ids,
-      tract_centroids = tract_centroids,
-      extract_schools = TRUE
-    ),
+    command = {
+      # Read state file
+      state_file <- file.path(
+        "data/cnefe_2010",
+        paste0("cnefe_2010_", cnefe10_states, ".csv.gz")
+      )
+
+      # Read state data with appropriate separator
+      state_data <- fread(
+        state_file,
+        sep = ",", # Partitioned files use comma
+        encoding = "UTF-8",
+        verbose = FALSE,
+        showProgress = FALSE
+      )
+
+      # Get municipality IDs for this state
+      state_muni_ids <- muni_ids[estado_abrev == cnefe10_states]
+
+      # Get tract centroids for this state
+      state_codes <- unique(substr(
+        as.character(state_muni_ids$id_munic_7),
+        1,
+        2
+      ))
+      state_tract_centroids <- tract_centroids[
+        substr(setor_code, 1, 2) %in% state_codes
+      ]
+
+      # Clean the state data and extract schools
+      result <- clean_cnefe10(
+        cnefe_file = state_data,
+        muni_ids = state_muni_ids,
+        tract_centroids = state_tract_centroids,
+        extract_schools = TRUE
+      )
+
+      # Force garbage collection after processing each state
+      gc(verbose = FALSE)
+
+      # Return only the schools
+      result$schools
+    },
     pattern = map(cnefe10_states),
     format = "qs",
     iteration = "list",

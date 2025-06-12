@@ -8,9 +8,51 @@ library(data.table)
 library(yaml)
 library(quarto)
 
+#' Create data quality monitoring report
+#' 
+#' This function serves as the main entry point for targets pipeline.
+#' It takes the export file paths as inputs to establish proper dependencies.
+#' 
+#' @param geocoded_export Path to exported geocoded polling stations file
+#' @param panelid_export Path to exported panel IDs file
+#' @param geocoded_locais data.table with geocoded polling stations
+#' @param panel_ids data.table with panel identifiers
+#' @param config_file path to configuration YAML file
+#' @return list with monitoring results
+#' @export
+create_data_quality_monitor <- function(geocoded_export,
+                                      panelid_export,
+                                      geocoded_locais,
+                                      panel_ids,
+                                      config_file = "config/data_quality_config.yaml") {
+  
+  # Verify export files exist (this ensures they were created)
+  if (!file.exists(geocoded_export)) {
+    stop("Geocoded export file not found: ", geocoded_export)
+  }
+  if (!file.exists(panelid_export)) {
+    stop("Panel ID export file not found: ", panelid_export)
+  }
+  
+  message(sprintf("Export files verified: %s, %s", 
+                  basename(geocoded_export), 
+                  basename(panelid_export)))
+  
+  # Run the actual monitoring
+  run_data_quality_monitoring_v2(
+    geocoded_locais = geocoded_locais,
+    panel_ids = panel_ids,
+    generate_alerts = TRUE,
+    config_file = config_file
+  )
+}
+
 #' Run comprehensive data quality monitoring
 #' 
-#' Wraps the existing Quarto report and adds additional checks
+#' Wraps the existing Quarto report and adds additional checks.
+#' NOTE: This function receives data directly from the targets pipeline,
+#' not from the exported CSV files. The export targets (geocoded_export, 
+#' panelid_export) should be run before this to ensure CSV files are updated.
 #' 
 #' @param geocoded_locais data.table with geocoded polling stations
 #' @param panel_ids data.table with panel identifiers
@@ -67,6 +109,14 @@ run_data_quality_monitoring_v2 <- function(geocoded_locais,
   output_dir <- "output/monitoring"
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
   saveRDS(results, file.path(output_dir, paste0("quality_monitoring_", Sys.Date(), ".rds")))
+  
+  # Print summary of what was analyzed
+  cat("\n📊 Data Quality Monitoring Summary:\n")
+  cat(paste0("  - Total records analyzed: ", format(nrow(geocoded_locais), big.mark = ","), "\n"))
+  cat(paste0("  - States covered: ", length(unique(geocoded_locais$sg_uf)), "\n"))
+  cat(paste0("  - Municipalities: ", results$metrics$total_municipalities, "\n"))
+  cat(paste0("  - Years: ", paste(range(results$metrics$years_covered), collapse = "-"), "\n"))
+  cat(paste0("  - Overall status: ", results$overall_assessment$overall_status, "\n\n"))
   
   return(results)
 }

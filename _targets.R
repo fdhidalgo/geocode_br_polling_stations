@@ -146,8 +146,6 @@ DEV_MODE <- FALSE # Process only AC, RR states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
-# Load quarto path fix for crew workers
-source("./R/quarto_path_fix.R")
 # Load geocodebr matching functions
 source("./R/geocodebr_matching.R")
 # Load parallel processing functions
@@ -1612,11 +1610,12 @@ list(
       # Load monitoring functions
       source("R/data_quality_monitor_v2.R")
       
-      # Run comprehensive monitoring with data passed as parameters
-      results <- run_data_quality_monitoring_v2(
+      # Create monitoring report with export files as dependencies
+      results <- create_data_quality_monitor(
+        geocoded_export = geocoded_export,
+        panelid_export = panelid_export,
         geocoded_locais = geocoded_locais,
         panel_ids = panel_ids,
-        generate_alerts = TRUE,
         config_file = "config/data_quality_config.yaml"
       )
       

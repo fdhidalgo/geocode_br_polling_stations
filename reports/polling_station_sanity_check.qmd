@@ -626,7 +626,184 @@ if (length(unique(geocoding_coverage$sg_uf)) > 1) {
 }
 ```
 
-## 5. Data Quality Summary
+## 5. Coordinate Duplicate Analysis
+
+```{r}
+#| label: coordinate-duplicate-analysis
+
+# Find coordinate duplicates within same year
+coord_data <- geocoded_locais[!is.na(final_lat) & !is.na(final_long)]
+coord_data[, coord_key := paste(round(final_lat, 6), round(final_long, 6), sep = "_")]
+
+# Find same-year duplicates
+same_year_dups <- coord_data[, .(
+  n_stations = uniqueN(local_id),
+  n_zonas = uniqueN(nr_zona),
+  municipio = first(nm_localidade),
+  sg_uf = first(sg_uf)
+), by = .(coord_key, ano)][n_stations > 1]
+
+# Analyze addresses for duplicates
+address_analysis <- coord_data[coord_key %in% same_year_dups$coord_key][, .(
+  n_stations = uniqueN(local_id),
+  n_unique_addresses = uniqueN(ds_endereco),
+  same_address = uniqueN(ds_endereco) == 1,
+  addresses = paste(unique(ds_endereco)[1:min(3, uniqueN(ds_endereco))], collapse = " | "),
+  names = paste(unique(nm_locvot)[1:min(3, uniqueN(nm_locvot))], collapse = " | "),
+  sg_uf = first(sg_uf),
+  municipio = first(nm_localidade)
+), by = .(coord_key, ano)]
+
+# Separate concerning vs expected duplicates
+same_address_dups <- address_analysis[same_address == TRUE]
+diff_address_dups <- address_analysis[same_address == FALSE]
+
+# Summary statistics
+dup_summary <- list(
+  total_duplicate_locations = nrow(same_year_dups),
+  total_stations_affected = sum(same_year_dups$n_stations),
+  same_address_locations = nrow(same_address_dups),
+  same_address_pct = round(nrow(same_address_dups) / nrow(address_analysis) * 100, 1),
+  diff_address_locations = nrow(diff_address_dups),
+  diff_address_pct = round(nrow(diff_address_dups) / nrow(address_analysis) * 100, 1),
+  same_zona_pct = round(mean(same_year_dups$n_zonas == 1) * 100, 1)
+)
+```
+
+### Overview
+
+This section analyzes cases where multiple polling stations share the exact same coordinates within the same election year.
+
+::: {.callout-note}
+**Key Finding**: Analysis shows that **`r dup_summary$same_address_pct`%** of coordinate duplicates share the same address, confirming these are legitimate co-locations in large venues hosting multiple voting sections. Additionally, **`r dup_summary$same_zona_pct`%** of duplicate locations have all stations in the same electoral zone.
+:::
+
+### Coordinate Duplicate Statistics
+
+```{r}
+#| label: duplicate-stats-table
+
+dup_stats <- data.table(
+  Metric = c(
+    "Total duplicate locations",
+    "Total stations at duplicate coordinates",
+    "Locations with SAME address (expected)",
+    "Locations with DIFFERENT addresses (concerning)",
+    "% sharing same address",
+    "% sharing same electoral zone"
+  ),
+  Value = c(
+    format(dup_summary$total_duplicate_locations, big.mark = ","),
+    format(dup_summary$total_stations_affected, big.mark = ","),
+    format(dup_summary$same_address_locations, big.mark = ","),
+    format(dup_summary$diff_address_locations, big.mark = ","),
+    paste0(dup_summary$same_address_pct, "%"),
+    paste0(dup_summary$same_zona_pct, "%")
+  )
+)
+
+kable(dup_stats, align = c("l", "r"))
+```
+
+### Distribution by Year
+
+```{r}
+#| label: duplicates-by-year
+
+year_summary <- same_year_dups[, .(
+  duplicate_locations = .N,
+  total_stations = sum(n_stations),
+  avg_stations_per_location = round(mean(n_stations), 2),
+  max_stations = max(n_stations)
+), by = ano][order(ano)]
+
+datatable(
+  year_summary,
+  options = list(
+    pageLength = 15,
+    dom = 't',
+    columnDefs = list(
+      list(className = 'dt-center', targets = '_all')
+    )
+  ),
+  rownames = FALSE,
+  caption = "Coordinate duplicates by year"
+)
+```
+
+### Concerning Cases: Different Addresses at Same Coordinates
+
+The following table shows a sample of locations where multiple stations share coordinates but have **different addresses**. These cases may indicate geocoding errors and warrant investigation.
+
+```{r}
+#| label: concerning-duplicates-table
+
+if (nrow(diff_address_dups) > 0) {
+  # Get a diverse sample
+  sample_size <- min(100, nrow(diff_address_dups))
+  
+  # Sample to get variety of states and years
+  set.seed(42)
+  sample_indices <- sample(1:nrow(diff_address_dups), sample_size)
+  
+  concerning_sample <- diff_address_dups[sample_indices][order(-n_stations, ano)][, .(
+    Year = ano,
+    State = sg_uf,
+    Municipality = iconv(municipio, from = "UTF-8", to = "UTF-8", sub = ""),
+    `# Stations` = n_stations,
+    `# Addresses` = n_unique_addresses,
+    `Address Examples` = substr(addresses, 1, 100),
+    `Station Names` = substr(names, 1, 80)
+  )]
+  
+  datatable(
+    concerning_sample,
+    options = list(
+      pageLength = 20,
+      scrollX = TRUE,
+      columnDefs = list(
+        list(className = 'dt-center', targets = 0:4),
+        list(width = '300px', targets = 5:6)
+      )
+    ),
+    rownames = FALSE,
+    caption = "Sample of coordinate duplicates with different addresses (potentially concerning)"
+  ) %>%
+    formatStyle(
+      '# Addresses',
+      backgroundColor = styleInterval(c(2, 3, 4), 
+        c('#fff3cd', '#ffe6cc', '#ffcccc', '#ff9999')),
+      fontWeight = styleInterval(2, c('normal', 'bold'))
+    )
+} else {
+  cat("No concerning duplicate cases found (all duplicates share the same address).")
+}
+```
+
+### Expected Cases: Same Address Examples
+
+For comparison, here are examples where stations share coordinates AND addresses (expected behavior):
+
+```{r}
+#| label: expected-duplicates-examples
+
+if (nrow(same_address_dups) > 0) {
+  expected_sample <- same_address_dups[sample(.N, min(10, .N))][, .(
+    Year = ano,
+    State = sg_uf, 
+    Municipality = iconv(municipio, from = "UTF-8", to = "UTF-8", sub = ""),
+    `# Stations` = n_stations,
+    `Shared Address` = substr(addresses, 1, 100),
+    `Station Names` = substr(names, 1, 100)
+  )]
+  
+  kable(expected_sample, caption = "Examples of expected coordinate sharing (same address)")
+} else {
+  cat("No same-address duplicate examples found.")
+}
+```
+
+## 6. Data Quality Summary
 
 ```{r}
 #| label: quality-summary

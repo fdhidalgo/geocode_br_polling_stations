@@ -243,7 +243,79 @@ check_duplicates_v2 <- function(geocoded_locais, config) {
       # Round coordinates to 6 decimal places (about 0.1m precision)
       coord_data[, coord_key := paste(round(final_lat, 6), round(final_long, 6), sep = "_")]
       
-      # Find duplicates
+      # 1. CROSS-YEAR DUPLICATES (expected behavior - same location used across years)
+      cross_year_dups <- coord_data[, .(
+        count = .N,
+        n_years = uniqueN(ano),
+        years = paste(sort(unique(ano)), collapse = ","),
+        n_stations = uniqueN(local_id),
+        states = paste(sort(unique(sg_uf)), collapse = ","),
+        municipalities = uniqueN(cod_localidade_ibge)
+      ), by = coord_key][n_years > 1][order(-count)]
+      
+      if (nrow(cross_year_dups) > 0) {
+        duplicates$cross_year_duplicates <- list(
+          total_locations_reused = nrow(cross_year_dups),
+          total_stations_involved = sum(cross_year_dups$count),
+          avg_years_per_location = mean(cross_year_dups$n_years),
+          severity = "LOW",  # This is expected behavior
+          message = "Locations reused across multiple elections (expected)",
+          top_examples = cross_year_dups[1:min(5, .N)]
+        )
+      }
+      
+      # 2. SAME-YEAR DUPLICATES (multiple stations at same coordinates in same year)
+      same_year_dups <- coord_data[, .(
+        n_stations = uniqueN(local_id),
+        station_numbers = paste(sort(unique(nr_locvot)), collapse = ","),
+        sg_uf = first(sg_uf),
+        municipio = first(nm_localidade)
+      ), by = .(coord_key, ano)][n_stations > 1][order(-n_stations)]
+      
+      if (nrow(same_year_dups) > 0) {
+        # Analyze addresses for same-year duplicates
+        # Check if stations at same coordinates have same or different addresses
+        address_analysis <- coord_data[coord_key %in% same_year_dups$coord_key][, .(
+          n_stations = uniqueN(local_id),
+          n_unique_addresses = uniqueN(ds_endereco),
+          same_address = uniqueN(ds_endereco) == 1,
+          example_addresses = paste(head(unique(ds_endereco), 3), collapse = " | ")
+        ), by = .(coord_key, ano)]
+        
+        # Separate concerning vs non-concerning duplicates
+        same_address_dups <- address_analysis[same_address == TRUE]
+        diff_address_dups <- address_analysis[same_address == FALSE]
+        
+        # Summarize by year
+        same_year_summary <- same_year_dups[, .(
+          duplicate_locations = .N,
+          total_stations = sum(n_stations),
+          max_stations_per_location = max(n_stations)
+        ), by = ano][order(ano)]
+        
+        duplicates$same_year_duplicates <- list(
+          total_cases = nrow(same_year_dups),
+          total_stations_affected = sum(same_year_dups$n_stations),
+          # Same address duplicates - not concerning
+          same_address_cases = nrow(same_address_dups),
+          same_address_stations = sum(same_address_dups$n_stations),
+          same_address_pct = nrow(same_address_dups) / nrow(address_analysis) * 100,
+          # Different address duplicates - concerning
+          diff_address_cases = nrow(diff_address_dups),
+          diff_address_stations = sum(diff_address_dups$n_stations),
+          diff_address_pct = nrow(diff_address_dups) / nrow(address_analysis) * 100,
+          severity = ifelse(nrow(diff_address_dups) / nrow(address_analysis) > 0.3, "MEDIUM", "LOW"),
+          message = sprintf("Found %d locations where multiple stations share coordinates but have DIFFERENT addresses (%.1f%% of duplicates) - these may indicate geocoding issues",
+                           nrow(diff_address_dups), nrow(diff_address_dups) / nrow(address_analysis) * 100),
+          explanation = sprintf("%.1f%% of coordinate duplicates share the SAME address (expected for large venues), while %.1f%% have DIFFERENT addresses (potential geocoding errors)",
+                               nrow(same_address_dups) / nrow(address_analysis) * 100,
+                               nrow(diff_address_dups) / nrow(address_analysis) * 100),
+          by_year = same_year_summary,
+          concerning_examples = diff_address_dups[order(-n_stations)][1:min(10, .N)]
+        )
+      }
+      
+      # 3. OVERALL COORDINATE DUPLICATES (for backward compatibility)
       coord_dup_summary <- coord_data[, .(
         count = .N,
         years = paste(sort(unique(ano)), collapse = ","),
@@ -293,9 +365,15 @@ check_duplicates_v2 <- function(geocoded_locais, config) {
     # Summary
     duplicates$summary <- list(
       has_coordinate_duplicates = !is.null(duplicates$coordinate_duplicates),
+      has_cross_year_duplicates = !is.null(duplicates$cross_year_duplicates),
+      has_same_year_duplicates = !is.null(duplicates$same_year_duplicates),
       has_id_duplicates = !is.null(duplicates$id_duplicates),
       has_within_muni_duplicates = !is.null(duplicates$within_municipality),
-      total_issues = length(duplicates) - 1  # Exclude summary itself
+      total_issues = sum(c(
+        !is.null(duplicates$id_duplicates),
+        !is.null(duplicates$same_year_duplicates),
+        !is.null(duplicates$within_municipality)
+      ))  # Only count actual issues, not expected cross-year duplicates
     )
     
     return(duplicates)
@@ -414,6 +492,39 @@ assess_data_quality <- function(results, config) {
     assessment$overall_status <- "FAIL"
   }
   
+  # Check same-year coordinate duplicates - distinguish between same/different addresses
+  if (!is.null(results$duplicate_detection$same_year_duplicates)) {
+    dup_info <- results$duplicate_detection$same_year_duplicates
+    
+    # Only warn if there are many different-address duplicates
+    if (dup_info$diff_address_pct > 30) {
+      assessment$warnings <- c(assessment$warnings, "coordinate_duplicates_diff_addresses")
+      assessment$details$coordinate_duplicates_concerning <- list(
+        diff_address_cases = dup_info$diff_address_cases,
+        diff_address_pct = dup_info$diff_address_pct,
+        message = sprintf("%d locations (%.1f%%) have multiple stations at same coordinates with DIFFERENT addresses - potential geocoding issues",
+                         dup_info$diff_address_cases, dup_info$diff_address_pct)
+      )
+    }
+    
+    # Always note the non-concerning same-address duplicates
+    assessment$details$coordinate_duplicates_expected <- list(
+      same_address_cases = dup_info$same_address_cases,
+      same_address_pct = dup_info$same_address_pct,
+      message = sprintf("%d locations (%.1f%%) have multiple stations at same coordinates with SAME address - expected for large venues",
+                       dup_info$same_address_cases, dup_info$same_address_pct)
+    )
+  }
+  
+  # Note cross-year duplicates (informational only)
+  if (!is.null(results$duplicate_detection$cross_year_duplicates)) {
+    assessment$details$location_reuse <- list(
+      locations_reused = results$duplicate_detection$cross_year_duplicates$total_locations_reused,
+      avg_years = results$duplicate_detection$cross_year_duplicates$avg_years_per_location,
+      message = "Normal pattern - locations reused across elections"
+    )
+  }
+  
   # Check historical trends for extreme changes
   if (!is.null(results$historical_comparison) && 
       is.list(results$historical_comparison) &&
@@ -493,11 +604,34 @@ generate_quality_alerts <- function(results, config) {
     ))
   }
   
-  if (!is.null(results$duplicate_detection$coordinate_duplicates)) {
-    alerts <- c(alerts, sprintf(
-      "Found %d locations with duplicate coordinates affecting %d stations",
-      results$duplicate_detection$coordinate_duplicates$total_duplicate_groups,
-      results$duplicate_detection$coordinate_duplicates$total_duplicate_stations
+  # Same-year coordinate duplicates - only alert on concerning ones
+  if (!is.null(results$duplicate_detection$same_year_duplicates)) {
+    dup_info <- results$duplicate_detection$same_year_duplicates
+    
+    # Alert on different-address duplicates if significant
+    if (dup_info$diff_address_pct > 30) {
+      alerts <- c(alerts, sprintf(
+        "Found %d locations (%.1f%% of coordinate duplicates) where stations share coordinates but have DIFFERENT addresses - potential geocoding issues",
+        dup_info$diff_address_cases,
+        dup_info$diff_address_pct
+      ))
+    }
+    
+    # Info message about same-address duplicates (not an alert)
+    message(sprintf(
+      "INFO: %d locations (%.1f%%) have multiple stations at same coordinates with SAME address - this is expected behavior for large venues",
+      dup_info$same_address_cases,
+      dup_info$same_address_pct
+    ))
+  }
+  
+  # Cross-year duplicates (informational only - this is expected)
+  if (!is.null(results$duplicate_detection$cross_year_duplicates)) {
+    # This is expected behavior, so we might want to make it informational
+    message(sprintf(
+      "INFO: %d locations reused across multiple elections (avg %.1f years per location) - this is expected behavior",
+      results$duplicate_detection$cross_year_duplicates$total_locations_reused,
+      results$duplicate_detection$cross_year_duplicates$avg_years_per_location
     ))
   }
   

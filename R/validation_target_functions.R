@@ -36,9 +36,6 @@ validate_with_sampling <- function(data,
   # Load only the sample
   data_sample <- data[sample_indices, ]
   
-  # Force garbage collection after sampling
-  gc(verbose = FALSE)
-  
   # Validate the sample
   result <- validate_import_stage(
     data = data_sample,

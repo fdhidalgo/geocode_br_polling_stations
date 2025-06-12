@@ -27,6 +27,23 @@
       ],
       "Hash": "065ae649b05f1ff66bb0c793107508f5"
     },
+    "DT": {
+      "Package": "DT",
+      "Version": "0.33",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "crosstalk",
+        "htmltools",
+        "htmlwidgets",
+        "httpuv",
+        "jquerylib",
+        "jsonlite",
+        "magrittr",
+        "promises"
+      ],
+      "Hash": "64ff3427f559ce3f2597a4fe13255cb6"
+    },
     "DiceDesign": {
       "Package": "DiceDesign",
       "Version": "1.10",
@@ -162,6 +179,28 @@
       ],
       "Hash": "4999464deb1df7d0ba723c458307ce3d"
     },
+    "arrow": {
+      "Package": "arrow",
+      "Version": "20.0.0.2",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "R",
+        "R6",
+        "assertthat",
+        "bit64",
+        "cpp11",
+        "glue",
+        "methods",
+        "purrr",
+        "rlang",
+        "stats",
+        "tidyselect",
+        "utils",
+        "vctrs"
+      ],
+      "Hash": "f18ca7d93c44b94810acfc3a5c90ca79"
+    },
     "askpass": {
       "Package": "askpass",
       "Version": "1.2.1",
@@ -171,6 +210,16 @@
         "sys"
       ],
       "Hash": "c39f4155b3ceb1a9a2799d700fbd4b6a"
+    },
+    "assertthat": {
+      "Package": "assertthat",
+      "Version": "0.2.1",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "tools"
+      ],
+      "Hash": "50c838a310445e954bc13f26f26a6ecf"
     },
     "backports": {
       "Package": "backports",
@@ -340,6 +389,18 @@
       ],
       "Hash": "d7e13f49c19103ece9e58ad2d83a7354"
     },
+    "checkmate": {
+      "Package": "checkmate",
+      "Version": "2.3.2",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "R",
+        "backports",
+        "utils"
+      ],
+      "Hash": "0e14e01ce07e7c88fd25de6d4260d26b"
+    },
     "class": {
       "Package": "class",
       "Version": "7.3-23",
@@ -484,6 +545,19 @@
       ],
       "Hash": "39acfebe7edc61c6556fde532f63844a"
     },
+    "crosstalk": {
+      "Package": "crosstalk",
+      "Version": "1.2.1",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "R6",
+        "htmltools",
+        "jsonlite",
+        "lazyeval"
+      ],
+      "Hash": "ab12c7b080a57475248a30f4db6298c0"
+    },
     "curl": {
       "Package": "curl",
       "Version": "6.2.3",
@@ -621,6 +695,19 @@
       ],
       "Hash": "fedd9d00c2944ff00a0e2696ccf048ec"
     },
+    "duckdb": {
+      "Package": "duckdb",
+      "Version": "1.3.0",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "DBI",
+        "R",
+        "methods",
+        "utils"
+      ],
+      "Hash": "c4f7580fef3b3ae4eeaf6de16366d5a7"
+    },
     "e1071": {
       "Package": "e1071",
       "Version": "1.7-16",
@@ -636,6 +723,23 @@
         "utils"
       ],
       "Hash": "27a09ca40266a1066d62ef5402dd51d6"
+    },
+    "enderecobr": {
+      "Package": "enderecobr",
+      "Version": "0.4.1",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "R",
+        "checkmate",
+        "cli",
+        "data.table",
+        "rlang",
+        "stringi",
+        "stringr",
+        "tibble"
+      ],
+      "Hash": "d9230de19f72a16900a339204308a2b9"
     },
     "evaluate": {
       "Package": "evaluate",
@@ -826,6 +930,45 @@
         "methods"
       ],
       "Hash": "4b29bf698d0c7bdb9f1e4976e7ade41d"
+    },
+    "geocodebr": {
+      "Package": "geocodebr",
+      "Version": "0.2.0",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "DBI",
+        "R",
+        "Rcpp",
+        "arrow",
+        "checkmate",
+        "cli",
+        "data.table",
+        "dplyr",
+        "duckdb",
+        "enderecobr",
+        "fs",
+        "glue",
+        "httr2",
+        "nanoarrow",
+        "parallel",
+        "purrr",
+        "rlang",
+        "sf",
+        "sfheaders",
+        "tools"
+      ],
+      "Hash": "a78a3d65eadafd344bd918a3a037cce9"
+    },
+    "geometries": {
+      "Package": "geometries",
+      "Version": "0.2.4",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "Rcpp"
+      ],
+      "Hash": "a722b946e99fd7a006ab1239c0d1b2bc"
     },
     "geosphere": {
       "Package": "geosphere",
@@ -1051,6 +1194,27 @@
       ],
       "Hash": "ac107251d9d9fd72f0ca8049988f1d7f"
     },
+    "httr2": {
+      "Package": "httr2",
+      "Version": "1.1.2",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "R",
+        "R6",
+        "cli",
+        "curl",
+        "glue",
+        "lifecycle",
+        "magrittr",
+        "openssl",
+        "rappdirs",
+        "rlang",
+        "vctrs",
+        "withr"
+      ],
+      "Hash": "ade531519694081d91036b509eb30594"
+    },
     "igraph": {
       "Package": "igraph",
       "Version": "2.1.4",
@@ -1206,7 +1370,7 @@
       "Package": "lattice",
       "Version": "0.22-7",
       "Source": "Repository",
-      "Repository": "P3M",
+      "Repository": "RSPM",
       "Requirements": [
         "R",
         "grDevices",
@@ -1237,6 +1401,16 @@
         "utils"
       ],
       "Hash": "b74911f7265f9c908027dab63801a754"
+    },
+    "lazyeval": {
+      "Package": "lazyeval",
+      "Version": "0.2.2",
+      "Source": "Repository",
+      "Repository": "https://cloud.r-project.org",
+      "Requirements": [
+        "R"
+      ],
+      "Hash": "d908914ae53b04d4c0c0fd72ecc35370"
     },
     "lhs": {
       "Package": "lhs",
@@ -1343,7 +1517,7 @@
       "Package": "mgcv",
       "Version": "1.9-3",
       "Source": "Repository",
-      "Repository": "P3M",
+      "Repository": "RSPM",
       "Requirements": [
         "Matrix",
         "R",
@@ -1390,6 +1564,13 @@
         "vctrs"
       ],
       "Hash": "d3c0bebed774ca58574f6f1d7e9b9a62"
+    },
+    "nanoarrow": {
+      "Package": "nanoarrow",
+      "Version": "0.6.0-1",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Hash": "8671474af86ec13834191bfd2db0f5a5"
     },
     "nanonext": {
       "Package": "nanonext",
@@ -1709,6 +1890,26 @@
       ],
       "Hash": "c9b643f00e514841ba0ded6dc33f788b"
     },
+    "quarto": {
+      "Package": "quarto",
+      "Version": "1.4.4",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "R",
+        "cli",
+        "jsonlite",
+        "later",
+        "processx",
+        "rlang",
+        "rmarkdown",
+        "rstudioapi",
+        "tools",
+        "utils",
+        "yaml"
+      ],
+      "Hash": "af456d7a181750812bd8b2bfedb3ea4e"
+    },
     "rappdirs": {
       "Package": "rappdirs",
       "Version": "0.3.3",
@@ -2017,6 +2218,18 @@
         "tibble"
       ],
       "Hash": "8798f23058ead1d2ffd1223dfc0c8906"
+    },
+    "sfheaders": {
+      "Package": "sfheaders",
+      "Version": "0.4.4",
+      "Source": "Repository",
+      "Repository": "P3M",
+      "Requirements": [
+        "R",
+        "Rcpp",
+        "geometries"
+      ],
+      "Hash": "d63e904c63deda45f3f9149c7dcf8703"
     },
     "shape": {
       "Package": "shape",

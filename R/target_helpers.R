@@ -168,14 +168,11 @@ process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL,
       extract_schools = extract_schools
     )
     
-    # Force garbage collection
-    gc(verbose = FALSE)
-    
     # Return based on what was requested
     if (extract_schools) {
       return(result$schools)
     } else {
-      return(result$data)
+      return(result)
     }
   } else {
     # CNEFE 2022 processing
@@ -184,7 +181,6 @@ process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL,
       muni_ids = state_muni_ids
     )
     
-    gc(verbose = FALSE)
     return(result)
   }
 }
@@ -214,4 +210,185 @@ create_validation_summary <- function(validation_results, pipeline_config) {
   )
   
   summary_stats
+}
+
+#' Process INEP string matching in batches
+#'
+#' @param batch_ids Current batch ID
+#' @param municipality_batch_assignments Batch assignments
+#' @param locais_filtered Filtered polling stations
+#' @param inep_data INEP data
+#' @return Combined match results
+#' @export
+process_inep_batch <- function(batch_ids, municipality_batch_assignments, 
+                              locais_filtered, inep_data) {
+  # Get municipalities for this batch
+  batch_munis <- municipality_batch_assignments[
+    batch_id == batch_ids
+  ]$muni_code
+  
+  # Process all municipalities in this batch
+  batch_results <- lapply(batch_munis, function(muni_code) {
+    match_inep_muni(
+      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
+      inep_muni = inep_data[id_munic_7 == muni_code]
+    )
+  })
+  
+  # Remove NULL results and combine
+  batch_results <- batch_results[!sapply(batch_results, is.null)]
+  if (length(batch_results) > 0) {
+    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+  } else {
+    data.table()
+  }
+}
+#' Process schools CNEFE string matching in batches
+#'
+#' @param batch_ids Current batch ID
+#' @param municipality_batch_assignments Batch assignments
+#' @param locais_filtered Filtered polling stations
+#' @param schools_cnefe Schools CNEFE data
+#' @return Combined match results
+#' @export
+process_schools_cnefe_batch <- function(batch_ids, municipality_batch_assignments,
+                                       locais_filtered, schools_cnefe) {
+  # Get municipalities for this batch
+  batch_munis <- municipality_batch_assignments[
+    batch_id == batch_ids
+  ]$muni_code
+  
+  # Process all municipalities in this batch
+  batch_results <- lapply(batch_munis, function(muni_code) {
+    match_schools_cnefe_muni(
+      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
+      schools_cnefe_muni = schools_cnefe[id_munic_7 == muni_code]
+    )
+  })
+  
+  # Remove NULL results and combine
+  batch_results <- batch_results[!sapply(batch_results, is.null)]
+  if (length(batch_results) > 0) {
+    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+  } else {
+    data.table()
+  }
+}
+#' Process GeocodeR string matching in batches
+#'
+#' @param batch_ids Current batch ID
+#' @param municipality_batch_assignments Batch assignments
+#' @param locais_filtered Filtered polling stations
+#' @param muni_ids Municipality IDs data
+#' @return Combined match results
+#' @export
+process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments,
+                                   locais_filtered, muni_ids) {
+  # Get municipalities for this batch
+  batch_munis <- municipality_batch_assignments[
+    batch_id == batch_ids
+  ]$muni_code
+  
+  # Process all municipalities in this batch
+  batch_results <- lapply(batch_munis, function(muni_code) {
+    match_geocodebr_muni(
+      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
+      muni_ids = muni_ids[id_munic_7 == muni_code]
+    )
+  })
+  
+  # Remove NULL results and combine
+  batch_results <- batch_results[!sapply(batch_results, is.null)]
+  if (length(batch_results) > 0) {
+    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+  } else {
+    data.table()
+  }
+}
+#' Process CNEFE street/neighborhood matching in batches
+#'
+#' @param batch_ids Current batch ID
+#' @param municipality_batch_assignments Batch assignments
+#' @param locais_filtered Filtered polling stations
+#' @param cnefe_st Street-level CNEFE data
+#' @param cnefe_bairro Neighborhood-level CNEFE data
+#' @return Combined match results
+#' @export
+process_cnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignments,
+                                        locais_filtered, cnefe_st, cnefe_bairro) {
+  # Get municipalities for this batch
+  batch_munis <- municipality_batch_assignments[
+    batch_id == batch_ids
+  ]$muni_code
+  
+  # Process all municipalities in this batch
+  batch_results <- lapply(batch_munis, function(muni_code) {
+    match_stbairro_cnefe_muni(
+      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
+      cnefe_st_muni = cnefe_st[id_munic_7 == muni_code],
+      cnefe_bairro_muni = cnefe_bairro[id_munic_7 == muni_code]
+    )
+  })
+  
+  # Remove NULL results and combine
+  batch_results <- batch_results[!sapply(batch_results, is.null)]
+  if (length(batch_results) > 0) {
+    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+  } else {
+    data.table()
+  }
+}
+#' Process Agro CNEFE street/neighborhood matching in batches
+#'
+#' @param batch_ids Current batch ID
+#' @param municipality_batch_assignments Batch assignments
+#' @param locais_filtered Filtered polling stations
+#' @param agrocnefe_st Street-level Agro CNEFE data
+#' @param agrocnefe_bairro Neighborhood-level Agro CNEFE data
+#' @return Combined match results
+#' @export
+process_agrocnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignments,
+                                            locais_filtered, agrocnefe_st, agrocnefe_bairro) {
+  # Get municipalities for this batch
+  batch_munis <- municipality_batch_assignments[
+    batch_id == batch_ids
+  ]$muni_code
+  
+  # Process all municipalities in this batch
+  batch_results <- lapply(batch_munis, function(muni_code) {
+    match_stbairro_agrocnefe_muni(
+      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
+      agrocnefe_st_muni = agrocnefe_st[id_munic_7 == muni_code],
+      agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == muni_code]
+    )
+  })
+  
+  # Remove NULL results and combine
+  batch_results <- batch_results[!sapply(batch_results, is.null)]
+  if (length(batch_results) > 0) {
+    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+  } else {
+    data.table()
+  }
+}
+#' Export geocoded data with validation dependency
+#'
+#' @param geocoded_locais Geocoded locations data
+#' @param validation_report Validation report (ensures it runs first)
+#' @return File path of exported data
+#' @export
+export_geocoded_with_validation <- function(geocoded_locais, validation_report) {
+  # validation_report is passed to ensure dependency
+  export_geocoded_locais(geocoded_locais)
+}
+
+#' Export panel IDs with validation dependency
+#'
+#' @param panel_ids Panel ID data
+#' @param validation_report Validation report (ensures it runs first)
+#' @return File path of exported data
+#' @export
+export_panel_ids_with_validation <- function(panel_ids, validation_report) {
+  # validation_report is passed to ensure dependency
+  export_panel_ids(panel_ids)
 }

@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.7.31">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Pipeline Automated Report">
+<meta name="dcterms.date" content="2025-06-12">
+
+<title>Brazilian Polling Station Data Quality Report</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+</style>
+
+
+<script src="polling_station_sanity_check_files/libs/clipboard/clipboard.min.js"></script>
+<script src="polling_station_sanity_check_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="polling_station_sanity_check_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="polling_station_sanity_check_files/libs/quarto-html/popper.min.js"></script>
+<script src="polling_station_sanity_check_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="polling_station_sanity_check_files/libs/quarto-html/anchor.min.js"></script>
+<link href="polling_station_sanity_check_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="polling_station_sanity_check_files/libs/quarto-html/quarto-syntax-highlighting-e1a5c8363afafaef2c763b6775fbf3ca.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="polling_station_sanity_check_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="polling_station_sanity_check_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="polling_station_sanity_check_files/libs/bootstrap/bootstrap-7a79786ec9df6ff7cb0dd63472f4c58c.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<link href="polling_station_sanity_check_files/libs/htmltools-fill-0.5.8.1/fill.css" rel="stylesheet">
+<script src="polling_station_sanity_check_files/libs/htmlwidgets-1.6.4/htmlwidgets.js"></script>
+<link href="polling_station_sanity_check_files/libs/datatables-css-0.0.0/datatables-crosstalk.css" rel="stylesheet">
+<script src="polling_station_sanity_check_files/libs/datatables-binding-0.33/datatables.js"></script>
+<script src="polling_station_sanity_check_files/libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
+<link href="polling_station_sanity_check_files/libs/dt-core-1.13.6/css/jquery.dataTables.min.css" rel="stylesheet">
+<link href="polling_station_sanity_check_files/libs/dt-core-1.13.6/css/jquery.dataTables.extra.css" rel="stylesheet">
+<script src="polling_station_sanity_check_files/libs/dt-core-1.13.6/js/jquery.dataTables.min.js"></script>
+<link href="polling_station_sanity_check_files/libs/crosstalk-1.2.1/css/crosstalk.min.css" rel="stylesheet">
+<script src="polling_station_sanity_check_files/libs/crosstalk-1.2.1/js/crosstalk.min.js"></script>
+
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article toc-left">
+<div id="quarto-sidebar-toc-left" class="sidebar toc-left">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#executive-summary" id="toc-executive-summary" class="nav-link active" data-scroll-target="#executive-summary">Executive Summary</a>
+  <ul class="collapse">
+  <li><a href="#all-quality-checks-passed" id="toc-all-quality-checks-passed" class="nav-link" data-scroll-target="#all-quality-checks-passed">✅ All Quality Checks Passed</a></li>
+  </ul></li>
+  <li><a href="#data-preprocessing-notes" id="toc-data-preprocessing-notes" class="nav-link" data-scroll-target="#data-preprocessing-notes">Data Preprocessing Notes</a>
+  <ul class="collapse">
+  <li><a href="#brasília-df-filtering" id="toc-brasília-df-filtering" class="nav-link" data-scroll-target="#brasília-df-filtering">Brasília (DF) Filtering</a></li>
+  </ul></li>
+  <li><a href="#year-over-year-polling-station-changes" id="toc-year-over-year-polling-station-changes" class="nav-link" data-scroll-target="#year-over-year-polling-station-changes">1. Year-over-Year Polling Station Changes</a>
+  <ul class="collapse">
+  <li><a href="#national-trends" id="toc-national-trends" class="nav-link" data-scroll-target="#national-trends">National Trends</a></li>
+  <li><a href="#state-level-analysis" id="toc-state-level-analysis" class="nav-link" data-scroll-target="#state-level-analysis">State-Level Analysis</a></li>
+  </ul></li>
+  <li><a href="#municipality-level-analysis" id="toc-municipality-level-analysis" class="nav-link" data-scroll-target="#municipality-level-analysis">2. Municipality-Level Analysis</a>
+  <ul class="collapse">
+  <li><a href="#municipalities-overview" id="toc-municipalities-overview" class="nav-link" data-scroll-target="#municipalities-overview">Municipalities Overview</a></li>
+  <li><a href="#extreme-municipality-changes" id="toc-extreme-municipality-changes" class="nav-link" data-scroll-target="#extreme-municipality-changes">Extreme Municipality Changes</a></li>
+  </ul></li>
+  <li><a href="#panel-id-quality-analysis" id="toc-panel-id-quality-analysis" class="nav-link" data-scroll-target="#panel-id-quality-analysis">3. Panel ID Quality Analysis</a>
+  <ul class="collapse">
+  <li><a href="#panel-coverage-statistics" id="toc-panel-coverage-statistics" class="nav-link" data-scroll-target="#panel-coverage-statistics">Panel Coverage Statistics</a></li>
+  <li><a href="#panel-longevity-distribution" id="toc-panel-longevity-distribution" class="nav-link" data-scroll-target="#panel-longevity-distribution">Panel Longevity Distribution</a></li>
+  </ul></li>
+  <li><a href="#geocoding-coverage-analysis" id="toc-geocoding-coverage-analysis" class="nav-link" data-scroll-target="#geocoding-coverage-analysis">4. Geocoding Coverage Analysis</a>
+  <ul class="collapse">
+  <li><a href="#geocoding-coverage-by-year" id="toc-geocoding-coverage-by-year" class="nav-link" data-scroll-target="#geocoding-coverage-by-year">Geocoding Coverage by Year</a></li>
+  <li><a href="#state-level-geocoding-heatmap" id="toc-state-level-geocoding-heatmap" class="nav-link" data-scroll-target="#state-level-geocoding-heatmap">State-Level Geocoding Heatmap</a></li>
+  </ul></li>
+  <li><a href="#coordinate-duplicate-analysis" id="toc-coordinate-duplicate-analysis" class="nav-link" data-scroll-target="#coordinate-duplicate-analysis">5. Coordinate Duplicate Analysis</a>
+  <ul class="collapse">
+  <li><a href="#overview" id="toc-overview" class="nav-link" data-scroll-target="#overview">Overview</a></li>
+  <li><a href="#coordinate-duplicate-statistics" id="toc-coordinate-duplicate-statistics" class="nav-link" data-scroll-target="#coordinate-duplicate-statistics">Coordinate Duplicate Statistics</a></li>
+  <li><a href="#distribution-by-year" id="toc-distribution-by-year" class="nav-link" data-scroll-target="#distribution-by-year">Distribution by Year</a></li>
+  <li><a href="#concerning-cases-different-addresses-at-same-coordinates" id="toc-concerning-cases-different-addresses-at-same-coordinates" class="nav-link" data-scroll-target="#concerning-cases-different-addresses-at-same-coordinates">Concerning Cases: Different Addresses at Same Coordinates</a></li>
+  <li><a href="#expected-cases-same-address-examples" id="toc-expected-cases-same-address-examples" class="nav-link" data-scroll-target="#expected-cases-same-address-examples">Expected Cases: Same Address Examples</a></li>
+  </ul></li>
+  <li><a href="#data-quality-summary" id="toc-data-quality-summary" class="nav-link" data-scroll-target="#data-quality-summary">6. Data Quality Summary</a>
+  <ul class="collapse">
+  <li><a href="#quality-metrics-dashboard" id="toc-quality-metrics-dashboard" class="nav-link" data-scroll-target="#quality-metrics-dashboard">Quality Metrics Dashboard</a></li>
+  <li><a href="#final-assessment" id="toc-final-assessment" class="nav-link" data-scroll-target="#final-assessment">Final Assessment</a></li>
+  </ul></li>
+  </ul>
+</nav>
+</div>
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar zindex-bottom">
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Brazilian Polling Station Data Quality Report</h1>
+<p class="subtitle lead">Automated Sanity Checks for 2024 Data Integration</p>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Pipeline Automated Report </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">June 12, 2025</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="executive-summary" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="executive-summary">Executive Summary</h2>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Note
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><strong>Report Generated</strong>: 2025-06-12 15:14:10</p>
+<p><strong>Data Coverage</strong>: - Years: 2006 - 2024 - States: AC, RR - Total Polling Stations: 10,006 - Total Records: 10,006</p>
+</div>
+</div>
+<section id="all-quality-checks-passed" class="level3">
+<h3 class="anchored" data-anchor-id="all-quality-checks-passed">✅ All Quality Checks Passed</h3>
+</section>
+</section>
+<section id="data-preprocessing-notes" class="level2 callout-info">
+<h2 class="callout-info anchored" data-anchor-id="data-preprocessing-notes">Data Preprocessing Notes</h2>
+<section id="brasília-df-filtering" class="level3">
+<h3 class="anchored" data-anchor-id="brasília-df-filtering">Brasília (DF) Filtering</h3>
+<p>The Federal District (Brasília) has a special electoral status: - <strong>No municipal elections</strong>: As a Federal District, Brasília does not hold mayoral or city council elections - <strong>Federal/State elections only</strong>: Participates only in presidential, gubernatorial, senatorial, and legislative elections (every 4 years)</p>
+<p><strong>Filtering Applied</strong>: - Brasília polling stations have been removed from municipal election years (2008, 2012, 2016, 2020, 2024) - This filtering ensures accurate municipality counts and prevents false anomalies in year-over-year comparisons</p>
+<div class="cell">
+<div class="cell-output cell-output-stdout">
+<pre><code>No Brasília data found in the dataset.</code></pre>
+</div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+✅ Brasília filtering verified: No records found in municipal election years.</code></pre>
+</div>
+</div>
+</section>
+</section>
+<section id="year-over-year-polling-station-changes" class="level2">
+<h2 class="anchored" data-anchor-id="year-over-year-polling-station-changes">1. Year-over-Year Polling Station Changes</h2>
+<section id="national-trends" class="level3">
+<h3 class="anchored" data-anchor-id="national-trends">National Trends</h3>
+<div class="cell">
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="polling_station_sanity_check_files/figure-html/national-trends-plot-1.png" class="img-fluid figure-img" width="960"></p>
+<figcaption>Number of polling stations over time</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="cell-output-display">
+<div class="datatables html-widget html-fill-item" id="htmlwidget-645634a76b3f1a73c956" style="width:100%;height:auto;"></div>
+<script type="application/json" data-for="htmlwidget-645634a76b3f1a73c956">{"x":{"filter":"none","vertical":false,"caption":"<caption>Year-over-Year Changes in Polling Station Counts<\/caption>","data":[[2006,2008,2010,2012,2014,2016,2018,2020,2022,2024],["  853","  874","  958","  985","1,028","1,072","1,070","1,083","1,073","1,010"],["--","+ 21","+ 84","+ 27","+ 43","+ 44"," -2","+ 13","-10","-63"],["--","+2.46%","+9.61%","+2.82%","+4.37%","+4.28%","-0.19%","+1.21%","-0.92%","-5.87%"]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Year<\/th>\n      <th>Polling Stations<\/th>\n      <th>Change<\/th>\n      <th>% Change<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"dom":"t","columnDefs":[{"className":"dt-center","targets":"_all"},{"name":"Year","targets":0},{"name":"Polling Stations","targets":1},{"name":"Change","targets":2},{"name":"% Change","targets":3}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100],"rowCallback":"function(row, data, displayNum, displayIndex, dataIndex) {\nvar value=data[2]; $(this.api().cell(row, 2).node()).css({'font-weight':'bold','color':isNaN(parseFloat(value)) ? '' : value <= 0 ? \"red\" : \"green\"});\nvar value=data[3]; $(this.api().cell(row, 3).node()).css({'background-color':isNaN(parseFloat(value)) ? '' : value <= -10 ? \"#ffcccc\" : value <= -5 ? \"#ffe6cc\" : value <= 5 ? \"white\" : value <= 10 ? \"#ccffcc\" : \"#ff9999\"});\n}"}},"evals":["options.rowCallback"],"jsHooks":[]}</script>
+</div>
+</div>
+</section>
+<section id="state-level-analysis" class="level3">
+<h3 class="anchored" data-anchor-id="state-level-analysis">State-Level Analysis</h3>
+<div class="cell">
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="polling_station_sanity_check_files/figure-html/state-changes-plot-1.png" class="img-fluid figure-img" width="960"></p>
+<figcaption>Year-over-year percentage changes by state</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="municipality-level-analysis" class="level2">
+<h2 class="anchored" data-anchor-id="municipality-level-analysis">2. Municipality-Level Analysis</h2>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Note
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><strong>Note on Municipality Counts</strong>: - Brazil has approximately 5,570 municipalities - Brasília (DF) is counted as a municipality but only appears in federal/state election years - New municipalities may be created through administrative divisions (e.g., Mojuí dos Campos in 2010) - The total count may vary by year due to these administrative changes</p>
+</div>
+</div>
+<section id="municipalities-overview" class="level3">
+<h3 class="anchored" data-anchor-id="municipalities-overview">Municipalities Overview</h3>
+<div class="cell">
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<thead>
+<tr class="header">
+<th style="text-align: left;">Metric</th>
+<th style="text-align: right;">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Total Municipalities</td>
+<td style="text-align: right;">37</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Average Stations per Municipality</td>
+<td style="text-align: right;">270.4</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Municipalities with 100% Geocoding</td>
+<td style="text-align: right;">37</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Municipalities Present All Years</td>
+<td style="text-align: right;">37</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+<section id="extreme-municipality-changes" class="level3">
+<h3 class="anchored" data-anchor-id="extreme-municipality-changes">Extreme Municipality Changes</h3>
+<p>The following table shows municipalities that experienced extreme changes (more than 30% increase or decrease) in the number of polling stations between 2022 and 2024. These cases may warrant further investigation.</p>
+<div class="cell" data-tbl-cap="Municipalities with Extreme Changes (>30% increase or decrease) from 2022 to 2024">
+<div class="cell-output-display">
+<div class="datatables html-widget html-fill-item" id="htmlwidget-0efc19a97adce534808b" style="width:100%;height:auto;"></div>
+<script type="application/json" data-for="htmlwidget-0efc19a97adce534808b">{"x":{"filter":"none","vertical":false,"data":[["CAPIXABA"],["AC"],[19],[10],["-9"],["-47.4%"]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Municipality<\/th>\n      <th>State<\/th>\n      <th>2022 Stations<\/th>\n      <th>2024 Stations<\/th>\n      <th>Change<\/th>\n      <th>% Change<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":10,"columnDefs":[{"className":"dt-center","targets":[2,3,4,5]},{"name":"Municipality","targets":0},{"name":"State","targets":1},{"name":"2022 Stations","targets":2},{"name":"2024 Stations","targets":3},{"name":"Change","targets":4},{"name":"% Change","targets":5}],"order":[],"autoWidth":false,"orderClasses":false,"rowCallback":"function(row, data, displayNum, displayIndex, dataIndex) {\nvar value=data[5]; $(this.api().cell(row, 5).node()).css({'font-weight':'bold','color':isNaN(parseFloat(value)) ? '' : value <= -30 ? \"#dc3545\" : value <= 30 ? \"#ffc107\" : \"#dc3545\"});\n}"}},"evals":["options.rowCallback"],"jsHooks":[]}</script>
+</div>
+</div>
+</section>
+</section>
+<section id="panel-id-quality-analysis" class="level2">
+<h2 class="anchored" data-anchor-id="panel-id-quality-analysis">3. Panel ID Quality Analysis</h2>
+<section id="panel-coverage-statistics" class="level3">
+<h3 class="anchored" data-anchor-id="panel-coverage-statistics">Panel Coverage Statistics</h3>
+<div class="cell">
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<thead>
+<tr class="header">
+<th style="text-align: left;">Metric</th>
+<th style="text-align: right;">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Total Unique Panels</td>
+<td style="text-align: right;">1,157</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Stations with Panel IDs</td>
+<td style="text-align: right;">9,946</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Panel Coverage Rate</td>
+<td style="text-align: right;">99.4%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Complete Panels (all years)</td>
+<td style="text-align: right;">710</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">High Quality Panels (≥75% years)</td>
+<td style="text-align: right;">896</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Panels Spanning Multiple States</td>
+<td style="text-align: right;">0</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+<section id="panel-longevity-distribution" class="level3">
+<h3 class="anchored" data-anchor-id="panel-longevity-distribution">Panel Longevity Distribution</h3>
+<div class="cell">
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="polling_station_sanity_check_files/figure-html/panel-longevity-plot-1.png" class="img-fluid figure-img" width="960"></p>
+<figcaption>Distribution of panel longevity (years present in data)</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="cell-output-display">
+<div class="datatables html-widget html-fill-item" id="htmlwidget-f406c1c69f1cde764156" style="width:100%;height:auto;"></div>
+<script type="application/json" data-for="htmlwidget-f406c1c69f1cde764156">{"x":{"filter":"none","vertical":false,"caption":"<caption>Panel Quality Distribution<\/caption>","data":[["Complete","High","Medium","Low"],["710","186","164"," 97"],["61.4%","16.1%","14.2%","8.4%"]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Quality<\/th>\n      <th>Count<\/th>\n      <th>Percentage<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":10,"dom":"t","columnDefs":[{"className":"dt-center","targets":[1,2]},{"name":"Quality","targets":0},{"name":"Count","targets":1},{"name":"Percentage","targets":2}],"order":[],"autoWidth":false,"orderClasses":false,"rowCallback":"function(row, data, displayNum, displayIndex, dataIndex) {\nvar value=data[0]; $(this.api().cell(row, 0).node()).css({'background-color':value == \"Complete\" ? \"#d4edda\" : value == \"High\" ? \"#fff3cd\" : value == \"Medium\" ? \"#f8d7da\" : value == \"Low\" ? \"#f5c6cb\" : null});\n}"}},"evals":["options.rowCallback"],"jsHooks":[]}</script>
+</div>
+</div>
+</section>
+</section>
+<section id="geocoding-coverage-analysis" class="level2">
+<h2 class="anchored" data-anchor-id="geocoding-coverage-analysis">4. Geocoding Coverage Analysis</h2>
+<section id="geocoding-coverage-by-year" class="level3">
+<h3 class="anchored" data-anchor-id="geocoding-coverage-by-year">Geocoding Coverage by Year</h3>
+<div class="cell">
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="polling_station_sanity_check_files/figure-html/geocoding-time-series-1.png" class="img-fluid figure-img" width="960"></p>
+<figcaption>Geocoding coverage rate over time</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+<section id="state-level-geocoding-heatmap" class="level3">
+<h3 class="anchored" data-anchor-id="state-level-geocoding-heatmap">State-Level Geocoding Heatmap</h3>
+<div class="cell">
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="polling_station_sanity_check_files/figure-html/geocoding-heatmap-1.png" class="img-fluid figure-img" width="960"></p>
+<figcaption>Geocoding coverage by state and year</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="coordinate-duplicate-analysis" class="level2">
+<h2 class="anchored" data-anchor-id="coordinate-duplicate-analysis">5. Coordinate Duplicate Analysis</h2>
+<section id="overview" class="level3">
+<h3 class="anchored" data-anchor-id="overview">Overview</h3>
+<p>This section analyzes cases where multiple polling stations share the exact same coordinates within the same election year.</p>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+Note
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><strong>Key Finding</strong>: Analysis shows that <strong>51.7%</strong> of coordinate duplicates share the same address, confirming these are legitimate co-locations in large venues hosting multiple voting sections. Additionally, <strong>94.9%</strong> of duplicate locations have all stations in the same electoral zone.</p>
+</div>
+</div>
+</section>
+<section id="coordinate-duplicate-statistics" class="level3">
+<h3 class="anchored" data-anchor-id="coordinate-duplicate-statistics">Coordinate Duplicate Statistics</h3>
+<div class="cell">
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<thead>
+<tr class="header">
+<th style="text-align: left;">Metric</th>
+<th style="text-align: right;">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Total duplicate locations</td>
+<td style="text-align: right;">661</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Total stations at duplicate coordinates</td>
+<td style="text-align: right;">1,616</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Locations with SAME address (expected)</td>
+<td style="text-align: right;">666</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Locations with DIFFERENT addresses (concerning)</td>
+<td style="text-align: right;">621</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">% sharing same address</td>
+<td style="text-align: right;">51.7%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">% sharing same electoral zone</td>
+<td style="text-align: right;">94.9%</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+<section id="distribution-by-year" class="level3">
+<h3 class="anchored" data-anchor-id="distribution-by-year">Distribution by Year</h3>
+<div class="cell">
+<div class="cell-output-display">
+<div class="datatables html-widget html-fill-item" id="htmlwidget-7f585b168a1a7d546fde" style="width:100%;height:auto;"></div>
+<script type="application/json" data-for="htmlwidget-7f585b168a1a7d546fde">{"x":{"filter":"none","vertical":false,"caption":"<caption>Coordinate duplicates by year<\/caption>","data":[[2006,2008,2010,2012,2014,2016,2018,2020,2022,2024],[108,88,95,88,81,86,17,20,20,58],[270,230,240,211,203,202,38,47,47,128],[2.5,2.61,2.53,2.4,2.51,2.35,2.24,2.35,2.35,2.21],[6,8,8,5,8,5,3,3,4,5]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>ano<\/th>\n      <th>duplicate_locations<\/th>\n      <th>total_stations<\/th>\n      <th>avg_stations_per_location<\/th>\n      <th>max_stations<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"dom":"t","columnDefs":[{"className":"dt-center","targets":"_all"},{"name":"ano","targets":0},{"name":"duplicate_locations","targets":1},{"name":"total_stations","targets":2},{"name":"avg_stations_per_location","targets":3},{"name":"max_stations","targets":4}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100]}},"evals":[],"jsHooks":[]}</script>
+</div>
+</div>
+</section>
+<section id="concerning-cases-different-addresses-at-same-coordinates" class="level3">
+<h3 class="anchored" data-anchor-id="concerning-cases-different-addresses-at-same-coordinates">Concerning Cases: Different Addresses at Same Coordinates</h3>
+<p>The following table shows a sample of locations where multiple stations share coordinates but have <strong>different addresses</strong>. These cases may indicate geocoding errors and warrant investigation.</p>
+<div class="cell">
+<div class="cell-output-display">
+<div class="datatables html-widget html-fill-item" id="htmlwidget-9de6e3b01513ef2c1726" style="width:100%;height:auto;"></div>
+<script type="application/json" data-for="htmlwidget-9de6e3b01513ef2c1726">{"x":{"filter":"none","vertical":false,"caption":"<caption>Sample of coordinate duplicates with different addresses (potentially concerning)<\/caption>","data":[[2014,2010,2006,2006,2010,2012,2006,2010,2016,2016,2006,2006,2008,2008,2008,2010,2012,2012,2012,2012,2014,2014,2016,2024,2024,2006,2006,2006,2006,2006,2006,2006,2006,2006,2006,2006,2006,2006,2008,2008,2008,2008,2008,2008,2008,2010,2010,2010,2010,2010,2010,2010,2010,2010,2010,2010,2010,2010,2012,2012,2012,2012,2012,2012,2012,2012,2012,2012,2012,2012,2014,2014,2014,2016,2016,2016,2016,2016,2016,2016,2016,2016,2016,2016,2016,2016,2016,2016,2016,2018,2020,2022,2022,2024,2024,2024,2024,2024,2024,2024],["AC","AC","AC","AC","AC","AC","AC","AC","AC","AC","RR","RR","AC","AC","AC","RR","AC","AC","AC","AC","AC","AC","AC","AC","AC","RR","AC","AC","AC","AC","AC","AC","RR","AC","RR","AC","RR","AC","RR","AC","RR","AC","AC","RR","RR","RR","AC","RR","RR","RR","AC","AC","AC","AC","AC","RR","AC","AC","RR","AC","RR","AC","AC","AC","AC","AC","AC","RR","RR","RR","AC","AC","AC","AC","RR","AC","AC","AC","AC","AC","AC","RR","AC","AC","AC","RR","AC","AC","AC","AC","AC","RR","AC","AC","AC","AC","AC","AC","AC","AC"],["RIO BRANCO","RIO BRANCO","RIO BRANCO","BRASILEIA","RIO BRANCO","RIO BRANCO","TARAUACA","TARAUACA","RIO BRANCO","SENA MADUREIRA","PACARAIMA","CANTA","SENA MADUREIRA","CRUZEIRO DO SUL","CRUZEIRO DO SUL","BOA VISTA","BRASILEIA","RIO BRANCO","SENA MADUREIRA","RIO BRANCO","CRUZEIRO DO SUL","BRASILEIA","RIO BRANCO","SENA MADUREIRA","RIO BRANCO","CARACARAI","FEIJO","EPITACIOLANDIA","TARAUACA","RIO BRANCO","RIO BRANCO","SANTA ROSA","BOA VISTA","TARAUACA","CARACARAI","TARAUACA","MUCAJAI","RIO BRANCO","MUCAJAI","RIO BRANCO","BOA VISTA","EPITACIOLANDIA","FEIJO","ALTO ALEGRE","BOA VISTA","MUCAJAI","PLACIDO DE CASTRO","BOA VISTA","SAO JOAO DA BALIZA","BOA VISTA","RIO BRANCO","TARAUACA","BUJARI","TARAUACA","CRUZEIRO DO SUL","BOA VISTA","RIO BRANCO","RIO BRANCO","BOA VISTA","RIO BRANCO","SAO JOAO DA BALIZA","CAPIXABA","RIO BRANCO","CRUZEIRO DO SUL","TARAUACA","SENADOR GUIOMARD","SENADOR GUIOMARD","BOA VISTA","BONFIM","BOA VISTA","ASSIS BRASIL","XAPURI","SENADOR GUIOMARD","CAPIXABA","UIRAMUTA","RIO BRANCO","RIO BRANCO","RIO BRANCO","RIO BRANCO","TARAUACA","CRUZEIRO DO SUL","BOA VISTA","RIO BRANCO","RIO BRANCO","BRASILEIA","BOA VISTA","ACRELANDIA","CAPIXABA","RIO BRANCO","CRUZEIRO DO SUL","CRUZEIRO DO SUL","MUCAJAÍ","PLÁCIDO DE CASTRO","RIO BRANCO","RIO BRANCO","XAPURI","XAPURI","MARECHAL THAUMATURGO","PLÁCIDO DE CASTRO","SENADOR GUIOMARD"],[7,6,5,5,5,5,4,4,4,4,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],[5,5,4,4,5,5,4,3,4,4,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],["RUA QUINTINO BOCAIUVA N 299 | RUA RUI BARBOSA 410 | RUA RIO GRANDE DO SUL 109","RUA MARECHAL DEODORO 243 | RUA MARECHAL DEODORO 691 | RUA MARECHAL DEODORO, 243","RUA MARECHAL DEODORO 340 | RUA MARECHAL DEODORO 691 | RUA MARECHAL DEODORO 243","RUA GENY ASSIS | RUA GENY ASSIS S/N S/N | RUA GENY ASSIS S/N","AVENIDA NACOES UNIDAS, 2.604 | AVENIDA NACOES UNIDAS, 2.731 | AVENIDA NACOES UNIDAS, 2.710","AVENIDA NACOES UNIDAS, 2.604 | AVENIDA NACOES UNIDAS, 2.731 | AVENIDA NACOES UNIDAS, 2.710","RUA CEL JUVENCIO MENEZES S/N | CEL. JUVENCIO DE MENEZES, S/N | CEL JUVENCIO DE MENEZES","RUA CEL. JUVENCIO DE MENEZES, S/N | CEL. JUVENCIO DE MENEZES, S/N | CEL. JUVENCIO DE MENEZES, N. 301","ESTRADA DO AVIARIO, 233 | RUA DO AVIARIO 315 | ESTRADA DO AVIARIO, 23","AV. AVELINO CHAVES | AV. AVELINO CHAVES, S/N | AV AVELINO CHAVES, S/N","VILA DO SURUMU S/N INTERIOR | MALOCA DO CONTAO S/N INTERIOR | VILA DO SUAPI S/N INTERIOR","MALOCA DO CANAUANI S/N INTERIOR | VICINAL IV S/N FELIX PINTO INTERIOR | MALOCA TABA LASCADA S/N INTE","AV. AVELINO CHAVES | AV. AVELINO CHAVES, S/N | AV AVELINO CHAVES, S/N","RUA REGOS BARROS 107 | RUA REGOS BARROS, N. 51 | RUA  REGO BARROS 168","COMUNIDADE VISTA ALEGRE RIO JURUA MIRIM | COMUNIDADE DA PRAINHA RIO JURUAMIRIM | COMUNIDADE PERIQUIT","RUA PARAIBA 474 - 623-1146 | RODOVIA BR-174 | RODOVIA BR-174, S/N","RUA VITORIA SALVATIERRA N. 1090 | AV. DR. MANOEL MARINHO MONTE N. 019 | RUA VITORIA SALVATIERRA CESA","RUA BENJAMIN CONSTANT 946 | RUA BENJAMIN CONSTANT  1165 | RUA BENJAMIN CONSTANT 1121","AV. AVELINO CHAVES | AV. AVELINO CHAVES, S/N | AV AVELINO CHAVES, S/N","AVENIDA GETULIO VARGAS, 232 | AVENIDA GETULIO VARGAS, 230 | AVENIDA GETULIO VARGAS","COMUNIDADE VISTA ALEGRE RIO JURUA MIRIM | COMUNIDADE DA PRAINHA - RIO JURUAMIRIM | COMUNIDADE PERIQU","RUA GENY ASSIS N. 458 | RUA GENY ASSIS N. 259 | RUA GENY ASSIS N. 466","RUA BENJAMIN CONSTANT, 946 | RUA BENJAMIN CONSTANT, 1165 | RUA BENJAMIN CONSTANT 1121","AV. BRASIL C/ RUA CUNHA VASCONCELOS | AV. BRASIL, S/N | AVENIDA BRASIL","AVENIDA GETÚLIO VARGAS N. 2473 | AVENIDA GETULIO VARGAS S/N | AV. GETÚLIO VARGAS, N.2852 (BOSQUE)","BR 174, KM 500 | VILA NOVO PARAISO, S/N INTERIOR","AVENIDA MARECHAL DEODORO 1 | AVENIDA MARECHAL DEODORO S/N","KM 16 DA BR 317 | KM 52 DA ESTRADA VELHA (COMUNIDADE GUAJARA)","RUA CAPITAO HIPOLITO S/N | CAPITAO HIPOLITO","RUA NOSSA SENHORA DA CONCEICAO 411 | NOSSA SENHORA DA CONCEICAO, 464","RUA BENJAMIN CONSTANT 677 | RUA BENJAMIN CONSTANT, 677","PROFIRO DE MOURA S/N | CORONEL JOSE FERREIRA","AVENIDA DAS GUIANAS 1627 - 623-9446 | AVENIDA DAS GUIANAS 1.201 - 623-2301","BENJAMIN CONSTANT | RUA BENJAMIM CONSTANT S/N","RUA ESTELITO LOPES, S/N, 3532-1203 | RUA ESTELITO LOPES, S/N","FLORIANO PEIXOTO,  N. 0110 | RUA DR. SANSAO GOMES, N. 091","RUA RAIMUNDO GERMINIANO DE ALMEIDA, S/N | AVENIDA SEBASTIAO OLIVEIRA, S/N, 3542-1625","AVENIDA GETULIO VARGAS 1308 | AVENIDA GETULIO VARGAS S/N","RUA RAIMUNDO GERMINIANO DE ALMEIDA, S/N | AVENIDA SEBASTIAO OLIVEIRA, S/N, 3542-1625","RUA RIO GRANDE DO SUL, 1.908 | RUA RIO GRANDE DO SUL, 1.907","RUA MUCAJAI 538 - 623-1915 | RUA MUCAJAI 844 - 623-1342","KM 09 VILA PROGRESSO | SERINGAL CACHOEIRA KM-51 + 26 KM DE RAMAL","AVENIDA MARECHAL DEODORO | AVENIDA MARECHAL DEODORO S/N","AVENIDA SANTOS DUMONT S/N SEDE | AVENIDA SANTO AMARO S/N SEDE","RUA  LINDOLFO BERNARDO COUTINHO 464 - 3626-1470 | RUA LINDOLFO BERNARDO COUTINHO S/N 626-2464","RUA RAIMUNDO GERMINIANO DE ALMEIDA, S/N | AVENIDA SEBASTIAO OLIVEIRA, S/N, 3542-1625","EPITACIO PESSOA S/N | RUA EPITACIO PESSOA - PROX AO PAE","AVENIDA MINAS GERAIS 326 -  623-2919 | RUA MACUNAIMA 392 - 323-1755","RUA SAO DOMINGOS, S/N, SEDE, TEL. 3235 1353 | RUA SAO BENEDITO S/N - SEDE","PRACA DO CENTRO CIVICO S/N - 623-2102 | AV BENJAMIM CONSTANT, 1","RUA RIO GRANDE DO SUL,  S/N | RUA RIO GRANDE DO SUL, S/N","RUA BENJAMIN CONSTANT | RUA BENJAMIN CONSTANT, S/N","BR 364 KM 55  ESTRADA DE SENA MADUREIRA S/N | BR 364 KM 55 RIO BRANCO SENA MADUREIRA S/N","BR-364 KM-157 - TRECHO TARAUACA/CRUZEIRO DO SUL | BR 364, TRECHO TARAUACA/CRUZEIRO DO SUL","RUA SIQUEIRA CAMPOS | RUA SIQUEIRA CAMPOS, S/N","AVENIDA SAO PAULO S/N - 623-2319 | AVENIDA MINAS GERAIS 502 - 623-2687","RUA FRANCO RIBEIRO, 91 | RUA FRANCO RIBEIRO 73","BOULEVARD AUGUSTO MONTEIRO 884 | BOULEVARD AUGUSTO MONTEIRO, 810","REGIAO DO MURUPU/SERRA DA MOCA S/N INTERIOR | BR 174, KM 30 - ANTIGA FAZENDA BAMERINDOS","RUA DA ALVORADA 901 | RUA ALVORADA","RUA SAO DOMINGOS, S/N, SEDE, TEL. 3235 1353 | RUA SAO BENEDITO S/N - SEDE","BR-317 KM-25 RAMAL ANTONIO COSTA KM-12 | RUA OSSIMAR TESSINARI - AO LADO DA PAE","AV GETULIO VARGAS, 647 | AVENIDA GETULIO VARGAS","RUA PEDRO TELES, 450 | RUA PEDRO TELES, N. 596","JOAO DE PAIVA | SERINGAL INDEPENDENCIA - SAUDADE, RIO ACURAUA","RODOVIA AC 40 KM 18    VILA PARAISO S/N | RAMAL OCO DO MUNDO, KM 25","BR 364 KM 32 RAMAL NOVA ALDEIA KM 01 S/N | BR 364, KM 80, RAMAL NABOR JUNIOR, KM 08.","AVENIDA BRIGADEIRO EDUARDO GOMES 1332 - 623-9163 | AV BRAIGADEIRO EDUARDO GOMES, 3710","MALOCA DO MOSCOU S/N INTERIOR | REGIAO DA SERRA DA LUA S/N INTERIOR","RUA FLORIANO PEIXOTO 251 - 623-1493 | P.A NOVA AMOZONIA I REGIAO DO TRUARU","RUA JUVENAL DUARTE DE SOUZA S/N | SERINGAL ICURIA RAMAL DO KM-40 DIVISAO","RESERVA EXTRATIVISTA CHICO MENDES - SERINGAL FLORESTA | RUA PETROPOLIS 185","BR 364 KM 32 RAMAL NOVA ALDEIA KM 01 S/N | BR 364, KM 80, RAMAL NABOR JUNIOR, KM 08.","RESERVA SAO LUIZ-REMANSO, MARGENS RIO ACRE | BR 317 KM 100, RAMAL LIMEIRA KM 07","RUA CECY MOTA S/N SEDE | MALOCA DO FLEXAL S/N INTERIOR","RUA BENJAMIN CONSTANT, 830 | RUA BENJAMIN CONSTANT, 856","RUA DA ALVORADA 777 | RUA ALVORADA","RUA ANTONIO DA ROCHA VIANA 07 | AV. ANTONIO DA ROCHA VIANA, 2910 (CONTATOS 3228-0554/9926-5548)","RUA MEM DE SA, 471 | RUA MEM DE SA 485 BAHIA VELHA","FLORIANO PEIXOTO,  N. 0110 | RUA DR. SANSAO GOMES, N. 091","AV RODRIGUES ALVES S/N | AV. RODRIGUES ALVES, SN","AV. BRIGADEIRO EDUARDO GOMES, 2952 - PARQUE ANAUA | AV BRAIGADEIRO EDUARDO GOMES, 3710","AVENIDA GETULIO VARGAS 1273 | AV. GETULIO VARGAS, 1782","RUA RIO GRANDE DO SUL, 1.908 | RUA RIO GRANDE DO SUL, 1.907","AV. PREFEITO ROLANDO MOREIRA N. 230 | AVENIDA PREFEITO ROLANDO MOREIRA, N. 230","REGIAO DO MURUPU/SERRA DA MOCA S/N INTERIOR | BR 174, KM 30 - ANTIGA FAZENDA BAMERINDOS","RODOVIA AC 401 KM-15 S/N VILA REDENCAO | RUA JOSE DE DEUS S/N","AC 40 KM 86 RAMAL ELETRONICO KM 10 | RAMAL DO BARRIGA  KM 18 ZONA RURAL PDA ALCOBRAS","RUA SAO SALVADOR 134 BAHIA VELHA | RUA ANTONIO PESSOA, 810","RUA REGOS BARROS 107 | RUA REGO BARROS S/N","RUA REGOS BARROS - 107 | RUA REGO BARROS S/N","AVENIDA NOSSA SENHORA DE FÁTIMA S/N SEDE | AV DEUSDETE SOARES MEDRADA","RUA EPITÁCIO PESSOA - PROX AO PAE | RUA EPITÁCIO PESSOA","RUA QUINTINO BOCAIÚVA, 299 | RUA RUI BARBOSA, 450","RUA RIO GRANDE DO SUL, 1.908 | RUA RIO GRANDE DO SUL, 1.907","RESERVA EXTRATIVISTA CHICO MENDES - ASSENTAMENTO TUPÁ | RUA BENJAMIN CONSTANT, 139","RESERVA EXTRATIVISTA CHICO MENDES - SERINGAL FLORESTA | RUA PETROPOLIS 185","COMUNIDADE ACURIÁ - RIO JURUA | FOZ DO BREU - RIO JURUÁ","AC 475 KM 14 | BR 364 KM 60 VILA CAMPINAS RUA CAETES N 768","BR 364 RAMAL 53 GLEBA F 1 RAMAL SANTA MARIA | BR 364 KM 32 RM NOVA ALDEIA KM 15"],["OCA RIO BRANCO | CAIXA AUXILIADORA DA GUARDA TERRITORIAL | SERVICO DE APOIO A MI","SERVICO DE AGUA E ESGOTO DE RIO BRANCO-SAERB | CENTRO DE CAPACITACAO DO SERV. DO","MINISTERIO DA FAZENDA(RECEITA FEDERAL) | CENTRO DE CAPACITACAO DO SERV. DO PODER","CAMARA MUNICIPAL | COLETORIA ESTADUAL | IBAMA","SEAPROF | FUMBESA - FUNDACAO DO BEM-ESTAR SOCIAL DO ACRE | DETRAN-AC","SEAPROF | FUMBESA - FUNDACAO DO BEM-ESTAR SOCIAL DO ACRE | DETRAN-AC","CAMARA MUNICIPAL | SECRETARIA MUNICIPAL DE EDUCACAO E CULTURA - SEMEC | INSPETOR","CAMARA MUNICIPAL | SECRETARIA MUNICIPAL DE EDUCACAO E CULTURA - SEMEC | INSPETOR","ESCOLA CASTELO BRANCO | DEPARTAMENTO DE PRODUCAO ANIMAL DA SECRETARIA DES. AGRAR","EEEFISJ - ESCOLA ESTADUAL ENSINO FUNDAMENTAL INSTITUTO SANTA JULIANA | EEFMET - ","FADER | FERNAO DIAS E.P.G. | JUSCELINO KUBITSCHEK DE OLIVEIRA E.","TUXAUA LUIS CADETE E.P.G. | DUQUE DE CAXIAS E.P.G. | JOAQUIM PINTO SOUTO MAIOR E","EEEFISJ - ESCOLA ESTADUAL ENSINO FUNDAMENTAL INSTITUTO SANTA JULIANA | EEFMET - ","ESCOLA BARAO DO RIO BRANCO | SEAPROF - AO LADO DO ANTIGO CORREIOS | SECRETARIA E","ESCOLA HELENA NOBRE | ESCOLA MARIO CANDIDO DA ROCHA | ESCOLA ESTADUAL RURAL JOAQ","CRECHE NOSSA SENHORA DE NAZARE | PENITENCIARIA AGRICOLA DO MONTE CRISTO - ALA MA","CENTRO CULTURAL SEBASTIAO JOAQUIM DANTAS BARROSO | ESCOLA CORONEL MANOEL FONTENE","SECRETARIA DA FAZENDA | FORUM BARAO DO RIO BRANCO | TRIBUNAL REGIONAL DO TRABALH","EEEFISJ - ESCOLA ESTADUAL ENSINO FUNDAMENTAL INSTITUTO SANTA JULIANA | EEFMET - ","COLEGIO ESTADUAL BARAO DO RIO BRANCO | PALACIO DAS SECRETARIAS | BIBLIOTECA PUBL","ESCOLA HELENA NOBRE | ESCOLA ARTUR LEBRE II | ESCOLA ESTADUAL RURAL JOAQUIM NOGU","AGENCIA ESTADUAL (ANTIGA COLETORIA) | IBAMA - INSTITUTO BRASILEIRO DO MEIO AMBIE","SECRETARIA DA FAZENDA | FORUM BARAO DO RIO BRANCO | TRIBUNAL REGIONAL DO TRABALH","EEEMDJM - ESCOLA ESTADUAL DE ENSINO MÉDIO DOM JULIO MATTIOLI | IDAF | SEPA - SEC","FEDERAÇÃO DO COMÉRCIO - FECOMÉRCIO/AC | INSTITUTO DE EDUCACAO LOURENCO FILHO | P","CLUBE DE MAES ROSA DE MAIO | SEAAB SECRETARIA ESTADUAL DE AGR. E ABASTECIMENTO","CAMARA MUNICIPAL | NUCLEO DE EDUCACAO","ESCOLA SANTA TEREZINHA | ESCOLA SANTA FE (MUNICIPAL)","ESCOLA TUPANIR GAUDENCIO DA COSTA","ATLETICO ACREANO FUTEBOL CLUBE | ESCOLA PUBLICA ANA TURAM MACHADO FALCAO","COLEGIO PINGO DE OURO - ANTIGO COLEGIO BATISTA | COLEGIO PINTO DE OURO - ANTIGO ","CAMARA MUNICIPAL | ESCRITORIO AVANCADO DO GOVERNO DA FLORESTA","RODOVIARIA INTERNACIONAL DE BOA VISTA | PROFESSORA MARIA DAS DORES BRASIL XAUD E","NUCLEO DA UFAC DE TARAUACA","MANOEL PEREIRA DA COSTA E. | MANOEL PEREIRA DA COSTA E. M.","SECRETARIA DE ESTADO DE PRODUCAO - SEPRO | SECRETARIA MUNICIPAL DE PRODUCAO E ME","NASCIMENTO FILHO E.P. | IRMA LEONILDES E.M.","PROCURADORIA GERAL DO ESTADO | INSTITUTO DE EDUCACAO LOURENCO FILHO","NASCIMENTO FILHO E.P. | IRMA LEONILDES E.M.","ESCOLA PUBLICA HELOISA MOURAO MARQUES | SECRETARIA DE EDUCACAO E CULTURA","GARAGEM CENTRAL DO GOVERNO DO ESTADO | GARAGEM DA PREFEITURA MUNICIPAL DE BOA VI","ESCOLA LUIZ GONZAGA DA ROCHA | ESCOLA ESPERANCA DO POVO","CAMARA MUNICIPAL | NUCLEO DE EDUCACAO","CRECHE CASULO MI-VO | PROFESSOR GERALDO PINTO E.","PROFESSORA MARIA DAS NEVES REZENDE E. | PRE-ESCOLAR MENINO JESUS","NASCIMENTO FILHO E.P. | IRMA LEONILDES E.M.","IBAMA | CENTRO DE DIFUSAO TECNOLOGICA","ESCOLA ESTADUAL PARQUE URSINHO FELIZ | ESCOLA ESTADUAL CANTINHO FELIZ","E.P.M. DARCY PEDROSO DA SILVA | BIBLIOTECA MUNICIPAL ANT AUGUSTO MARTINS","LOBO D'ALMADA E.P.G. | CADEIA PUBLICA","CENTRO ESTADUAL DE EDUCACAO DE SURDOS PROFESSORA HERMINIA MOREIRA MAIA | ESCOLA ","ESCOLA DE ENSINO FUNDAMENTAL PROFESSORA RILZA MARIA DO NASCIMENTO | ESCOLA DE EN","ESCOLA JOSE CEZARIO DE FARIAS","ACAMPAMENTO DO DERACRE- ZONA RURAL RIOZINHO DA LIBERDADE | PENITENCIARIA MOACIR ","SECRETARIA DA FAZENDA ESTADUAL ANTIGO BOMBEIRO | SECRETARIA MUNICIPAL DE OBRAS","HIDELBRANDO FERRO BITENCOURT E.E.P.G. | C.S. SILVIO LOFEGO BOTELHO","DEPART. DE PAT. HIST. E CULT. DA FUND. ELIAS MANSOUR (ANT. META II)","ESCOLA DR. CARLOS VASCONCELOS | SEGUNDO CARTORIO DE REGISTRO DE PESSOAS NATURAIS","INDIO AJURICABA E.P. | ALBINO TAVARES E.E.","SENAC | UIP - UNIDADE DE INTERNACAO PROVISORIA","E.P.M. DARCY PEDROSO DA SILVA | BIBLIOTECA MUNICIPAL ANT AUGUSTO MARTINS","ESCOLA NOVA ESPERANCA | CENTRO DE DIFUSAO TECNOLOGICA","AGENCIA INSS - CENTRO | CENTRAL DE ARTICULACAO DAS ENTIDADES DE SAUDE - CADES (A","ESCOLA REGOS BARROS | CSE - CENTRO SOCIOEDUCATIVO - JURUA","ESCOLA ROSAURA MOURAO DA ROCHA | ESCOLA SANTA TEREZINA, ANEXO IV, RIO ACURAUA","ESCOLA PROFESSORA ROSALINA SILVEIRA | ESCOLA MUNICIPAL RURAL JOELMA OLIVEIRA DE ","ESCOLA PADRE CARLOS CASAVECCHIA | ESCOLA MARIA AUXILIADORA QUEIROZ","I.B.A.M.A. INST. BRAS. DO MEIO-AMBIENTE E REC. NAT. REN. | SESI - JOAO DE MENDON","JOAQUIM THOME E.P.G. | VILENA E.","SAO JOSE E.P.G. | ESCOLA ESTADUAL SAO JORGE","ESCOLA MARIA FERREIRA DA SILVA | ESCOLA BAIXA VERDE - SERINGAL ICURIA (DIVISAO)","ESCOLA ESTADUAL PADRE JOSIMO - COMUNIDADE SAO JOAO DO GUARANI | ESCOLA ESTADUAL ","ESCOLA PADRE CARLOS CASAVECCHIA | ESCOLA MARIA AUXILIADORA QUEIROZ","ESCOLA MUNICIPAL RURAL SAO FRANCISCO | ESCOLA MUNICIPAL LIMEIRA","JOAQUIM NABUCO E.P. | JOAO RODRIGUES DE OLIVEIRA E.P.G.","SECRETARIA DE ESTADO DE SAUDE - SESACRE | SECRETARIA DE ESTADO DE MEIO AMBIENTE ","SENAC | UIP - UNIDADE DE INTERNACAO PROVISORIA","ESCOLA PUBLICA MOZART DONIZETE | CENTRO DE SAUDE VILA IVONETE","ESCOLA FREI THIAGO MARIA MATIOLI | CASA DO ADOLESCENTE","SECRETARIA DE ESTADO DE PRODUCAO - SEPRO | SECRETARIA MUNICIPAL DE PRODUCAO E ME","CENTRO CULTURAL AMARINO SALES | FUNDACAO DE CULTURA E COMUNICACAO ELIAS MANSOUR","ESCOLA DE MUSICA DE RORAIMA-EMUR | SESI - CENTRO DE EDUC. DO TRABALHADOR JOAO DE","PREDIO DO INSS (ANTIGO IAPAS) | SEC. EST. DE DESENV. FLORESTAL, DA IND., DO COM.","ESCOLA PUBLICA HELOISA MOURAO MARQUES | SECRETARIA DE EDUCACAO E CULTURA","CEDUP - CENTRO DE ESTUDOS EDUCACAO PERMANENTE | CEDUP","INDIO AJURICABA E.P. | ALBINO TAVARES E.E.","ESCOLA DE 1 GRAU MARIA DE JESUS RIBEIRO | CENTRO DE FLORESTANIA","ESCOLA MUNICIPAL CRUZEIRO | PREDIO DO INCRA","CRAS - CENTRO DE REFERENCIA DE ASSISTENCIA SOCIAL | CENTRO DE REFERENCIA DE ASSI","CRIE - CENTRO DE REFERENCIA EM INOVACOES PARA A EDUCACAO | UNIDADE DE GESTAO SUS","CRIEBRB - CENTRO DE REF. EM INOVAÇÕES PARA A ED. BARÃO DO RIO BRANCO | UNIDADE D","COELHO NETO E.P.S.G. | MARIA MARISELMA DE OLIVEIRA CRUZ","CENTRO DE DIFUSÃO TECNOLÓGICA | SECRETARIA MUNICIPAL DE AÇÃO SOCIAL","OCA RIO BRANCO | INSTITUTO DO MEIO AMBIENTE DO ACRE-IMAC","ESCOLA PÚBLICA HELOÍSA MOURÃO MARQUES | SECRETARIA DE EDUCAÇÃO E CULTURA","POSTO DE SAÚDE - ASSENTAMENTO TUPÁ | POLO DE APOIO PRESENCIAL DA UNIVERSIDADE AB","ESCOLA ESTADUAL PADRE JÓSIMO - COMUNIDADE SÃO JOÃO DO GUARANI | ESCOLA ESTADUAL ","ESCOLA TANCREDO DE ALMEIDA NEVES | ESCOLA ERNESTINA RODRIGUES FERREIRA","ESCOLA MUNICIPAL CARLOS JOSE DOS SANTOS | ESCOLA MUNICIPAL INFANTIL CENIRA DOS S","ESCOLA SAO JOSE IV | ESCOLA ESTADUAL RAIMUNDO HERMINIO DE MELO II"]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Year<\/th>\n      <th>State<\/th>\n      <th>Municipality<\/th>\n      <th># Stations<\/th>\n      <th># Addresses<\/th>\n      <th>Address Examples<\/th>\n      <th>Station Names<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":20,"scrollX":true,"columnDefs":[{"className":"dt-center","targets":[0,1,2,3,4]},{"width":"300px","targets":[5,6]},{"name":"Year","targets":0},{"name":"State","targets":1},{"name":"Municipality","targets":2},{"name":"# Stations","targets":3},{"name":"# Addresses","targets":4},{"name":"Address Examples","targets":5},{"name":"Station Names","targets":6}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,20,25,50,100],"rowCallback":"function(row, data, displayNum, displayIndex, dataIndex) {\nvar value=data[4]; $(this.api().cell(row, 4).node()).css({'font-weight':isNaN(parseFloat(value)) ? '' : value <= 2 ? \"normal\" : \"bold\",'background-color':isNaN(parseFloat(value)) ? '' : value <= 2 ? \"#fff3cd\" : value <= 3 ? \"#ffe6cc\" : value <= 4 ? \"#ffcccc\" : \"#ff9999\"});\n}"}},"evals":["options.rowCallback"],"jsHooks":[]}</script>
+</div>
+</div>
+</section>
+<section id="expected-cases-same-address-examples" class="level3">
+<h3 class="anchored" data-anchor-id="expected-cases-same-address-examples">Expected Cases: Same Address Examples</h3>
+<p>For comparison, here are examples where stations share coordinates AND addresses (expected behavior):</p>
+<div class="cell">
+<div class="cell-output-display">
+<table class="caption-top table table-sm table-striped small">
+<caption>Examples of expected coordinate sharing (same address)</caption>
+<colgroup>
+<col style="width: 4%">
+<col style="width: 4%">
+<col style="width: 13%">
+<col style="width: 9%">
+<col style="width: 28%">
+<col style="width: 39%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">Year</th>
+<th style="text-align: left;">State</th>
+<th style="text-align: left;">Municipality</th>
+<th style="text-align: right;"># Stations</th>
+<th style="text-align: left;">Shared Address</th>
+<th style="text-align: left;">Station Names</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">2020</td>
+<td style="text-align: left;">AC</td>
+<td style="text-align: left;">SENADOR GUIOMARD</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">RUA 03 DE MAIO DOS EDIS 569</td>
+<td style="text-align: left;">CAMARA MUNICIPAL</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2008</td>
+<td style="text-align: left;">AC</td>
+<td style="text-align: left;">RIO BRANCO</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">RUA 16 DE OUTUBRO 165</td>
+<td style="text-align: left;">INSTITUTO IMACULADA CONCEICAO - CENEC</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">2014</td>
+<td style="text-align: left;">AC</td>
+<td style="text-align: left;">RIO BRANCO</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">AVENIDA EPAMINONDAS JACOME 643</td>
+<td style="text-align: left;">ANTIGO COLEGIO META I</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2014</td>
+<td style="text-align: left;">AC</td>
+<td style="text-align: left;">RIO BRANCO</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">CONJUNTO TUCUMA II</td>
+<td style="text-align: left;">ESCOLA PUBLICA RAIMUNDO GOMES DE OLIVEIRA</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">2016</td>
+<td style="text-align: left;">RR</td>
+<td style="text-align: left;">MUCAJAI</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">AVENIDA MARANHAO</td>
+<td style="text-align: left;">PADRE JOSE MONTICONE</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2012</td>
+<td style="text-align: left;">AC</td>
+<td style="text-align: left;">XAPURI</td>
+<td style="text-align: right;">2</td>
+<td style="text-align: left;">RUA CORONEL BRANDAO</td>
+<td style="text-align: left;">CLUBE MUNICIPAL - ASSEMUX | NUCLEO DA UFAC</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">2020</td>
+<td style="text-align: left;">AC</td>
+<td style="text-align: left;">CAPIXABA</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">BR 317 KM 100, RAMAL LIMEIRA KM 07</td>
+<td style="text-align: left;">ESCOLA MUNICIPAL LIMEIRA</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2008</td>
+<td style="text-align: left;">AC</td>
+<td style="text-align: left;">RIO BRANCO</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">RUA 24 DE JANEIRO 269</td>
+<td style="text-align: left;">CENTRO RECREATIVO TENTAMEN</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">2006</td>
+<td style="text-align: left;">RR</td>
+<td style="text-align: left;">IRACEMA</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">AVENIDA BERNARDO SAIAO, S/N</td>
+<td style="text-align: left;">IRACEMA AGUIAR PEREIRA E.E.</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">2016</td>
+<td style="text-align: left;">AC</td>
+<td style="text-align: left;">CRUZEIRO DO SUL</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: left;">AV. 15 DE NOVEMBRO</td>
+<td style="text-align: left;">SECRETARIA MUNICIPAL DO MEIO AMBIENTE</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+</section>
+<section id="data-quality-summary" class="level2">
+<h2 class="anchored" data-anchor-id="data-quality-summary">6. Data Quality Summary</h2>
+<section id="quality-metrics-dashboard" class="level3">
+<h3 class="anchored" data-anchor-id="quality-metrics-dashboard">Quality Metrics Dashboard</h3>
+<div class="cell">
+<div class="cell-output-display">
+<div class="datatables html-widget html-fill-item" id="htmlwidget-894ecf8837ec2a7e1110" style="width:100%;height:auto;"></div>
+<script type="application/json" data-for="htmlwidget-894ecf8837ec2a7e1110">{"x":{"filter":"none","vertical":false,"caption":"<caption>Data Quality Metrics Summary<\/caption>","data":[["Panel ID Coverage","Geocoding Coverage","Maximum YoY Change","Years Coverage"],["99.4%","100%","9.6%","10 of 10"],["90%","95%","15%","10"],["Pass","Pass","Pass","Pass"]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Metric<\/th>\n      <th>Value<\/th>\n      <th>Threshold<\/th>\n      <th>Status<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":10,"dom":"t","columnDefs":[{"className":"dt-center","targets":[1,2,3]},{"name":"Metric","targets":0},{"name":"Value","targets":1},{"name":"Threshold","targets":2},{"name":"Status","targets":3}],"order":[],"autoWidth":false,"orderClasses":false,"rowCallback":"function(row, data, displayNum, displayIndex, dataIndex) {\nvar value=data[3]; $(this.api().cell(row, 3).node()).css({'font-weight':'bold','background-color':value == \"Pass\" ? \"#d4edda\" : value == \"Warning\" ? \"#fff3cd\" : null});\n}"}},"evals":["options.rowCallback"],"jsHooks":[]}</script>
+</div>
+</div>
+</section>
+<section id="final-assessment" class="level3">
+<h3 class="anchored" data-anchor-id="final-assessment">Final Assessment</h3>
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+✅ All Quality Checks Passed
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The polling station data meets all quality thresholds. The data integration appears successful with high quality metrics across all dimensions.</p>
+</div>
+</div>
+<hr>
+<div style="text-align: center; color: #6c757d; font-size: 0.9em; margin-top: 50px;">
+<p>Report generated by the Brazilian Polling Station Geocoding Pipeline<br> R version 4.5.0 (2025-04-11)</p>
+</div>
+</section>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+        const codeEl = trigger.previousElementSibling.cloneNode(true);
+        for (const childEl of codeEl.children) {
+          if (isCodeAnnotation(childEl)) {
+            childEl.remove();
+          }
+        }
+        return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

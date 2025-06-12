@@ -47,15 +47,7 @@ colors <- c(
 #| label: load-data
 
 # Load targets data
-# When run via tar_quarto(), targets should be available without store argument
-# When run manually, we need to specify the store location
-tryCatch({
-  tar_load(c(panel_ids, geocoded_locais))
-}, error = function(e) {
-  # Fallback for manual execution
-  project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
-  tar_load(c(panel_ids, geocoded_locais), store = file.path(project_root, "_targets"))
-})
+tar_load(c("panel_ids", "geocoded_locais"))
 
 # Basic statistics
 total_stations <- uniqueN(geocoded_locais$local_id)
@@ -752,8 +744,8 @@ if (nrow(diff_address_dups) > 0) {
     Municipality = iconv(municipio, from = "UTF-8", to = "UTF-8", sub = ""),
     `# Stations` = n_stations,
     `# Addresses` = n_unique_addresses,
-    `Address Examples` = substr(addresses, 1, 100),
-    `Station Names` = substr(names, 1, 80)
+    `Address Examples` = strtrim(iconv(addresses, from = "UTF-8", to = "UTF-8", sub = ""), 100),
+    `Station Names` = strtrim(iconv(names, from = "UTF-8", to = "UTF-8", sub = ""), 80)
   )]
   
   datatable(
@@ -793,8 +785,8 @@ if (nrow(same_address_dups) > 0) {
     State = sg_uf, 
     Municipality = iconv(municipio, from = "UTF-8", to = "UTF-8", sub = ""),
     `# Stations` = n_stations,
-    `Shared Address` = substr(addresses, 1, 100),
-    `Station Names` = substr(names, 1, 100)
+    `Shared Address` = strtrim(iconv(addresses, from = "UTF-8", to = "UTF-8", sub = ""), 100),
+    `Station Names` = strtrim(iconv(names, from = "UTF-8", to = "UTF-8", sub = ""), 100)
   )]
   
   kable(expected_sample, caption = "Examples of expected coordinate sharing (same address)")

@@ -22,10 +22,9 @@ library(tarchetypes)
 library(data.table)
 library(crew)
 
-# Load configuration and helper files FIRST
-source("./R/pipeline_config.R")
-source("./R/target_factory.R")
-source("./R/target_helpers.R")
+# ===== GLOBAL FUNCTION LOADING =====
+# Load ALL custom functions - makes functions available to all workers
+tar_source(files = "R")
 
 # Set global options
 
@@ -76,32 +75,6 @@ if (targets::tar_active()) {
 configure_targets_options(controller_group)
 
 # Note: progressr package removed - was not being used
-
-# ===== SOURCE FILES =====
-# Load remaining source files (helpers already loaded above)
-
-# Load core functionality
-source("./R/geocodebr_matching.R")
-source("./R/parallel_integration_fns.R")
-source("./R/memory_efficient_cnefe.R")
-source("./R/column_mapping.R")
-source("./R/state_filtering.R")
-source("./R/data_table_utils.R")
-
-# Load validation functions
-source("./R/functions_validate.R")
-source("./R/validation_pipeline_stages.R")
-source("./R/validation_reporting.R")
-source("./R/validation_report_renderer.R")
-
-# Load Brasília filtering functions
-source("./R/filter_brasilia_municipal.R")
-source("./R/validate_brasilia_filtering.R")
-source("./R/expected_municipality_counts.R")
-source("./R/update_validation_for_brasilia.R")
-
-# Load all function files ending with 'fns'
-lapply(list.files("./R", full.names = TRUE, pattern = "fns$"), source)
 
 ## Do not use s2 spherical geometry package
 # sf::sf_use_s2(FALSE)
@@ -1567,6 +1540,10 @@ list(
   tar_target(
     name = sanity_check_report,
     command = {
+      # Ensure dependencies are available
+      geocoded_locais
+      panel_ids
+      
       # Ensure quarto can be found
       if (Sys.getenv("QUARTO_PATH") == "") {
         quarto_bin <- Sys.which("quarto")

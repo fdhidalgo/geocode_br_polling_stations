@@ -21,6 +21,16 @@ library(crew)
 # Set global options
 # options(future.globals.maxSize = 2 * 1024^3) # No longer needed with crew/mirai
 
+# Fix for quarto not being found in crew workers
+# Set QUARTO_PATH environment variable if not already set
+if (Sys.getenv("QUARTO_PATH") == "") {
+  quarto_bin <- Sys.which("quarto")
+  if (nzchar(quarto_bin)) {
+    Sys.setenv(QUARTO_PATH = as.character(quarto_bin))
+    message("Setting QUARTO_PATH to: ", quarto_bin)
+  }
+}
+
 # Define the null coalescing operator
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
@@ -51,7 +61,7 @@ options(
 # Memory-limited controller for CNEFE cleaning and street/neighborhood matching
 controller_memory <- crew::crew_controller_local(
   name = "memory_limited",
-  workers = 2, # Limit to 2 workers to prevent memory exhaustion
+  workers = 3, # Limit to 3 workers to prevent memory exhaustion
   seconds_idle = 300, # Keep workers alive for batched work
   seconds_wall = 36000, # 10 hours for longer CNEFE processing
   seconds_timeout = 32400, # 9 hours timeout (was timing out at 8h 25m)
@@ -136,6 +146,8 @@ DEV_MODE <- FALSE # Process only AC, RR states when TRUE
 
 # Load the R scripts with your custom functions:
 lapply(list.files("./R", full.names = TRUE, pattern = "fns"), source)
+# Load quarto path fix for crew workers
+source("./R/quarto_path_fix.R")
 # Load geocodebr matching functions
 source("./R/geocodebr_matching.R")
 # Load parallel processing functions
@@ -1618,9 +1630,34 @@ list(
     cue = tar_cue(mode = "always")
   ),
   ## Sanity Check Report
-  tar_quarto(
+  tar_target(
     name = sanity_check_report,
-    path = "reports/polling_station_sanity_check.qmd"
+    command = {
+      # Ensure quarto can be found
+      if (Sys.getenv("QUARTO_PATH") == "") {
+        quarto_bin <- Sys.which("quarto")
+        if (!nzchar(quarto_bin)) {
+          quarto_bin <- "/usr/local/bin/quarto"
+        }
+        Sys.setenv(QUARTO_PATH = quarto_bin)
+      }
+      
+      # Render the report
+      quarto::quarto_render(
+        input = "reports/polling_station_sanity_check.qmd",
+        execute_dir = getwd()
+      )
+      
+      # Return the output files
+      output_files <- "reports/polling_station_sanity_check.html"
+      support_dir <- "reports/polling_station_sanity_check_files"
+      if (dir.exists(support_dir)) {
+        output_files <- c(output_files, support_dir)
+      }
+      output_files
+    },
+    format = "file",
+    deployment = "main"  # Run on main to ensure data access
   ),
   ## Methodology and Evaluation
   # Only render in production mode

@@ -125,3 +125,64 @@ get_muni_codes_for_states <- function(muni_ids, states) {
   
   return(muni_codes)
 }
+
+#' Get states to process based on context and mode
+#' 
+#' Centralized function to determine which states to process based on the
+#' pipeline context and development mode setting. This replaces repetitive
+#' if/else blocks throughout the pipeline.
+#' 
+#' @param context Character string indicating the context (e.g., "cnefe10", "cnefe22", "panel")
+#' @param pipeline_config Pipeline configuration object with dev_mode and dev_states
+#' @param custom_states Optional custom state list for production mode (used for panel context)
+#' @return Character vector of state abbreviations
+#' @export
+get_states_for_processing <- function(context, pipeline_config, custom_states = NULL) {
+  if (pipeline_config$dev_mode) {
+    return(pipeline_config$dev_states)
+  }
+  
+  # Production mode - determine states based on context
+  switch(context,
+    cnefe10 = {
+      state_files <- list.files("data/cnefe_2010", pattern = "cnefe_2010_.*\\.csv\\.gz$")
+      gsub("cnefe_2010_(.+)\\.csv\\.gz", "\\1", state_files)
+    },
+    cnefe22 = {
+      state_files <- list.files("data/cnefe_2022", pattern = "cnefe_2022_.*\\.csv\\.gz$")
+      gsub("cnefe_2022_(.+)\\.csv\\.gz", "\\1", state_files)
+    },
+    panel = {
+      # Use custom states or default to all Brazilian states
+      custom_states %||% c("AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", 
+                          "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", 
+                          "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", 
+                          "SE", "SP", "TO")
+    },
+    stop("Unknown context: ", context)
+  )
+}
+
+#' Get agro CNEFE files based on mode
+#' 
+#' Special handler for agro_cnefe_files which returns file paths not states.
+#' In dev mode, maps state abbreviations to specific file names.
+#' In production mode, returns all files in the agro_censo directory.
+#' 
+#' @param pipeline_config Pipeline configuration object with dev_mode and dev_states
+#' @return Character vector of file paths
+#' @export
+get_agro_cnefe_files <- function(pipeline_config) {
+  if (pipeline_config$dev_mode) {
+    state_file_map <- c(
+      "AC" = "12_ACRE.csv.gz",
+      "RR" = "14_RORAIMA.csv.gz",
+      "AP" = "16_AMAPA.csv.gz",
+      "RO" = "11_RONDONIA.csv.gz"
+    )
+    dev_files <- state_file_map[pipeline_config$dev_states]
+    file.path("data/agro_censo", dev_files[!is.na(dev_files)])
+  } else {
+    dir("data/agro_censo/", full.names = TRUE)
+  }
+}

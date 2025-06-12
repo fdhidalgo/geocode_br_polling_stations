@@ -116,26 +116,15 @@ list(
   ),
   tar_target(
     name = validate_muni_ids,
-    command = {
-      result <- validate_import_stage(
-        data = muni_ids,
-        stage_name = "muni_ids",
-        expected_cols = c(
-          "id_munic_7",
-          "id_munic_6",
-          "id_TSE",
-          "estado_abrev",
-          "municipio"
-        ),
-        min_rows = ifelse(pipeline_config$dev_mode, 30, 5000) # AC+RR have ~37 municipalities, Brazil has ~5,570
-      )
-      if (!result$passed) {
-        warning(
-          "Municipality identifiers validation failed - check data quality"
-        )
-      }
-      result
-    }
+    command = validate_simple(
+      data = muni_ids,
+      stage_name = "muni_ids",
+      expected_cols = c("id_munic_7", "id_munic_6", "id_TSE", "estado_abrev", "municipio"),
+      min_rows_dev = 30,  # AC+RR have ~37 municipalities
+      min_rows_prod = 5000,  # Brazil has ~5,570
+      pipeline_config = pipeline_config,
+      warning_message = "Municipality identifiers validation failed - check data quality"
+    )
   ),
   tar_target(
     name = inep_codes_file,
@@ -148,18 +137,15 @@ list(
   ),
   tar_target(
     name = validate_inep_codes,
-    command = {
-      result <- validate_import_stage(
-        data = inep_codes,
-        stage_name = "inep_codes",
-        expected_cols = c("codigo_inep", "id_munic_7"),
-        min_rows = ifelse(pipeline_config$dev_mode, 1000, 100000) # Expect many schools
-      )
-      if (!result$passed) {
-        warning("INEP codes validation failed - check data quality")
-      }
-      result
-    }
+    command = validate_simple(
+      data = inep_codes,
+      stage_name = "inep_codes",
+      expected_cols = c("codigo_inep", "id_munic_7"),
+      min_rows_dev = 1000,  # Expect many schools
+      min_rows_prod = 100000,
+      pipeline_config = pipeline_config,
+      warning_message = "INEP codes validation failed - check data quality"
+    )
   ),
   ## import shape files
   tar_target(
@@ -247,18 +233,7 @@ list(
   ## CNEFE 2010 Processing
   tar_target(
     name = cnefe10_states,
-    command = {
-      if (pipeline_config$dev_mode) {
-        pipeline_config$dev_states
-      } else {
-        # Get all states from the cnefe_2010 directory
-        state_files <- list.files(
-          "data/cnefe_2010",
-          pattern = "cnefe_2010_.*\\.csv\\.gz$"
-        )
-        gsub("cnefe_2010_(.+)\\.csv\\.gz", "\\1", state_files)
-      }
-    }
+    command = get_states_for_processing("cnefe10", pipeline_config)
   ),
   # Process CNEFE10 state by state to avoid memory issues
   tar_target(
@@ -390,60 +365,20 @@ list(
   # Get list of states to process based on mode
   tar_target(
     name = cnefe22_states,
-    command = {
-      if (pipeline_config$dev_mode) {
-        pipeline_config$dev_states
-      } else {
-        # Get all states from the cnefe_2022 directory
-        state_files <- list.files(
-          "data/cnefe_2022",
-          pattern = "cnefe_2022_.*\\.csv\\.gz$"
-        )
-        gsub("cnefe_2022_(.+)\\.csv\\.gz", "\\1", state_files)
-      }
-    }
+    command = get_states_for_processing("cnefe22", pipeline_config)
   ),
   tar_target(
     name = validate_cnefe10_clean,
-    command = {
-      # Memory-efficient validation: sample the data instead of loading all
-      # Get total row count without loading full dataset
-      n_rows <- nrow(cnefe10)
-
-      # Sample a subset for validation (max 100k rows)
-      sample_size <- min(100000, n_rows)
-      sample_indices <- sample.int(n_rows, sample_size)
-
-      # Load only the sample
-      cnefe10_sample <- cnefe10[sample_indices, ]
-
-      # Force garbage collection after sampling
-      gc(verbose = FALSE)
-
-      # Validate the sample
-      result <- validate_import_stage(
-        data = cnefe10_sample,
-        stage_name = "cnefe10_cleaned",
-        expected_cols = c(
-          "id_munic_7",
-          "cnefe_lat",
-          "cnefe_long",
-          "norm_address",
-          "norm_street",
-          "norm_bairro"
-        ),
-        min_rows = ifelse(pipeline_config$dev_mode, 10000, 100000) # Adjusted for sample
-      )
-
-      # Add actual row count to metadata
-      result$metadata$total_rows <- n_rows
-      result$metadata$sample_size <- sample_size
-
-      if (!result$passed) {
-        stop("CNEFE 2010 cleaning validation failed - pipeline halted")
-      }
-      result
-    },
+    command = validate_with_sampling(
+      data = cnefe10,
+      stage_name = "cnefe10_cleaned",
+      expected_cols = c("id_munic_7", "cnefe_lat", "cnefe_long", "norm_address", "norm_street", "norm_bairro"),
+      min_rows_dev = 10000,
+      min_rows_prod = 100000,
+      pipeline_config = pipeline_config,
+      max_sample_size = 100000,
+      stop_on_failure = TRUE
+    ),
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
     )
@@ -483,45 +418,16 @@ list(
   ),
   tar_target(
     name = validate_cnefe22_clean,
-    command = {
-      # Memory-efficient validation: sample the data instead of loading all
-      # Get total row count without loading full dataset
-      n_rows <- nrow(cnefe22)
-
-      # Sample a subset for validation (max 100k rows)
-      sample_size <- min(100000, n_rows)
-      sample_indices <- sample.int(n_rows, sample_size)
-
-      # Load only the sample
-      cnefe22_sample <- cnefe22[sample_indices, ]
-
-      # Force garbage collection after sampling
-      gc(verbose = FALSE)
-
-      # Validate the sample
-      result <- validate_import_stage(
-        data = cnefe22_sample,
-        stage_name = "cnefe22_cleaned",
-        expected_cols = c(
-          "id_munic_7",
-          "cnefe_lat",
-          "cnefe_long",
-          "norm_address",
-          "norm_street",
-          "norm_bairro"
-        ),
-        min_rows = ifelse(pipeline_config$dev_mode, 10000, 100000) # Adjusted for sample
-      )
-
-      # Add actual row count to metadata
-      result$metadata$total_rows <- n_rows
-      result$metadata$sample_size <- sample_size
-
-      if (!result$passed) {
-        stop("CNEFE 2022 cleaning validation failed - pipeline halted")
-      }
-      result
-    },
+    command = validate_with_sampling(
+      data = cnefe22,
+      stage_name = "cnefe22_cleaned", 
+      expected_cols = c("id_munic_7", "cnefe_lat", "cnefe_long", "norm_address", "norm_street", "norm_bairro"),
+      min_rows_dev = 10000,
+      min_rows_prod = 100000,
+      pipeline_config = pipeline_config,
+      max_sample_size = 100000,
+      stop_on_failure = TRUE
+    ),
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
     )
@@ -581,21 +487,7 @@ list(
   ## Import and clean 2017 CNEFE
   tar_target(
     name = agro_cnefe_files,
-    command = {
-      if (pipeline_config$dev_mode) {
-        # Map state abbreviations to agro censo file names
-        state_file_map <- c(
-          "AC" = "12_ACRE.csv.gz",
-          "RR" = "14_RORAIMA.csv.gz",
-          "AP" = "16_AMAPA.csv.gz",
-          "RO" = "11_RONDONIA.csv.gz"
-        )
-        dev_files <- state_file_map[pipeline_config$dev_states]
-        file.path("data/agro_censo", dev_files[!is.na(dev_files)])
-      } else {
-        dir("data/agro_censo/", full.names = TRUE)
-      }
-    }
+    command = get_agro_cnefe_files(pipeline_config)
   ),
   tar_target(
     name = agro_cnefe,
@@ -688,35 +580,20 @@ list(
       inep_codes = inep_codes
     )
   ),
+  # INEP data filtered by development mode
   tar_target(
     name = inep_data,
-    command = {
-      if (pipeline_config$dev_mode) {
-        # Get municipality codes for dev states
-        dev_muni_codes <- get_muni_codes_for_states(
-          muni_ids,
-          pipeline_config$dev_states
-        )
-        inep_data_all[id_munic_7 %in% dev_muni_codes]
-      } else {
-        inep_data_all
-      }
-    }
+    command = apply_dev_mode_filters(inep_data_all, pipeline_config, muni_ids, "municipality", muni_col = "id_munic_7")
   ),
   tar_target(
     name = validate_inep_clean,
-    command = {
-      result <- validate_cleaning_stage(
-        cleaned_data = inep_data,
-        original_data = inep_codes,
-        stage_name = "inep_cleaned",
-        key_cols = c("codigo_inep", "id_munic_7", "latitude", "longitude")
-      )
-      if (!result$passed) {
-        warning("INEP data cleaning validation failed")
-      }
-      result
-    }
+    command = validate_cleaning(
+      cleaned_data = inep_data,
+      original_data = inep_codes,
+      stage_name = "inep_cleaned",
+      key_cols = c("codigo_inep", "id_munic_7", "latitude", "longitude"),
+      warning_message = "INEP data cleaning validation failed"
+    )
   ),
   
   # ========================================
@@ -737,64 +614,28 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
+  # Locais data filtered by development mode
   tar_target(
     name = locais,
-    command = {
-      if (pipeline_config$dev_mode) {
-        filter_data_by_state(locais_all, pipeline_config$dev_states, "sg_uf")
-      } else {
-        locais_all
-      }
-    }
+    command = apply_dev_mode_filters(locais_all, pipeline_config, filter_type = "state", state_col = "sg_uf")
   ),
-  # Filter Brasília from municipal election years
+  # Filter Brasília from municipal election years - using helper function
   tar_target(
     name = locais_filtered,
-    command = {
-      # Apply Brasília filtering
-      dt_filtered <- filter_brasilia_municipal_elections(locais)
-      
-      # Generate filtering report
-      report <- generate_brasilia_filtering_report(
-        dt_before = locais,
-        dt_after = dt_filtered,
-        output_file = "output/brasilia_filtering_report.rds"
-      )
-      
-      # Validate the filtering
-      validation <- validate_brasilia_filtering(dt_filtered, stop_on_failure = FALSE)
-      if (!validation$passed) {
-        warning("Brasília filtering validation failed - check the filtering logic")
-      }
-      
-      # Return filtered data
-      dt_filtered
-    }
+    command = apply_brasilia_filters(locais)
   ),
   tar_target(
     name = validate_locais,
-    command = {
-      result <- validate_import_stage(
-        data = locais_filtered,
-        stage_name = "locais",
-        expected_cols = c(
-          "local_id",
-          "ano",
-          "nr_zona",
-          "nr_locvot",
-          "nm_locvot",
-          "nm_localidade",
-          "sg_uf",
-          "cod_localidade_ibge",
-          "ds_endereco"
-        ),
-        min_rows = ifelse(pipeline_config$dev_mode, 1000, 100000)
-      )
-      if (!result$passed) {
-        warning("Polling stations validation failed - check data quality")
-      }
-      result
-    }
+    command = validate_simple(
+      data = locais_filtered,
+      stage_name = "locais",
+      expected_cols = c("local_id", "ano", "nr_zona", "nr_locvot", "nm_locvot", 
+                       "nm_localidade", "sg_uf", "cod_localidade_ibge", "ds_endereco"),
+      min_rows_dev = 1000,
+      min_rows_prod = 100000,
+      pipeline_config = pipeline_config,
+      warning_message = "Polling stations validation failed - check data quality"
+    )
   ),
   tar_target(
     ## Import geocoded polling stations from TSE for ground truth
@@ -818,43 +659,7 @@ list(
   ## Define all states for panel ID processing
   tar_target(
     panel_states_all,
-    command = {
-      if (pipeline_config$dev_mode) {
-        # In dev mode, only process dev states
-        pipeline_config$dev_states
-      } else {
-        # In production, process all states
-        c(
-          "AC",
-          "AL",
-          "AM",
-          "AP",
-          "BA",
-          "CE",
-          "DF",
-          "ES",
-          "GO",
-          "MA",
-          "MG",
-          "MS",
-          "MT",
-          "PA",
-          "PB",
-          "PE",
-          "PI",
-          "PR",
-          "RJ",
-          "RN",
-          "RO",
-          "RR",
-          "RS",
-          "SC",
-          "SE",
-          "SP",
-          "TO"
-        )
-      }
-    }
+    command = get_states_for_processing("panel", pipeline_config)
   ),
 
   ## Process panel IDs by state using dynamic branching
@@ -976,26 +781,15 @@ list(
   ),
   tar_target(
     name = validate_inep_match,
-    command = {
-      result <- validate_string_match_stage(
-        match_data = inep_string_match,
-        stage_name = "inep_string_match",
-        id_col = "local_id",
-        score_col = "dist"
-      )
-
-      message(sprintf(
-        "INEP string matching: %.1f%% match rate (%d matched out of %d)",
-        result$metadata$match_rate,
-        sum(!is.na(inep_string_match$lat), na.rm = TRUE),
-        nrow(inep_string_match)
-      ))
-
-      if (!result$passed) {
-        warning("INEP string match validation has issues")
-      }
-      result
-    }
+    command = validate_string_match_with_stats(
+      match_data = inep_string_match,
+      stage_name = "inep_string_match",
+      id_col = "local_id",
+      score_col = "dist",
+      lat_col = "lat",
+      custom_message = "INEP string matching: %.1f%% match rate (%d matched out of %d)",
+      warning_message = "INEP string match validation has issues"
+    )
   ),
   # Schools CNEFE 2010 matching with batched dynamic branching
   tar_target(
@@ -1242,31 +1036,13 @@ list(
   ),
   tar_target(
     name = validate_geocodebr_match,
-    command = {
-      result <- validate_string_match_stage(
-        match_data = geocodebr_match,
-        stage_name = "geocodebr_match",
-        id_col = "local_id",
-        score_col = "mindist_geocodebr"
-      )
-
-      # Report precision breakdown
-      if (nrow(geocodebr_match) > 0) {
-        precision_summary <- geocodebr_match[, .N, by = precisao_geocodebr]
-        message("geocodebr precision breakdown:")
-        print(precision_summary)
-
-        # Calculate street-level precision percentage
-        total_matches <- nrow(geocodebr_match)
-        street_level <- precision_summary[precisao_geocodebr == "logradouro", N]
-        if (length(street_level) > 0) {
-          pct_street <- 100 * street_level / total_matches
-          message(sprintf("Street-level precision: %.1f%%", pct_street))
-        }
-      }
-
-      result
-    }
+    command = validate_geocodebr_precision(
+      match_data = geocodebr_match,
+      stage_name = "geocodebr_match",
+      id_col = "local_id",
+      score_col = "mindist_geocodebr",
+      precision_col = "precisao_geocodebr"
+    )
   ),
   
   # ========================================
@@ -1294,21 +1070,14 @@ list(
   ),
   tar_target(
     name = validate_model_data,
-    command = {
-      result <- validate_merge_stage(
-        merged_data = model_data,
-        left_data = locais_filtered,
-        right_data = NULL, # Multiple sources merged
-        stage_name = "model_data_merge",
-        merge_keys = "local_id",
-        join_type = "left_many" # One-to-many join expected for fuzzy matching
-      )
-
-      if (!result$passed) {
-        warning("Model data merge validation failed")
-      }
-      result
-    }
+    command = validate_merge_simple(
+      merged_data = model_data,
+      left_data = locais_filtered,
+      stage_name = "model_data_merge",
+      merge_keys = "local_id",
+      join_type = "left_many",  # One-to-many join expected for fuzzy matching
+      warning_message = "Model data merge validation failed"
+    )
   ),
   ## Train model and make predictions
   tar_target(
@@ -1324,18 +1093,12 @@ list(
   ),
   tar_target(
     name = validate_predictions,
-    command = {
-      result <- validate_prediction_stage(
-        predictions = model_predictions,
-        stage_name = "model_predictions",
-        pred_col = "pred_dist", # Distance prediction column
-        prob_col = NULL # No probability column
-      )
-      if (!result$passed) {
-        stop("Model predictions validation failed")
-      }
-      result
-    }
+    command = validate_predictions_simple(
+      predictions = model_predictions,
+      stage_name = "model_predictions",
+      pred_col = "pred_dist",
+      stop_on_failure = TRUE
+    )
   ),
 
   # ========================================
@@ -1351,35 +1114,14 @@ list(
   ),
   tar_target(
     name = validate_geocoded_output,
-    command = {
-      result <- validate_output_stage(
-        output_data = geocoded_locais,
-        stage_name = "geocoded_locais",
-        required_cols = c(
-          "local_id",
-          "final_lat",
-          "final_long",
-          "ano",
-          "nr_zona",
-          "nr_locvot",
-          "nm_locvot",
-          "nm_localidade"
-        ),
-        unique_keys = c("local_id", "ano", "nr_zona", "nr_locvot")
-      )
-
-      # Final quality check
-      if (!result$passed) {
-        stop("Final output validation failed - do not export!")
-      }
-
-      message(sprintf(
-        "Geocoding complete: %d polling stations geocoded",
-        nrow(geocoded_locais)
-      ))
-
-      result
-    }
+    command = validate_final_output(
+      output_data = geocoded_locais,
+      stage_name = "geocoded_locais",
+      required_cols = c("local_id", "final_lat", "final_long", "ano", 
+                       "nr_zona", "nr_locvot", "nm_locvot", "nm_localidade"),
+      unique_keys = c("local_id", "ano", "nr_zona", "nr_locvot"),
+      stop_on_failure = TRUE
+    )
   ),
 
   # ========================================
@@ -1537,38 +1279,12 @@ list(
     cue = tar_cue(mode = "always")
   ),
   ## Sanity Check Report
-  tar_target(
-    name = sanity_check_report,
-    command = {
-      # Ensure dependencies are available
-      geocoded_locais
-      panel_ids
-      
-      # Ensure quarto can be found
-      if (Sys.getenv("QUARTO_PATH") == "") {
-        quarto_bin <- Sys.which("quarto")
-        if (!nzchar(quarto_bin)) {
-          quarto_bin <- "/usr/local/bin/quarto"
-        }
-        Sys.setenv(QUARTO_PATH = quarto_bin)
-      }
-      
-      # Render the report
-      quarto::quarto_render(
-        input = "reports/polling_station_sanity_check.qmd",
-        execute_dir = getwd()
-      )
-      
-      # Return the output files
-      output_files <- "reports/polling_station_sanity_check.html"
-      support_dir <- "reports/polling_station_sanity_check_files"
-      if (dir.exists(support_dir)) {
-        output_files <- c(output_files, support_dir)
-      }
-      output_files
-    },
-    format = "file",
-    deployment = "main"  # Run on main to ensure data access
+  # Sanity check report - using helper function
+  create_validation_report_target(
+    target_name = "sanity_check_report",
+    input_file = "reports/polling_station_sanity_check.qmd",
+    dependencies = c("geocoded_locais", "panel_ids"),
+    report_type = "sanity_check"
   ),
   ## Methodology and Evaluation
   # Only render in production mode

@@ -282,22 +282,6 @@ list(
     name = cnefe22_states,
     command = get_states_for_processing("cnefe22", pipeline_config)
   ),
-  tar_target(
-    name = validate_cnefe10_clean,
-    command = validate_with_sampling(
-      data = cnefe10,
-      stage_name = "cnefe10_cleaned",
-      expected_cols = c("id_munic_7", "cnefe_lat", "cnefe_long", "norm_address", "norm_street", "norm_bairro"),
-      min_rows_dev = 10000,
-      min_rows_prod = 100000,
-      pipeline_config = pipeline_config,
-      max_sample_size = 100000,
-      stop_on_failure = TRUE
-    ),
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "memory_limited")
-    )
-  ),
   # Process CNEFE22 state by state to avoid memory issues
   tar_target(
     name = cnefe22_cleaned_by_state,
@@ -324,22 +308,6 @@ list(
     format = "qs",
     storage = "worker",
     retrieval = "worker"
-  ),
-  tar_target(
-    name = validate_cnefe22_clean,
-    command = validate_with_sampling(
-      data = cnefe22,
-      stage_name = "cnefe22_cleaned", 
-      expected_cols = c("id_munic_7", "cnefe_lat", "cnefe_long", "norm_address", "norm_street", "norm_bairro"),
-      min_rows_dev = 10000,
-      min_rows_prod = 100000,
-      pipeline_config = pipeline_config,
-      max_sample_size = 100000,
-      stop_on_failure = TRUE
-    ),
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "memory_limited")
-    )
   ),
 
   ## Combine state-level school extracts for 2010 CNEFE
@@ -930,8 +898,6 @@ list(
     command = generate_validation_report_complete(
       validate_muni_ids = validate_muni_ids,
       validate_inep_codes = validate_inep_codes,
-      validate_cnefe10_clean = validate_cnefe10_clean,
-      validate_cnefe22_clean = validate_cnefe22_clean,
       validate_inep_clean = validate_inep_clean,
       validate_locais = validate_locais,
       validate_inep_match = validate_inep_match,

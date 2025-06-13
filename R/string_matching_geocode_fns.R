@@ -1,3 +1,14 @@
+# Check if memory-efficient mode is enabled
+if (isTRUE(getOption("geocode_br.use_memory_efficient", FALSE))) {
+  # Source memory-efficient version if enabled
+  if (!exists("match_strings_memory_efficient")) {
+    source("R/memory_efficient_string_matching.R")
+    source("R/string_matching_geocode_fns_memory_efficient.R")
+  }
+  # The memory-efficient versions will override these functions
+} else {
+  # Original implementations follow
+
 match_inep_muni <- function(locais_muni, inep_muni) {
   # this function operates on a single municipality
 
@@ -9,7 +20,7 @@ match_inep_muni <- function(locais_muni, inep_muni) {
   name_inep_dists <- stringdist::stringdistmatrix(
     locais_muni$normalized_name,
     inep_muni$norm_school,
-    method = "lv"
+    method = "jw"
   )
   # Normalize for string length
   name_inep_dists <- name_inep_dists /
@@ -40,7 +51,7 @@ match_inep_muni <- function(locais_muni, inep_muni) {
   addr_inep_dists <- stringdist::stringdistmatrix(
     locais_muni$normalized_addr,
     inep_muni$norm_addr,
-    method = "lv"
+    method = "jw"
   )
   # Normalize for string length
   addr_inep_dists <- addr_inep_dists /
@@ -93,7 +104,7 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
   name_schools_cnefe_dists <- stringdist::stringdistmatrix(
     locais_muni$normalized_name,
     schools_cnefe_muni$norm_desc,
-    method = "lv"
+    method = "jw"
   )
   # Normalize for string length
   name_schools_cnefe_dists <- name_schools_cnefe_dists /
@@ -124,7 +135,7 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
   addr_schools_cnefe_dists <- stringdist::stringdistmatrix(
     locais_muni$normalized_addr,
     schools_cnefe_muni$norm_addr,
-    method = "lv"
+    method = "jw"
   )
   # Normalize for string length
   addr_schools_cnefe_dists <- addr_schools_cnefe_dists /
@@ -187,7 +198,7 @@ match_stbairro_cnefe_muni <- function(
   st_cnefe_dists <- stringdist::stringdistmatrix(
     locais_muni$normalized_st,
     cnefe_st_muni$norm_street,
-    method = "lv"
+    method = "jw"
   )
 
   # Normalize for string length
@@ -214,7 +225,7 @@ match_stbairro_cnefe_muni <- function(
   bairro_cnefe_dists <- stringdist::stringdistmatrix(
     locais_muni$normalized_bairro,
     cnefe_bairro_muni$norm_bairro,
-    method = "lv"
+    method = "jw"
   )
 
   # Normalize for string length
@@ -275,7 +286,7 @@ match_stbairro_agrocnefe_muni <- function(
   st_agrocnefe_dists <- stringdist::stringdistmatrix(
     locais_muni$normalized_st,
     agrocnefe_st_muni$norm_street,
-    method = "lv"
+    method = "jw"
   )
   # Normalize for string length
   st_agrocnefe_dists <- st_agrocnefe_dists /
@@ -307,7 +318,7 @@ match_stbairro_agrocnefe_muni <- function(
   bairro_agrocnefe_dists <- stringdist::stringdistmatrix(
     locais_muni$normalized_bairro,
     agrocnefe_bairro_muni$norm_bairro,
-    method = "lv"
+    method = "jw"
   )
   # Normalize for string length
   bairro_agrocnefe_dists <- bairro_agrocnefe_dists /
@@ -766,3 +777,5 @@ get_predictions <- function(trained_model, model_data) {
     )
   ]
 }
+
+} # End of else block for non-memory-efficient mode

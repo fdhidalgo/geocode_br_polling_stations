@@ -13,7 +13,7 @@
 
 # ===== CONFIGURATION =====
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- TRUE # Process only AC, RR states when TRUE
+DEV_MODE <- FALSE # Process only AC, RR states when TRUE
 
 # ===== SETUP =====
 # Load packages required to define the pipeline:
@@ -77,6 +77,12 @@ configure_targets_options(controller_group)
 
 # Get pipeline configuration based on development mode
 pipeline_config <- get_pipeline_config(DEV_MODE)
+
+# Enable memory-efficient string matching if configured
+if (pipeline_config$use_memory_efficient) {
+  options(geocode_br.use_memory_efficient = TRUE)
+  message("Memory-efficient string matching is ENABLED")
+}
 
 # Print configuration info
 if (pipeline_config$dev_mode) {
@@ -618,12 +624,22 @@ list(
     command = unique(locais_filtered$cod_localidade_ibge)
   ),
 
+  # Calculate municipality sizes for smart batching
+  tar_target(
+    name = municipality_sizes,
+    command = {
+      # Count polling stations per municipality
+      locais_filtered[, .(size = .N), by = .(muni_code = cod_localidade_ibge)]
+    }
+  ),
+  
   # Create municipality batch assignments for flattened parallel processing
   tar_target(
     name = municipality_batch_assignments,
     command = create_municipality_batch_assignments(
       municipalities_for_matching,
-      batch_size = ifelse(pipeline_config$dev_mode, 10, 50)
+      batch_size = ifelse(pipeline_config$dev_mode, 10, 50),
+      muni_sizes = municipality_sizes
     )
   ),
 

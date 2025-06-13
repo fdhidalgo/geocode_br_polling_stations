@@ -79,6 +79,7 @@ The project uses `targets` package for pipeline management with these stages:
 - Document with Roxygen2
 - Use relative paths 
 - Prefer pure functions without side effects
+- **_targets.R readability**: When creating new targets, almost always create a helper function rather than long blocks of code. Only use inline code if the command is 3-4 lines or less. This keeps _targets.R readable and maintainable.
 
 ### Claude Code Requirements
 - **IMPORTANT**: Always explain major function changes and get user approval before proceeding

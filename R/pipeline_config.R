@@ -12,8 +12,9 @@
 #' @export
 get_crew_controllers <- function(dev_mode = FALSE) {
   # Adjust worker counts based on mode
-  memory_workers <- ifelse(dev_mode, 2, 3)
-  standard_workers <- ifelse(dev_mode, 4, 28)
+  # With memory-efficient string matching, we can optimize worker allocation
+  memory_workers <- ifelse(dev_mode, 2, 8)  # Increased from 5 to 8 (safer with chunking)
+  standard_workers <- ifelse(dev_mode, 4, 28)  # Increased from 25 to 28 (near core limit)
   
   # Memory-limited controller for CNEFE operations
   controller_memory <- crew::crew_controller_local(
@@ -32,6 +33,8 @@ get_crew_controllers <- function(dev_mode = FALSE) {
   )
   
   # Standard controller for all other operations
+  # With smart batching, mega municipalities are in separate batches
+  # so we can run more workers without memory issues
   controller_standard <- crew::crew_controller_local(
     name = "standard",
     workers = standard_workers,
@@ -47,10 +50,28 @@ get_crew_controllers <- function(dev_mode = FALSE) {
     garbage_collection = FALSE
   )
   
+  # Specialized controller for mega municipalities (optional)
+  # Uses fewer workers but with more memory headroom
+  controller_mega <- crew::crew_controller_local(
+    name = "mega_cities",
+    workers = 10,  # Fewer workers for memory-intensive mega cities
+    seconds_idle = 300,
+    seconds_wall = 36000,  # 10 hours for large municipalities
+    seconds_timeout = 7200,  # 2 hours
+    tasks_max = 10,
+    tasks_timers = 1,
+    seconds_interval = 0.1,
+    reset_globals = TRUE,
+    reset_packages = TRUE,
+    reset_options = TRUE,
+    garbage_collection = TRUE
+  )
+  
   # Create controller group
   crew::crew_controller_group(
     controller_memory,
-    controller_standard
+    controller_standard,
+    controller_mega
   )
 }
 

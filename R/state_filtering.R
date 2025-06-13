@@ -81,7 +81,16 @@ get_pipeline_config <- function(dev_mode = FALSE) {
     memory_limit = ifelse(dev_mode, "2GB", "16GB"),
     
     # Number of parallel workers
-    n_workers = ifelse(dev_mode, 2, 4)
+    n_workers = ifelse(dev_mode, 2, 4),
+    
+    # Memory-efficient string matching configuration
+    use_memory_efficient = TRUE,  # Enable by default to prevent OOM
+    memory_efficient_threshold_mb = 500,  # Use memory-efficient mode for matrices > 500MB
+    chunk_sizes = list(
+      small = 2000,   # For municipalities < 5000 polling stations
+      medium = 1000,  # For municipalities 5000-10000
+      large = 500     # For municipalities > 10000
+    )
   )
 }
 

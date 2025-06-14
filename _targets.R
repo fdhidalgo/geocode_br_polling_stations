@@ -101,7 +101,7 @@ list(
   # ========================================
   # DATA IMPORT TARGETS
   # ========================================
-  
+
   ## Municipality and code identifiers
   tar_target(
     name = muni_ids_file,
@@ -122,8 +122,8 @@ list(
       data = muni_ids,
       stage_name = "muni_ids",
       expected_cols = c("id_munic_7", "id_munic_6", "id_TSE", "estado_abrev", "municipio"),
-      min_rows_dev = 30,  # AC+RR have ~37 municipalities
-      min_rows_prod = 5000,  # Brazil has ~5,570
+      min_rows_dev = 30, # AC+RR have ~37 municipalities
+      min_rows_prod = 5000, # Brazil has ~5,570
       pipeline_config = pipeline_config,
       warning_message = "Municipality identifiers validation failed - check data quality"
     )
@@ -143,7 +143,7 @@ list(
       data = inep_codes,
       stage_name = "inep_codes",
       expected_cols = c("codigo_inep", "id_munic_7"),
-      min_rows_dev = 1000,  # Expect many schools
+      min_rows_dev = 1000, # Expect many schools
       min_rows_prod = 100000,
       pipeline_config = pipeline_config,
       warning_message = "INEP codes validation failed - check data quality"
@@ -184,7 +184,7 @@ list(
     name = muni_shp,
     command = if (pipeline_config$dev_mode) {
       dev_muni_codes <- muni_ids$id_munic_7
-      muni_filtered <- muni_shp_all[muni_shp_all$code_muni %in% dev_muni_codes,]
+      muni_filtered <- muni_shp_all[muni_shp_all$code_muni %in% dev_muni_codes, ]
       sf::st_as_sf(muni_filtered)
     } else {
       muni_shp_all
@@ -208,11 +208,11 @@ list(
       muni_demo_all
     }
   ),
-  
+
   # ========================================
   # GEOGRAPHIC FEATURES
   # ========================================
-  
+
   tar_target(
     name = tract_centroids,
     command = make_tract_centroids(tract_shp)
@@ -225,7 +225,7 @@ list(
   # ========================================
   # CNEFE DATA PROCESSING
   # ========================================
-  
+
   ## CNEFE 2010 Processing
   tar_target(
     name = cnefe10_states,
@@ -463,11 +463,11 @@ list(
       warning_message = "INEP data cleaning validation failed"
     )
   ),
-  
+
   # ========================================
   # POLLING STATION DATA
   # ========================================
-  
+
   tar_target(
     name = locais_file,
     command = "./data/polling_stations_2006_2024.csv.gz",
@@ -497,8 +497,10 @@ list(
     command = validate_simple(
       data = locais_filtered,
       stage_name = "locais",
-      expected_cols = c("local_id", "ano", "nr_zona", "nr_locvot", "nm_locvot", 
-                       "nm_localidade", "sg_uf", "cod_localidade_ibge", "ds_endereco"),
+      expected_cols = c(
+        "local_id", "ano", "nr_zona", "nr_locvot", "nm_locvot",
+        "nm_localidade", "sg_uf", "cod_localidade_ibge", "ds_endereco"
+      ),
       min_rows_dev = 1000,
       min_rows_prod = 100000,
       pipeline_config = pipeline_config,
@@ -524,36 +526,47 @@ list(
     )
   ),
   ## Create panel ids to track polling stations across time
-  ## Define all states for panel ID processing
+  ## Create municipality batches for panel ID processing
   tar_target(
-    panel_states_all,
-    command = get_states_for_processing("panel", pipeline_config)
+    name = panel_municipality_batches,
+    command = create_panel_municipality_batches(
+      locais_data = locais_filtered,
+      target_batch_size = ifelse(pipeline_config$dev_mode, 2000, 5000)
+    )
   ),
 
-  ## Process panel IDs by state using dynamic branching
+  ## Extract unique batch IDs for dynamic branching
   tar_target(
-    name = panel_ids_by_state,
+    name = panel_batch_ids,
+    command = unique(panel_municipality_batches$batch_id)
+  ),
+
+  ## Monitor panel processing setup
+  tar_target(
+    name = panel_batch_summary,
     command = {
-      # Handle DF differently due to different years
-      if (panel_states_all == "DF") {
-        process_panel_ids_single_state(
-          locais_full = locais_filtered,
-          state_code = panel_states_all,
-          years = c(2006, 2008, 2010, 2012, 2014, 2018, 2022, 2024),
-          blocking_column = "cod_localidade_ibge",
-          scoring_columns = c("normalized_name", "normalized_addr")
-        )
-      } else {
-        process_panel_ids_single_state(
-          locais_full = locais_filtered,
-          state_code = panel_states_all,
-          years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
-          blocking_column = "cod_localidade_ibge",
-          scoring_columns = c("normalized_name", "normalized_addr")
-        )
-      }
+      monitor_panel_progress(panel_municipality_batches)
+      panel_municipality_batches
+    }
+  ),
+
+  ## Process panel IDs by municipality batch using dynamic branching
+  tar_target(
+    name = panel_ids_by_batch,
+    command = {
+      # Get municipalities for this batch
+      batch_municipalities <- panel_municipality_batches[batch_id == panel_batch_ids]
+
+      # Process panel IDs for this batch
+      process_panel_ids_municipality_batch(
+        locais_full = locais_filtered,
+        municipality_batch = batch_municipalities,
+        years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
+        blocking_column = "cod_localidade_ibge",
+        scoring_columns = c("normalized_name", "normalized_addr")
+      )
     },
-    pattern = map(panel_states_all),
+    pattern = map(panel_batch_ids),
     iteration = "list",
     deployment = "worker",
     storage = "worker",
@@ -563,10 +576,10 @@ list(
     )
   ),
 
-  ## Combine panel IDs from all states
+  ## Combine panel IDs from all batches
   tar_target(
     name = panel_ids_combined,
-    command = combine_state_panel_ids(panel_ids_by_state),
+    command = combine_state_panel_ids(panel_ids_by_batch),
     deployment = "main",
     storage = "worker",
     retrieval = "worker"
@@ -600,7 +613,7 @@ list(
       locais_filtered[, .(size = .N), by = .(muni_code = cod_localidade_ibge)]
     }
   ),
-  
+
   # Create municipality batch assignments for flattened parallel processing
   tar_target(
     name = municipality_batch_assignments,
@@ -809,11 +822,11 @@ list(
       precision_col = "precisao_geocodebr"
     )
   ),
-  
+
   # ========================================
   # MODEL TRAINING AND PREDICTION
   # ========================================
-  
+
   ## Combine string matching data for modeling
   tar_target(
     name = model_data,
@@ -840,7 +853,7 @@ list(
       left_data = locais_filtered,
       stage_name = "model_data_merge",
       merge_keys = "local_id",
-      join_type = "left_many",  # One-to-many join expected for fuzzy matching
+      join_type = "left_many", # One-to-many join expected for fuzzy matching
       warning_message = "Model data merge validation failed"
     )
   ),
@@ -869,7 +882,7 @@ list(
   # ========================================
   # FINAL GEOCODING
   # ========================================
-  
+
   tar_target(
     name = geocoded_locais,
     command = finalize_coords(locais, model_predictions, tsegeocoded_locais),
@@ -882,8 +895,10 @@ list(
     command = validate_final_output(
       output_data = geocoded_locais,
       stage_name = "geocoded_locais",
-      required_cols = c("local_id", "final_lat", "final_long", "ano", 
-                       "nr_zona", "nr_locvot", "nm_locvot", "nm_localidade"),
+      required_cols = c(
+        "local_id", "final_lat", "final_long", "ano",
+        "nr_zona", "nr_locvot", "nm_locvot", "nm_localidade"
+      ),
       unique_keys = c("local_id", "ano", "nr_zona", "nr_locvot"),
       stop_on_failure = TRUE
     )
@@ -919,7 +934,7 @@ list(
   # ========================================
   # DATA EXPORT
   # ========================================
-  
+
   tar_target(
     name = geocoded_export,
     command = export_geocoded_with_validation(geocoded_locais, validation_report),
@@ -936,7 +951,7 @@ list(
     command = {
       # Load monitoring functions
       source("R/data_quality_monitor_v2.R")
-      
+
       # Create monitoring report with export files as dependencies
       results <- create_data_quality_monitor(
         geocoded_export = geocoded_export,
@@ -945,10 +960,10 @@ list(
         panel_ids = panel_ids,
         config_file = "config/data_quality_config.yaml"
       )
-      
+
       # Save latest results for tracking
       saveRDS(results, "output/latest_quality_results.rds")
-      
+
       # Return results for downstream use
       results
     },

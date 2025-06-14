@@ -220,9 +220,14 @@ make_panel_1block <- function(block, years, blocking_column, scoring_columns) {
   # Standardize column names in block
   standardize_column_names(block, inplace = TRUE)
   
-  cat("Processing state:", unique(block$sg_uf), "\n")
+  cat("Processing block with", nrow(block), "rows\n")
   
-  pairs_list <- create_and_select_best_pairs(block, years, blocking_column, scoring_columns)
+  # Use optimized version if available
+  if (exists("create_and_select_best_pairs_optimized")) {
+    pairs_list <- create_and_select_best_pairs_optimized(block, years, blocking_column, scoring_columns)
+  } else {
+    pairs_list <- create_and_select_best_pairs(block, years, blocking_column, scoring_columns)
+  }
   
   if (length(pairs_list) == 0) {
     cat("  No pairs found for this block\n")

@@ -116,19 +116,59 @@ Use the `mcp__taskmaster-ai__` prefixed tools for task management:
 
 ```
 # Core workflow
-mcp__taskmaster-ai__get_tasks              # View all tasks
-mcp__taskmaster-ai__next_task              # Get next task to work on
-mcp__taskmaster-ai__get_task               # View specific task
-mcp__taskmaster-ai__set_task_status        # Set task status
+mcp__taskmaster-ai__get_tasks(
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations",
+  status="pending",              # Optional: filter by status
+  withSubtasks=true             # Optional: include subtasks
+)
+
+mcp__taskmaster-ai__next_task(
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations"
+)
+
+mcp__taskmaster-ai__get_task(
+  id="36",                      # Required: task ID
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations"
+)
+
+mcp__taskmaster-ai__set_task_status(
+  id="36",                      # Required: task ID (can be comma-separated)
+  status="done",                # Required: pending/done/in-progress/review/deferred/cancelled
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations"
+)
 
 # Task management
-mcp__taskmaster-ai__expand_task            # Break down complex tasks
-mcp__taskmaster-ai__update_task            # Update single task
-mcp__taskmaster-ai__add_task               # Add new task
+mcp__taskmaster-ai__expand_task(
+  id="36",                      # Required: task ID to expand
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations",
+  research=true,                # Optional: use research for expansion
+  num="5"                       # Optional: number of subtasks
+)
+
+mcp__taskmaster-ai__update_task(
+  id="36",                      # Required: task ID
+  prompt="Update to use new API", # Required: changes to apply
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations",
+  research=false                # Optional: use research
+)
+
+mcp__taskmaster-ai__add_task(
+  prompt="Implement caching layer", # Required: task description
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations",
+  dependencies="1,2",           # Optional: comma-separated dependency IDs
+  priority="high"               # Optional: high/medium/low
+)
 
 # Analysis
-mcp__taskmaster-ai__analyze_project_complexity
-mcp__taskmaster-ai__complexity_report
+mcp__taskmaster-ai__analyze_project_complexity(
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations",
+  ids="1,3,5",                  # Optional: specific task IDs to analyze
+  threshold=5                   # Optional: complexity threshold (1-10)
+)
+
+mcp__taskmaster-ai__complexity_report(
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations"
+)
 ```
 
 ### Current Project Tasks
@@ -139,23 +179,39 @@ The project lists major tasks in `.taskmaster/tasks/tasks.json`. A PRD already e
 **CRITICAL**: Never mark a task as "done" without explicit permission from the user. Always ask for confirmation before setting task status to done.
 **COMMIT REQUIREMENT**: When about to mark a main task (not subtask) as "done", always offer to clean up the project directory and move unneeded files to the backup folder. 
 
-1. Use `mcp__taskmaster-ai__next_task` to find ready tasks
-2. Expand complex tasks with `mcp__taskmaster-ai__expand_task`
-3. Update status with `mcp__taskmaster-ai__set_task_status`
+1. Use `mcp__taskmaster-ai__next_task(projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations")` to find ready tasks
+2. Expand complex tasks with `mcp__taskmaster-ai__expand_task(id="<task_id>", projectRoot="...", research=true)`
+3. Update status with `mcp__taskmaster-ai__set_task_status(id="<task_id>", status="<status>", projectRoot="...")`
 4. Test changes in DEV_MODE before marking complete
 5. Ask user for permission before marking any task as "done"
 6. When marking a main task as "done", offer to create a commit
 
 ### Key Task Master Patterns
 ```
-# When requirements change
-mcp__taskmaster-ai__update --from=<id> --prompt="explanation"
+# When requirements change (update multiple upcoming tasks)
+mcp__taskmaster-ai__update(
+  from="10",                    # Required: starting task ID
+  prompt="API endpoint changed to v2, update all integration tasks",
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations",
+  research=true                 # Optional: use research for updates
+)
 
 # Add bugs as tasks
-mcp__taskmaster-ai__add_task --prompt="Fix bug: ..." --priority=high
+mcp__taskmaster-ai__add_task(
+  prompt="Fix memory leak in panel ID processing for large municipalities",
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations",
+  priority="high",
+  dependencies="36"             # Optional: depends on optimization task
+)
 
 # Break down complex work
-mcp__taskmaster-ai__expand_task --id=<id> --research
+mcp__taskmaster-ai__expand_task(
+  id="36",
+  projectRoot="/home/dhidalgo/projects/geocode_br_polling_stations",
+  research=true,
+  num="5",                      # Generate 5 subtasks
+  prompt="Focus on memory optimization aspects"  # Optional: additional context
+)
 ```
 
 

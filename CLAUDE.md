@@ -104,28 +104,31 @@ The project uses `targets` package for pipeline management with these stages:
 - Critical for merges: Check join keys, row counts, NA patterns
 - Add validation as targets in pipeline
 
-## Task Management with Task Master CLI
+## Task Management with Task Master MCP
 
-This project uses Task Master AI CLI for development task management. Tasks are stored in `.taskmaster/tasks/`.
+This project uses Task Master AI via MCP (Model Context Protocol) for development task management. Tasks are stored in `.taskmaster/tasks/`.
 
-**IMPORTANT**: All task-master commands should be run from the project root directory: `/home/dhidalgo/projects/geocode_br_polling_stations`
+**IMPORTANT**: The project root directory is: `/home/dhidalgo/projects/geocode_br_polling_stations`
 
-### Essential Task Commands
-```bash
+### Essential Task Master MCP Tools
+
+Use the `mcp__taskmaster-ai__` prefixed tools for task management:
+
+```
 # Core workflow
-task-master list                                    # View all tasks
-task-master next                                    # Get next task to work on
-task-master show <id>                               # View specific task
-task-master set-status --id=<id> --status=done     # Set task status
+mcp__taskmaster-ai__get_tasks              # View all tasks
+mcp__taskmaster-ai__next_task              # Get next task to work on
+mcp__taskmaster-ai__get_task               # View specific task
+mcp__taskmaster-ai__set_task_status        # Set task status
 
 # Task management
-task-master expand --id=<id> --research             # Break down complex tasks
-task-master update-task --id=<id> --prompt="changes"
-task-master add-task --prompt="description" --dependencies=1,2
+mcp__taskmaster-ai__expand_task            # Break down complex tasks
+mcp__taskmaster-ai__update_task            # Update single task
+mcp__taskmaster-ai__add_task               # Add new task
 
 # Analysis
-task-master analyze-complexity --research
-task-master complexity-report
+mcp__taskmaster-ai__analyze_project_complexity
+mcp__taskmaster-ai__complexity_report
 ```
 
 ### Current Project Tasks
@@ -133,26 +136,26 @@ The project lists major tasks in `.taskmaster/tasks/tasks.json`. A PRD already e
 
 ### Task Workflow
 **IMPORTANT**: Always ask user to review tasks/subtasks before executing. Never proceed without explicit approval.
-**CRITICAL**: Never mark a task as "done" without explicit permission from the user. Always ask for confirmation before using `task-master set-status --id=<id> --status=done`.
+**CRITICAL**: Never mark a task as "done" without explicit permission from the user. Always ask for confirmation before setting task status to done.
 **COMMIT REQUIREMENT**: When about to mark a main task (not subtask) as "done", always offer to clean up the project directory and move unneeded files to the backup folder. 
 
-1. Use `task-master next` to find ready tasks
-2. Expand complex tasks with `task-master expand --id=<id>`
-3. Update status with `task-master set-status --id=<id> --status=<status>`
+1. Use `mcp__taskmaster-ai__next_task` to find ready tasks
+2. Expand complex tasks with `mcp__taskmaster-ai__expand_task`
+3. Update status with `mcp__taskmaster-ai__set_task_status`
 4. Test changes in DEV_MODE before marking complete
 5. Ask user for permission before marking any task as "done"
 6. When marking a main task as "done", offer to create a commit
 
 ### Key Task Master Patterns
-```bash
+```
 # When requirements change
-task-master update --from=<id> --prompt="explanation" --research
+mcp__taskmaster-ai__update --from=<id> --prompt="explanation"
 
 # Add bugs as tasks
-task-master add-task --prompt="Fix bug: ..." --priority=high
+mcp__taskmaster-ai__add_task --prompt="Fix bug: ..." --priority=high
 
 # Break down complex work
-task-master expand --id=<id> --research
+mcp__taskmaster-ai__expand_task --id=<id> --research
 ```
 
 

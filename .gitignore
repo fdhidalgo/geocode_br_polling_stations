@@ -72,3 +72,6 @@ backup/
 
 # Validation reports
 output/validation_reports/
+
+# Project backup folder
+project_backup/

@@ -10,19 +10,35 @@
 #' @return crew controller group
 #' @export
 get_crew_controllers <- function(dev_mode = FALSE) {
-  # Create a simple crew controller for targets pipeline
-  # In dev mode, use fewer workers to save resources
-  n_workers <- if (dev_mode) 2 else 4
-  
-  crew::crew_controller_local(
+  # Standard controller for most tasks - optimized for 32-core machine
+  controller_standard <- crew::crew_controller_local(
     name = "standard",
-    workers = n_workers,
+    workers = if (dev_mode) 8 else 28,
     seconds_idle = 30,
     seconds_wall = 3600,
     seconds_timeout = 300,
     reset_globals = TRUE,
     reset_packages = FALSE,
     garbage_collection = TRUE
+  )
+  
+  # Memory-limited controller for CNEFE operations
+  # Fewer workers but more memory per worker
+  controller_memory <- crew::crew_controller_local(
+    name = "memory_limited",
+    workers = if (dev_mode) 4 else 8,
+    seconds_idle = 60,
+    seconds_wall = 7200,  # 2 hours for memory-intensive tasks
+    seconds_timeout = 600,  # 10 minutes timeout
+    reset_globals = TRUE,
+    reset_packages = FALSE,
+    garbage_collection = TRUE
+  )
+  
+  # Return controller group
+  crew::crew_controller_group(
+    controller_standard,
+    controller_memory
   )
 }
 
@@ -39,7 +55,10 @@ configure_targets_options <- function(controller_group) {
     storage = "worker",
     retrieval = "worker",
     memory = "transient",
-    garbage_collection = TRUE
+    garbage_collection = TRUE,
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "standard")  # Default to standard controller
+    )
   )
 }
 

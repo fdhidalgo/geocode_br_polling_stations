@@ -114,7 +114,7 @@ list(
   ),
   tar_target(
     name = muni_ids,
-    command = filter_by_dev_mode(muni_ids_all, pipeline_config)
+    command = filter_by_dev_mode(muni_ids_all, pipeline_config, state_col = "estado_abrev")
   ),
   tar_target(
     name = validate_muni_ids,
@@ -619,7 +619,7 @@ list(
     name = municipality_batch_assignments,
     command = create_municipality_batch_assignments(
       municipalities_for_matching,
-      batch_size = ifelse(pipeline_config$dev_mode, 10, 50),
+      batch_size = ifelse(pipeline_config$dev_mode, 5, 15),
       muni_sizes = municipality_sizes
     )
   ),
@@ -680,7 +680,7 @@ list(
     storage = "worker",
     retrieval = "worker",
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "standard")
+      crew = tar_resources_crew(controller = "memory_limited")
     )
   ),
   tar_target(
@@ -704,7 +704,7 @@ list(
     storage = "worker",
     retrieval = "worker",
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "standard")
+      crew = tar_resources_crew(controller = "memory_limited")
     )
   ),
   tar_target(
@@ -732,7 +732,7 @@ list(
     storage = "worker",
     retrieval = "worker",
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "standard")
+      crew = tar_resources_crew(controller = "memory_limited")
     )
   ),
   tar_target(
@@ -755,7 +755,10 @@ list(
     iteration = "list",
     deployment = "worker",
     storage = "worker",
-    retrieval = "worker"
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
   ),
   tar_target(
     name = cnefe22_stbairro_match,
@@ -779,7 +782,7 @@ list(
     storage = "worker",
     retrieval = "worker",
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "standard")
+      crew = tar_resources_crew(controller = "memory_limited")
     )
   ),
   tar_target(

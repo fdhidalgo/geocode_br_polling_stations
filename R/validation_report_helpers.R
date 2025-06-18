@@ -289,8 +289,6 @@ create_validation_report <- function(validation_list, data_sources,
 #' saves summary, and prints console output
 #' @param validate_muni_ids Validation result for muni_ids
 #' @param validate_inep_codes Validation result for inep_codes
-#' @param validate_cnefe10_clean Validation result for cnefe10
-#' @param validate_cnefe22_clean Validation result for cnefe22
 #' @param validate_inep_clean Validation result for inep data
 #' @param validate_locais Validation result for locais
 #' @param validate_inep_match Validation result for inep matches
@@ -309,8 +307,7 @@ create_validation_report <- function(validation_list, data_sources,
 #' @return Validation summary statistics
 #' @export
 generate_validation_report_complete <- function(
-  validate_muni_ids, validate_inep_codes, validate_cnefe10_clean,
-  validate_cnefe22_clean, validate_inep_clean, validate_locais,
+  validate_muni_ids, validate_inep_codes, validate_inep_clean, validate_locais,
   validate_inep_match, validate_model_data, validate_predictions,
   validate_geocoded_output, muni_ids, inep_codes, inep_data,
   locais_filtered, inep_string_match, model_data, model_predictions,
@@ -321,8 +318,6 @@ generate_validation_report_complete <- function(
   validation_results <- list(
     muni_ids = validate_muni_ids,
     inep_codes = validate_inep_codes,
-    cnefe10_cleaned = validate_cnefe10_clean,
-    cnefe22_cleaned = validate_cnefe22_clean,
     inep_cleaned = validate_inep_clean,
     locais = validate_locais,
     inep_string_match = validate_inep_match,

@@ -533,28 +533,6 @@ normalize_school <- function(x) {
   return(result)
 }
 
-# Batch processing function for multiple CNEFE files
-process_multiple_cnefe <- function(cnefe_files, tract_centroids) {
-  results <- list()
-
-  for (i in seq_along(cnefe_files)) {
-    cat("Processing file", i, "of", length(cnefe_files), "\n")
-
-    # Process each file
-    result <- clean_cnefe22(cnefe_files[i], tract_centroids)
-
-    # Add file identifier
-    result[, file_id := i]
-
-    results[[i]] <- result
-  }
-
-  # Combine all results
-  combined <- rbindlist(results, fill = TRUE)
-
-  return(combined)
-}
-
 clean_inep <- function(inep_data, inep_codes) {
   # Standardize column names - remove diacritics and spaces
   setnames(
@@ -603,194 +581,6 @@ calc_muni_area <- function(muni_shp) {
   muni_shp[, .(cod_localidade_ibge = code_muni, area)]
 }
 
-clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids) {
-  # Read CNEFE 2010 data - accept either file path or data.table
-  if (is.character(cnefe_file)) {
-    cnefe <- fread(
-      cnefe_file,
-      drop = c(
-        "SITUACAO_SETOR",
-        "NOM_COMP_ELEM1",
-        "VAL_COMP_ELEM1",
-        "NOM_COMP_ELEM2",
-        "VAL_COMP_ELEM2",
-        "NOM_COMP_ELEM3",
-        "VAL_COMP_ELEM3",
-        "NOM_COMP_ELEM4",
-        "VAL_COMP_ELEM4",
-        "NOM_COMP_ELEM5",
-        "VAL_COMP_ELEM5",
-        "INDICADOR_ENDERECO",
-        "NUM_QUADRA",
-        "NUM_FACE",
-        "CEP_FACE",
-        "COD_UNICO_ENDERECO"
-      )
-    )
-  } else {
-    # If already a data.table, use it directly
-    cnefe <- cnefe_file
-  }
-
-  # Standardize column names
-  setnames(cnefe, names(cnefe), tolower(names(cnefe)))
-
-  # Pad administrative codes to proper length
-  cnefe[,
-    cod_municipio := str_pad(cod_municipio, width = 5, side = "left", pad = "0")
-  ]
-  cnefe[,
-    cod_distrito := str_pad(cod_distrito, width = 2, side = "left", pad = "0")
-  ]
-  cnefe[, cod_setor := str_pad(cod_setor, width = 6, side = "left", pad = "0")]
-  cnefe[, setor_code := paste0(cod_uf, cod_municipio, cod_distrito, cod_setor)]
-  cnefe[, c("cod_distrito", "cod_setor") := NULL]
-
-  # Create address variable
-  cnefe[,
-    num_endereco_char := fifelse(
-      num_endereco == 0,
-      dsc_modificador,
-      as.character(num_endereco)
-    )
-  ]
-  cnefe[,
-    dsc_modificador_nosn := fifelse(
-      dsc_modificador != "SN",
-      dsc_modificador,
-      ""
-    )
-  ]
-  cnefe[,
-    address := str_squish(paste(
-      nom_tipo_seglogr,
-      nom_titulo_seglogr,
-      nom_seglogr,
-      num_endereco_char,
-      dsc_modificador_nosn
-    ))
-  ]
-  cnefe[,
-    street := str_squish(paste(
-      nom_tipo_seglogr,
-      nom_titulo_seglogr,
-      nom_seglogr
-    ))
-  ]
-  cnefe[,
-    c(
-      "nom_tipo_seglogr",
-      "nom_titulo_seglogr",
-      "num_endereco_char",
-      "num_endereco",
-      "nom_seglogr",
-      "dsc_modificador_nosn",
-      "dsc_modificador"
-    ) := NULL
-  ]
-
-  # Add NAs where data is missing
-  cnefe[val_longitude == "", val_longitude := NA]
-  cnefe[val_latitude == "", val_latitude := NA]
-  cnefe[dsc_estabelecimento == "", dsc_estabelecimento := NA]
-
-  # Remove extraneous white space from dsc_estabelecimento
-  cnefe[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
-
-  # Add municipality code and identifiers
-  cnefe[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
-  cnefe <- muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)][
-    cnefe,
-    on = "id_munic_7"
-  ]
-
-  gc()
-  # Merge in especie labels
-  especie_labs <- data.table(
-    especie = 1:7,
-    especie_lab = c(
-      "domicílio particular",
-      "domicílio coletivo",
-      "estabeleciemento agropecuário",
-      "estabelecimento de ensino",
-      "estabelecimento de saúde",
-      "estabeleciemento de outras finalidades",
-      "edificação em construção"
-    )
-  )
-  cnefe <- especie_labs[cnefe, on = "especie"]
-
-  # Make smaller CNEFE dataset
-  addr <- cnefe[, .(
-    id_munic_7,
-    id_TSE,
-    municipio,
-    setor_code,
-    especie_lab,
-    street,
-    address,
-    dsc_localidade,
-    dsc_estabelecimento,
-    val_longitude,
-    val_latitude
-  )]
-  setnames(
-    addr,
-    c("dsc_localidade", "dsc_estabelecimento", "val_longitude", "val_latitude"),
-    c("bairro", "desc", "cnefe_long", "cnefe_lat")
-  )
-  rm(cnefe)
-  gc()
-
-  # Convert degree longitude and latitude to decimal minutes
-  addr[!is.na(cnefe_long), cnefe_long := sapply(cnefe_long, convert_coord)]
-  addr[, cnefe_long := as.numeric(cnefe_long)]
-  addr[!is.na(cnefe_lat), cnefe_lat := sapply(cnefe_lat, convert_coord)]
-  addr[, cnefe_lat := as.numeric(cnefe_lat)]
-
-  # Imputation of longitude and latitude for CNEFE
-  # Merge in centroids
-  addr <- tract_centroids[addr, on = "setor_code"]
-
-  # If longitude and latitude is missing, but tract centroid is available, use tract centroid
-  addr$cnefe_impute_tract_centroid <- as.numeric(
-    is.na(addr$cnefe_lat) &
-      (is.na(addr$tract_centroid_lat) == FALSE)
-  )
-
-  # If longitude and latitude is missing and tract centroid is missing, drop
-  addr <- addr[
-    (is.na(addr$cnefe_lat) & (is.na(addr$tract_centroid_lat) == TRUE)) == FALSE
-  ]
-
-  addr[cnefe_impute_tract_centroid == 1, cnefe_long := tract_centroid_long]
-  addr[cnefe_impute_tract_centroid == 1, cnefe_lat := tract_centroid_lat]
-
-  # Normalize names
-  addr[, norm_address := normalize_address(address)]
-  addr[, norm_bairro := normalize_address(bairro)]
-  addr[, norm_street := normalize_address(street)]
-
-  return(addr)
-}
-
-convert_coord <- function(coord) {
-  # Function to convert a single coordinate to decimal degrees
-  parts <- unlist(strsplit(coord, " "))
-  degrees <- as.numeric(parts[1])
-  minutes <- as.numeric(parts[2])
-  seconds <- as.numeric(parts[3])
-  direction <- gsub("[^NSWO]", "", parts[4])
-
-  decimal_degrees <- degrees + (minutes / 60) + (seconds / 3600)
-
-  if (direction %in% c("S", "W", "O")) {
-    decimal_degrees <- -decimal_degrees
-  }
-
-  return(decimal_degrees)
-}
-
 export_geocoded_locais <- function(geocoded_locais) {
   fwrite(geocoded_locais, "./output/geocoded_polling_stations.csv.gz")
   "./output/geocoded_polling_stations.csv.gz"
@@ -801,4 +591,21 @@ get_cnefe22_schools <- function(cnefe22) {
   schools_cnefe22 <- cnefe22[especie_lab == "estabelecimento de ensino"]
   schools_cnefe22[, norm_desc := normalize_school(desc)]
   schools_cnefe22[norm_desc != ""]
+}
+
+convert_coord <- function(coord) {
+  # Function to convert a single coordinate to decimal degrees
+  parts <- unlist(strsplit(coord, " "))
+  degrees <- as.numeric(parts[1])
+  minutes <- as.numeric(parts[2])
+  seconds <- as.numeric(parts[3])
+  direction <- gsub("[^NSWO]", "", parts[4])
+  
+  decimal_degrees <- degrees + (minutes / 60) + (seconds / 3600)
+  
+  if (direction %in% c("S", "W", "O")) {
+    decimal_degrees <- -decimal_degrees
+  }
+  
+  return(decimal_degrees)
 }

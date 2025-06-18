@@ -1,157 +1,97 @@
-#' Pipeline Configuration Management
-#'
-#' This file centralizes all configuration for the targets pipeline,
-#' including development mode settings, controller configurations,
-#' and pipeline parameters.
+# Pipeline configuration functions used in _targets.R
 
-#' Get crew controller configuration
+#' Get pipeline configuration based on development mode
 #'
-#' Creates and configures crew controllers for parallel processing
-#' @param dev_mode Logical indicating if running in development mode
-#' @return crew controller group
-#' @export
-get_crew_controllers <- function(dev_mode = FALSE) {
-  # Adjust worker counts based on mode
-  # With memory-efficient string matching, we can optimize worker allocation
-  memory_workers <- ifelse(dev_mode, 2, 8)  # Increased from 5 to 8 (safer with chunking)
-  standard_workers <- ifelse(dev_mode, 4, 28)  # Increased from 25 to 28 (near core limit)
-  
-  # Memory-limited controller for CNEFE operations
-  controller_memory <- crew::crew_controller_local(
-    name = "memory_limited",
-    workers = memory_workers,
-    seconds_idle = 300,
-    seconds_wall = 36000,  # 10 hours
-    seconds_timeout = 32400,  # 9 hours
-    tasks_max = 1,
-    tasks_timers = 1,
-    seconds_interval = 0.1,
-    reset_globals = TRUE,
-    reset_packages = TRUE,
-    reset_options = TRUE,
-    garbage_collection = TRUE
-  )
-  
-  # Standard controller for all other operations
-  # With smart batching, mega municipalities are in separate batches
-  # so we can run more workers without memory issues
-  controller_standard <- crew::crew_controller_local(
-    name = "standard",
-    workers = standard_workers,
-    seconds_idle = 60,
-    seconds_wall = 14400,  # 4 hours
-    seconds_timeout = 3600,  # 1 hour
-    tasks_max = 50,
-    tasks_timers = 1,
-    seconds_interval = 0.05,
-    reset_globals = FALSE,
-    reset_packages = FALSE,
-    reset_options = FALSE,
-    garbage_collection = FALSE
-  )
-  
-  # Specialized controller for mega municipalities (optional)
-  # Uses fewer workers but with more memory headroom
-  controller_mega <- crew::crew_controller_local(
-    name = "mega_cities",
-    workers = 10,  # Fewer workers for memory-intensive mega cities
-    seconds_idle = 300,
-    seconds_wall = 36000,  # 10 hours for large municipalities
-    seconds_timeout = 7200,  # 2 hours
-    tasks_max = 10,
-    tasks_timers = 1,
-    seconds_interval = 0.1,
-    reset_globals = TRUE,
-    reset_packages = TRUE,
-    reset_options = TRUE,
-    garbage_collection = TRUE
-  )
-  
-  # Create controller group
-  crew::crew_controller_group(
-    controller_memory,
-    controller_standard,
-    controller_mega
-  )
-}
-
-#' Get batch size configuration
-#'
-#' Returns appropriate batch sizes for parallel processing
-#' @param dev_mode Logical indicating if running in development mode
-#' @return List with batch size configurations
-#' @export
-get_batch_sizes <- function(dev_mode = FALSE) {
+#' @param dev_mode Logical indicating development mode
+#' @return List with configuration settings
+get_pipeline_config <- function(dev_mode = FALSE) {
   list(
-    municipalities = ifelse(dev_mode, 10, 50),
-    string_matching = ifelse(dev_mode, 5, 20),
-    validation = ifelse(dev_mode, 100000, 1000000)
-  )
-}
-
-#' Configure targets options
-#'
-#' Sets up targets options with appropriate settings
-#' @param controller_group The crew controller group to use
-#' @export
-configure_targets_options <- function(controller_group) {
-  tar_option_set(
-    packages = c(
-      "targets",
-      "data.table",
-      "stringr",
-      "bonsai",
-      "reclin2",
-      "validate",
-      "geosphere",
-      "sf",
-      "geocodebr"
-    ),
-    format = "qs",
-    memory = "transient",
-    garbage_collection = TRUE,
-    storage = "main",
-    retrieval = "main",
-    controller = controller_group,
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "standard")
+    # Development mode flag
+    dev_mode = dev_mode,
+    
+    # Small states for rapid development (reduced to 2 for faster testing)
+    dev_states = c("AC", "RR"),
+    
+    # All Brazilian states
+    prod_states = c("AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", 
+                    "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", 
+                    "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", 
+                    "SP", "SE", "TO"),
+    
+    # Memory limits by mode
+    memory_limit = ifelse(dev_mode, "2GB", "16GB"),
+    
+    # Number of parallel workers
+    n_workers = ifelse(dev_mode, 2, 4),
+    
+    # Memory-efficient string matching configuration
+    use_memory_efficient = TRUE,  # Enable by default to prevent OOM
+    memory_efficient_threshold_mb = 500,  # Use memory-efficient mode for matrices > 500MB
+    chunk_sizes = list(
+      small = 2000,   # For municipalities < 5000 polling stations
+      medium = 1000,  # For municipalities 5000-10000
+      large = 500     # For municipalities > 10000
     )
   )
 }
 
-#' Get source files to load
-#'
-#' Returns list of R files to source for the pipeline
+#' Get states to process based on context and mode
+#' 
+#' Centralized function to determine which states to process based on the
+#' pipeline context and development mode setting. This replaces repetitive
+#' if/else blocks throughout the pipeline.
+#' 
+#' @param context Character string indicating the context (e.g., "cnefe10", "cnefe22", "panel")
+#' @param pipeline_config Pipeline configuration object with dev_mode and dev_states
+#' @param custom_states Optional custom state list for production mode (used for panel context)
+#' @return Character vector of state abbreviations
+#' @export
+get_states_for_processing <- function(context, pipeline_config, custom_states = NULL) {
+  if (pipeline_config$dev_mode) {
+    return(pipeline_config$dev_states)
+  }
+  
+  # Production mode - determine states based on context
+  switch(context,
+    cnefe10 = {
+      state_files <- list.files("data/cnefe_2010", pattern = "cnefe_2010_.*\\.csv\\.gz$")
+      gsub("cnefe_2010_(.+)\\.csv\\.gz", "\\1", state_files)
+    },
+    cnefe22 = {
+      state_files <- list.files("data/cnefe_2022", pattern = "cnefe_2022_.*\\.csv\\.gz$")
+      gsub("cnefe_2022_(.+)\\.csv\\.gz", "\\1", state_files)
+    },
+    panel = {
+      # Use custom states or default to all Brazilian states
+      custom_states %||% c("AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", 
+                          "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", 
+                          "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", 
+                          "SE", "SP", "TO")
+    },
+    stop("Unknown context: ", context)
+  )
+}
+
+#' Get agro CNEFE files based on mode
+#' 
+#' Special handler for agro_cnefe_files which returns file paths not states.
+#' In dev mode, maps state abbreviations to specific file names.
+#' In production mode, returns all files in the agro_censo directory.
+#' 
+#' @param pipeline_config Pipeline configuration object with dev_mode and dev_states
 #' @return Character vector of file paths
 #' @export
-get_source_files <- function() {
-  c(
-    # Configuration and helpers
-    "./R/pipeline_config.R",
-    "./R/target_factory.R",
-    "./R/target_helpers.R",
-    
-    # Core functionality
-    "./R/geocodebr_matching.R",
-    "./R/parallel_integration_fns.R",
-    "./R/memory_efficient_cnefe.R",
-    "./R/column_mapping.R",
-    "./R/state_filtering.R",
-    "./R/data_table_utils.R",
-    
-    # Validation
-    "./R/functions_validate.R",
-    "./R/validation_pipeline_stages.R",
-    "./R/validation_reporting.R",
-    "./R/validation_report_renderer.R",
-    
-    # Brasília filtering
-    "./R/filter_brasilia_municipal.R",
-    "./R/validate_brasilia_filtering.R",
-    "./R/expected_municipality_counts.R",
-    "./R/update_validation_for_brasilia.R",
-    
-    # Function files (loaded via pattern)
-    list.files("./R", full.names = TRUE, pattern = "fns$")
-  )
+get_agro_cnefe_files <- function(pipeline_config) {
+  if (pipeline_config$dev_mode) {
+    state_file_map <- c(
+      "AC" = "12_ACRE.csv.gz",
+      "RR" = "14_RORAIMA.csv.gz",
+      "AP" = "16_AMAPA.csv.gz",
+      "RO" = "11_RONDONIA.csv.gz"
+    )
+    dev_files <- state_file_map[pipeline_config$dev_states]
+    file.path("data/agro_censo", dev_files[!is.na(dev_files)])
+  } else {
+    dir("data/agro_censo/", full.names = TRUE)
+  }
 }

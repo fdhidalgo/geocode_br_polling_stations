@@ -104,6 +104,21 @@ The project uses `targets` package for pipeline management with these stages:
 - Critical for merges: Check join keys, row counts, NA patterns
 - Add validation as targets in pipeline
 
+### Pipeline Debugging Workflow
+When encountering pipeline errors:
+1. Check error messages carefully for missing packages or functions
+2. **Check git history early** if behavior has unexpectedly changed: `git log -p -- <file>`
+3. Verify all required packages are in `tar_option_set` in `target_helpers.R`
+4. Test individual components outside the pipeline first
+5. Use `tar_invalidate()` to force re-run of cached targets
+
+### Testing Pipeline Components
+Before running the full pipeline after changes:
+1. Test individual functions with small data subsets
+2. Use `tar_make(names = "specific_target")` to test single targets
+3. Create minimal test scripts to verify functionality outside targets
+4. Check intermediate results with `tar_load()` and inspect data structure
+
 ## Task Management with Task Master MCP
 
 This project uses Task Master AI via MCP (Model Context Protocol) for development task management. Tasks are stored in `.taskmaster/tasks/`.

@@ -3,27 +3,46 @@
 #' This file contains helper functions to reduce repetition in targets pipeline
 #' and make the _targets.R file more concise and readable.
 
-#' Filter data by development mode
+#' Get crew controllers for the pipeline
 #'
-#' Generic function to filter data based on development mode settings
-#' @param data The data to filter
-#' @param config Pipeline configuration list
-#' @param filter_col Column to filter on (default: "estado_abrev")
-#' @return Filtered data
+#' Creates and configures crew controllers based on development mode
+#' @param dev_mode Logical indicating if in development mode
+#' @return crew controller group
 #' @export
-filter_by_dev_mode <- function(data, config, filter_col = "estado_abrev") {
-  if (!config$dev_mode) {
-    return(data)
-  }
+get_crew_controllers <- function(dev_mode = FALSE) {
+  # Create a simple crew controller for targets pipeline
+  # In dev mode, use fewer workers to save resources
+  n_workers <- if (dev_mode) 2 else 4
   
-  if (filter_col %in% names(data)) {
-    return(data[get(filter_col) %in% config$dev_states])
-  } else {
-    # If column doesn't exist, return data unchanged with warning
-    warning(paste("Column", filter_col, "not found in data. Returning unfiltered."))
-    return(data)
-  }
+  crew::crew_controller_local(
+    name = "standard",
+    workers = n_workers,
+    seconds_idle = 30,
+    seconds_wall = 3600,
+    seconds_timeout = 300,
+    reset_globals = TRUE,
+    reset_packages = FALSE,
+    garbage_collection = TRUE
+  )
 }
+
+#' Configure targets options with crew controller
+#'
+#' Sets up targets options with the provided controller
+#' @param controller_group Crew controller group
+#' @export
+configure_targets_options <- function(controller_group) {
+  tar_option_set(
+    packages = c("data.table", "stringr", "stringdist", "validate", "sf", "reclin2"),
+    format = "qs",
+    controller = controller_group,
+    storage = "worker",
+    retrieval = "worker",
+    memory = "transient",
+    garbage_collection = TRUE
+  )
+}
+
 
 #' Process string match batch
 #'

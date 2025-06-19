@@ -13,7 +13,7 @@ get_crew_controllers <- function(dev_mode = FALSE) {
   # Standard controller for most tasks - optimized for 32-core machine
   controller_standard <- crew::crew_controller_local(
     name = "standard",
-    workers = if (dev_mode) 8 else 28,
+    workers = if (dev_mode) 8 else 30,  # Increased from 28 to 30 for better utilization
     seconds_idle = 30,
     seconds_wall = 3600,
     seconds_timeout = 300,
@@ -77,10 +77,30 @@ configure_targets_options <- function(controller_group) {
 process_string_match_batch <- function(batch_ids, batch_assignments, locais_data, 
                                      match_data, match_fn, id_col = "id_munic_7") {
   # Get municipalities for this batch
-  batch_munis <- batch_assignments[batch_id == batch_ids]$muni_code
+  batch_info <- batch_assignments[batch_id == batch_ids]
+  batch_munis <- batch_info$muni_code
+  
+  # Log batch start
+  message(sprintf(
+    "[%s] Processing string match batch %s: %d municipalities",
+    format(Sys.time(), "%H:%M:%S"),
+    batch_ids,
+    length(batch_munis)
+  ))
   
   # Process all municipalities in this batch
-  batch_results <- lapply(batch_munis, function(muni_code) {
+  batch_results <- lapply(seq_along(batch_munis), function(i) {
+    muni_code <- batch_munis[i]
+    
+    # Log progress for large batches
+    if (length(batch_munis) > 5 && i %% 5 == 0) {
+      message(sprintf(
+        "  - Batch %s progress: %d/%d municipalities",
+        batch_ids,
+        i,
+        length(batch_munis)
+      ))
+    }
     # Special handling for different matching functions
     if (deparse(substitute(match_fn)) == "match_inep_muni") {
       match_fn(
@@ -129,10 +149,33 @@ process_string_match_batch <- function(batch_ids, batch_assignments, locais_data
 process_stbairro_match_batch <- function(batch_ids, batch_assignments, locais_data,
                                        st_data, bairro_data, match_fn) {
   # Get municipalities for this batch
-  batch_munis <- batch_assignments[batch_id == batch_ids]$muni_code
+  batch_info <- batch_assignments[batch_id == batch_ids]
+  batch_munis <- batch_info$muni_code
+  
+  # Log batch start with size info
+  total_size <- sum(batch_info$muni_size)
+  message(sprintf(
+    "[%s] Processing stbairro match batch %s: %d municipalities, %s total items",
+    format(Sys.time(), "%H:%M:%S"),
+    batch_ids,
+    length(batch_munis),
+    format(total_size, big.mark = ",")
+  ))
   
   # Process all municipalities in this batch
-  batch_results <- lapply(batch_munis, function(muni_code) {
+  batch_results <- lapply(seq_along(batch_munis), function(i) {
+    muni_code <- batch_munis[i]
+    
+    # Log progress
+    if (i %% 2 == 0 || i == length(batch_munis)) {
+      message(sprintf(
+        "  - Batch %s: processing municipality %d/%d (code: %s)",
+        batch_ids,
+        i,
+        length(batch_munis),
+        muni_code
+      ))
+    }
     if (deparse(substitute(match_fn)) == "match_stbairro_agrocnefe_muni") {
       match_fn(
         locais_muni = locais_data[cod_localidade_ibge == muni_code],
@@ -359,17 +402,59 @@ process_cnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignmen
     batch_id == batch_ids
   ]$muni_code
   
-  # Process all municipalities in this batch
-  batch_results <- lapply(batch_munis, function(muni_code) {
-    match_stbairro_cnefe_muni(
+  # Log batch start
+  message(sprintf(
+    "[Batch %d] Starting CNEFE street/neighborhood matching for %d municipalities",
+    batch_ids, length(batch_munis)
+  ))
+  
+  # Process all municipalities in this batch with progress tracking
+  batch_results <- lapply(seq_along(batch_munis), function(i) {
+    muni_code <- batch_munis[i]
+    
+    # Get data sizes for logging
+    n_locais <- nrow(locais_filtered[cod_localidade_ibge == muni_code])
+    n_streets <- nrow(cnefe_st[id_munic_7 == muni_code])
+    n_bairros <- nrow(cnefe_bairro[id_munic_7 == muni_code])
+    
+    message(sprintf(
+      "[Batch %d - %d/%d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
+      batch_ids, i, length(batch_munis), muni_code, n_locais, n_streets, n_bairros
+    ))
+    
+    # Perform matching
+    result <- match_stbairro_cnefe_muni(
       locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
       cnefe_st_muni = cnefe_st[id_munic_7 == muni_code],
       cnefe_bairro_muni = cnefe_bairro[id_munic_7 == muni_code]
     )
+    
+    # Log completion
+    if (!is.null(result)) {
+      message(sprintf(
+        "[Batch %d - %d/%d] Completed municipality %s: %d matches",
+        batch_ids, i, length(batch_munis), muni_code, nrow(result)
+      ))
+    }
+    
+    result
   })
   
   # Remove NULL results and combine
   batch_results <- batch_results[!sapply(batch_results, is.null)]
+  
+  # Log batch completion
+  total_matches <- if (length(batch_results) > 0) {
+    sum(sapply(batch_results, nrow))
+  } else {
+    0
+  }
+  
+  message(sprintf(
+    "[Batch %d] Completed with %d total matches from %d municipalities",
+    batch_ids, total_matches, length(batch_results)
+  ))
+  
   if (length(batch_results) > 0) {
     rbindlist(batch_results, use.names = TRUE, fill = TRUE)
   } else {
@@ -392,17 +477,59 @@ process_agrocnefe_stbairro_batch <- function(batch_ids, municipality_batch_assig
     batch_id == batch_ids
   ]$muni_code
   
-  # Process all municipalities in this batch
-  batch_results <- lapply(batch_munis, function(muni_code) {
-    match_stbairro_agrocnefe_muni(
+  # Log batch start
+  message(sprintf(
+    "[Batch %d] Starting Agro CNEFE street/neighborhood matching for %d municipalities",
+    batch_ids, length(batch_munis)
+  ))
+  
+  # Process all municipalities in this batch with progress tracking
+  batch_results <- lapply(seq_along(batch_munis), function(i) {
+    muni_code <- batch_munis[i]
+    
+    # Get data sizes for logging
+    n_locais <- nrow(locais_filtered[cod_localidade_ibge == muni_code])
+    n_streets <- nrow(agrocnefe_st[id_munic_7 == muni_code])
+    n_bairros <- nrow(agrocnefe_bairro[id_munic_7 == muni_code])
+    
+    message(sprintf(
+      "[Batch %d - %d/%d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
+      batch_ids, i, length(batch_munis), muni_code, n_locais, n_streets, n_bairros
+    ))
+    
+    # Perform matching
+    result <- match_stbairro_agrocnefe_muni(
       locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
       agrocnefe_st_muni = agrocnefe_st[id_munic_7 == muni_code],
       agrocnefe_bairro_muni = agrocnefe_bairro[id_munic_7 == muni_code]
     )
+    
+    # Log completion
+    if (!is.null(result)) {
+      message(sprintf(
+        "[Batch %d - %d/%d] Completed municipality %s: %d matches",
+        batch_ids, i, length(batch_munis), muni_code, nrow(result)
+      ))
+    }
+    
+    result
   })
   
   # Remove NULL results and combine
   batch_results <- batch_results[!sapply(batch_results, is.null)]
+  
+  # Log batch completion
+  total_matches <- if (length(batch_results) > 0) {
+    sum(sapply(batch_results, nrow))
+  } else {
+    0
+  }
+  
+  message(sprintf(
+    "[Batch %d] Completed with %d total matches from %d municipalities",
+    batch_ids, total_matches, length(batch_results)
+  ))
+  
   if (length(batch_results) > 0) {
     rbindlist(batch_results, use.names = TRUE, fill = TRUE)
   } else {

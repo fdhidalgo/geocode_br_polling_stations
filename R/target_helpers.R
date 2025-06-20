@@ -9,6 +9,10 @@
 #' @param dev_mode Logical indicating if in development mode
 #' @return crew controller group
 #' @export
+# Note: 1 unused functions were moved to backup/unused_functions/
+# Date: 2025-06-20
+# Functions removed: create_validation_summary
+
 get_crew_controllers <- function(dev_mode = FALSE) {
   # Standard controller for most tasks - optimized for 32-core machine
   controller_standard <- crew::crew_controller_local(
@@ -265,34 +269,6 @@ process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL,
     return(result)
   }
 }
-
-#' Create validation summary
-#'
-#' Helper to create consistent validation summaries
-#' @param validation_results List of validation results
-#' @param pipeline_config Pipeline configuration
-#' @return Summary statistics list
-#' @export
-create_validation_summary <- function(validation_results, pipeline_config) {
-  summary_stats <- list(
-    timestamp = Sys.time(),
-    pipeline_version = "1.0.0",
-    total_validations = length(validation_results),
-    passed = sum(sapply(validation_results, function(x) x$passed)),
-    failed = sum(sapply(validation_results, function(x) !x$passed)),
-    dev_mode = pipeline_config$dev_mode,
-    stage_summary = sapply(validation_results, function(x) {
-      list(
-        passed = x$passed,
-        type = x$metadata$type,
-        n_rows = x$metadata$n_rows %||% NA
-      )
-    })
-  )
-
-  summary_stats
-}
-
 #' Process INEP string matching in batches
 #'
 #' @param batch_ids Current batch ID

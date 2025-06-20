@@ -299,3 +299,7 @@ When an R session is registered with acquaint, Claude Code can use these btw too
 
 ## Workflow Guidelines
 - Anytime you are asked to make a substantial change, please make a plan and get approval before proceeding.
+
+## Memories
+
+- **Task Master Interaction**: Never change the status of a task master task without my permission.

@@ -1,0 +1,14 @@
+Summary by file:
+
+R/batch_monitoring_utils.R: 4 unused functions
+R/expected_municipality_counts.R: 1 unused functions
+R/optimize_batch_distribution.R: 3 unused functions
+R/panel_id_blocking_conservative.R: 2 unused functions
+R/panel_id_fns.R: 3 unused functions
+R/panel_id_municipality_fns.R: 2 unused functions
+R/parallel_integration_fns.R: 5 unused functions
+R/parallel_processing_fns.R: 2 unused functions
+R/target_helpers.R: 1 unused functions
+R/validation_report_helpers.R: 3 unused functions
+R/validation_stages.R: 1 unused functions
+R/validation_target_functions.R: 5 unused functions

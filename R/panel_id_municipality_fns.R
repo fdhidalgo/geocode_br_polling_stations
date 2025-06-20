@@ -1,7 +1,12 @@
 ## Panel ID Municipality-based Processing Functions
 ## Optimized for parallel processing at municipality level
 
+# Note: 2 unused functions were moved to backup/unused_functions/
+# Date: 2025-06-20
+# Functions removed: get_batch_controller, monitor_panel_progress
+
 library(data.table)
+library(reclin2)
 
 #' Create municipality batches for panel ID processing
 #' 
@@ -63,28 +68,6 @@ create_panel_municipality_batches <- function(locais_data, target_batch_size = 5
   
   return(muni_counts[, .(cod_localidade_ibge, sg_uf, n_stations, batch_id, batch_type, size_class)])
 }
-
-#' Get controller type for a batch
-#' 
-#' Helper function to determine which controller to use for a batch
-#' 
-#' @param batch_id The batch ID to check
-#' @param municipality_batches The municipality batches data table
-#' @return Character string with controller name
-get_batch_controller <- function(batch_id_val, municipality_batches) {
-  batch_type <- unique(municipality_batches[batch_id == batch_id_val]$batch_type)[1]
-  
-  if (is.na(batch_type)) {
-    return("standard")
-  }
-  
-  switch(batch_type,
-    "mega_cities" = "mega_cities",
-    "memory_limited" = "memory_limited",
-    "standard"
-  )
-}
-
 #' Process panel IDs for a batch of municipalities
 #' 
 #' @param locais_full Full polling station dataset
@@ -98,7 +81,8 @@ process_panel_ids_municipality_batch <- function(
   municipality_batch,
   years,
   blocking_column,
-  scoring_columns
+  scoring_columns,
+  use_word_blocking = FALSE
 ) {
   # Extract municipality codes for this batch
   muni_codes <- municipality_batch$cod_localidade_ibge
@@ -119,8 +103,11 @@ process_panel_ids_municipality_batch <- function(
       return(NULL)
     }
     
+    # Count unique stations properly
+    n_stations <- length(unique(muni_data$local_id))
+    
     cat("Processing municipality:", muni_code, 
-        "- Stations:", nrow(muni_data[, .N, by = local_id][, .N]),
+        "- Stations:", n_stations,
         "- Years:", length(unique(muni_data$ano)), "\n")
     
     # Check for DF special case
@@ -146,7 +133,8 @@ process_panel_ids_municipality_batch <- function(
         block = muni_data,
         years = years_to_use,
         blocking_column = blocking_column,
-        scoring_columns = scoring_columns
+        scoring_columns = scoring_columns,
+        use_word_blocking = use_word_blocking
       )
     }, error = function(e) {
       cat("  Error processing municipality", muni_code, ":", e$message, "\n")
@@ -180,65 +168,25 @@ process_panel_ids_municipality_batch <- function(
   
   return(combined)
 }
-
-#' Monitor panel ID processing progress
-#' 
-#' Provides summary statistics about panel ID processing
-#' 
-#' @param municipality_batches The municipality batch assignments
-#' @param completed_batches Vector of completed batch IDs
-#' @return NULL (prints progress information)
-monitor_panel_progress <- function(municipality_batches, completed_batches = NULL) {
-  total_batches <- length(unique(municipality_batches$batch_id))
-  total_municipalities <- nrow(municipality_batches)
-  total_stations <- sum(municipality_batches$n_stations)
-  
-  cat("\n=== Panel ID Processing Progress ===\n")
-  cat("Total municipalities:", total_municipalities, "\n")
-  cat("Total polling stations:", format(total_stations, big.mark = ","), "\n")
-  cat("Total batches:", total_batches, "\n")
-  
-  # Batch type breakdown
-  batch_summary <- municipality_batches[, .(
-    n_batches = length(unique(batch_id)),
-    n_municipalities = .N,
-    n_stations = sum(n_stations)
-  ), by = batch_type]
-  
-  cat("\nBatch breakdown:\n")
-  print(batch_summary)
-  
-  if (!is.null(completed_batches)) {
-    n_completed <- length(completed_batches)
-    pct_complete <- round(100 * n_completed / total_batches, 1)
-    
-    completed_data <- municipality_batches[batch_id %in% completed_batches]
-    stations_complete <- sum(completed_data$n_stations)
-    pct_stations_complete <- round(100 * stations_complete / total_stations, 1)
-    
-    cat("\nProgress:\n")
-    cat("Batches completed:", n_completed, "/", total_batches, 
-        "(", pct_complete, "%)\n")
-    cat("Stations processed:", format(stations_complete, big.mark = ","), "/", 
-        format(total_stations, big.mark = ","), 
-        "(", pct_stations_complete, "%)\n")
-  }
-  
-  cat("\n")
-  invisible(NULL)
-}
-
 #' Create and select best pairs with optimizations
 #' 
 #' Optimized version of create_and_select_best_pairs that processes more efficiently
+#' using two-level blocking (municipality + shared words)
 #' 
 #' @param data Data table with polling station data
 #' @param years Vector of years to process
 #' @param blocking_column Column to use for blocking
 #' @param scoring_columns Columns to use for scoring
+#' @param use_word_blocking Whether to use two-level word blocking (default: FALSE)
 #' @return List of best pairs for each year transition
-create_and_select_best_pairs_optimized <- function(data, years, blocking_column, scoring_columns) {
+create_and_select_best_pairs_optimized <- function(data, years, blocking_column, scoring_columns, 
+                                                  use_word_blocking = FALSE) {
   pairs_list <- list()
+  
+  # Load blocking functions if using word blocking
+  if (use_word_blocking && !exists("create_two_level_blocked_pairs")) {
+    source("R/panel_id_blocking_fns.R")
+  }
   
   # Standardize column names in input data
   standardize_column_names(data, inplace = TRUE)
@@ -259,6 +207,9 @@ create_and_select_best_pairs_optimized <- function(data, years, blocking_column,
   })
   names(year_data) <- as.character(years)
   
+  # Initialize blocking statistics
+  blocking_stats <- list()
+  
   # Process year pairs
   for (i in seq_along(years)[-length(years)]) {
     year1 <- years[i]
@@ -274,21 +225,43 @@ create_and_select_best_pairs_optimized <- function(data, years, blocking_column,
     }
     
     cat("  Processing year pair:", year1, "->", year2, 
-        "(", nrow(linkexample1), "x", nrow(linkexample2), "comparisons)\n")
+        "(", nrow(linkexample1), "x", nrow(linkexample2), "records)\n")
     
-    # For very large comparisons, consider sampling or chunking
-    n_comparisons <- nrow(linkexample1) * nrow(linkexample2)
-    if (n_comparisons > 10000000) {  # 10 million comparisons
-      cat("    Warning: Large comparison set. Consider additional blocking.\n")
+    # Create pairs with appropriate blocking strategy
+    if (use_word_blocking) {
+      # Calculate potential comparisons without word blocking
+      pairs_no_word <- pair_blocking(linkexample1, linkexample2, blocking_column)
+      original_pairs <- nrow(pairs_no_word)
+      
+      # Apply two-level blocking
+      pairs <- create_two_level_blocked_pairs(
+        linkexample1, linkexample2,
+        municipality_col = blocking_column,
+        name_col = scoring_columns[1],  # normalized_name
+        addr_col = scoring_columns[2],  # normalized_addr
+        fallback_on_empty = TRUE
+      )
+      
+      # Store blocking statistics
+      blocking_stats[[paste0(year1, "_", year2)]] <- list(
+        original = original_pairs,
+        blocked = nrow(pairs),
+        reduction_pct = round(100 * (1 - nrow(pairs) / original_pairs), 1)
+      )
+      
+      rm(pairs_no_word)
+      gc(verbose = FALSE)
+    } else {
+      # Original blocking on municipality only
+      pairs <- pair_blocking(linkexample1, linkexample2, blocking_column)
     }
-    
-    # Create pairs using pair_blocking
-    pairs <- pair_blocking(linkexample1, linkexample2, blocking_column)
     
     if (nrow(pairs) == 0) {
       cat("    No pairs found after blocking\n")
       next
     }
+    
+    cat("    Comparing", format(nrow(pairs), big.mark = ","), "pairs\n")
     
     # Compare pairs using standardized scoring columns
     pairs <- compare_pairs(pairs,
@@ -313,7 +286,9 @@ create_and_select_best_pairs_optimized <- function(data, years, blocking_column,
     )]
     
     # Select the best match for each observation
-    best_pairs <- select_n_to_m(pairs, threshold = 0, score = "weights", var = "match", n = 1, m = 1)
+    # Using a small positive threshold (e.g., 0.5) can help filter out very low confidence matches
+    weight_threshold <- getOption("geocode_br.panel_weight_threshold", 0)
+    best_pairs <- select_n_to_m(pairs, threshold = weight_threshold, score = "weights", var = "match", n = 1, m = 1)
     
     # Keep only the pairs where match is TRUE
     best_pairs <- best_pairs[match == TRUE]
@@ -321,12 +296,26 @@ create_and_select_best_pairs_optimized <- function(data, years, blocking_column,
     # Store the final matched pairs in the list
     pairs_list[[paste0(year1, "_", year2)]] <- best_pairs
     
-    cat("    Found", nrow(best_pairs), "matches\n")
+    cat("    Found", format(nrow(best_pairs), big.mark = ","), "matches\n")
     
     # Clean up memory
     rm(pairs)
     gc(verbose = FALSE)
   }
   
+  # Report overall blocking statistics if using word blocking
+  if (use_word_blocking && length(blocking_stats) > 0) {
+    total_original <- sum(sapply(blocking_stats, function(x) x$original))
+    total_blocked <- sum(sapply(blocking_stats, function(x) x$blocked))
+    overall_reduction <- round(100 * (1 - total_blocked / total_original), 1)
+    
+    cat("\n  Overall blocking statistics:\n")
+    cat("    Total pairs without word blocking: ", format(total_original, big.mark = ","), "\n")
+    cat("    Total pairs with word blocking: ", format(total_blocked, big.mark = ","), "\n")
+    cat("    Overall reduction: ", overall_reduction, "%\n")
+    cat("    Estimated speedup: ", round(total_original / total_blocked, 1), "x\n\n")
+  }
+  
   return(pairs_list)
 }
+

@@ -1,6 +1,10 @@
 # Core validation stage functions
 # Extracted from validation_pipeline_stages.R - contains only the functions used in the pipeline
 
+# Note: 1 unused functions were moved to backup/unused_functions/
+# Date: 2025-06-20
+# Functions removed: print.validation_result
+
 library(validate)
 library(data.table)
 
@@ -449,43 +453,4 @@ validate_output_stage <- function(output_data, stage_name,
   
   class(validation_output) <- "validation_result"
   validation_output
-}
-
-#' Print method for validation results
-#' @param x A validation result object
-#' @param ... Additional arguments
-#' @export
-print.validation_result <- function(x, ...) {
-  cat("Validation Result for:", x$metadata$stage, "\n")
-  cat("Type:", x$metadata$type, "\n")
-  cat("Timestamp:", format(x$metadata$timestamp), "\n")
-  cat("Overall Status:", ifelse(x$passed, "PASSED", "FAILED"), "\n\n")
-  
-  # Print the summary
-  summary_df <- summary(x$result)
-  failed_rules <- summary_df[summary_df$fails > 0 | is.na(summary_df$fails), ]
-  
-  if (nrow(failed_rules) > 0) {
-    cat("Failed Rules:\n")
-    print(failed_rules[, c("name", "items", "passes", "fails", "nNA")])
-  } else {
-    cat("All validation rules passed!\n")
-  }
-  
-  cat("\nMetadata:\n")
-  # Print relevant metadata excluding result and timestamp
-  meta_to_print <- x$metadata[!names(x$metadata) %in% c("timestamp", "stage", "type")]
-  for (name in names(meta_to_print)) {
-    value <- meta_to_print[[name]]
-    if (is.list(value)) {
-      cat(" ", name, ":\n", sep = "")
-      for (subname in names(value)) {
-        cat("   ", subname, ": ", value[[subname]], "\n", sep = "")
-      }
-    } else {
-      cat(" ", name, ": ", value, "\n", sep = "")
-    }
-  }
-  
-  invisible(x)
 }

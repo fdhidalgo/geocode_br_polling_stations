@@ -7,6 +7,10 @@
 #'
 #' @return List with three crew controllers: cnefe, string_match, and light
 #' @export
+# Note: 2 unused functions were moved to backup/unused_functions/
+# Date: 2025-06-20
+# Functions removed: process_cnefe_chunk, process_validation
+
 create_crew_controllers <- function() {
   # Get system info
   n_cores <- parallel::detectCores()
@@ -102,73 +106,6 @@ route_task <- function(task_type, task_function, ..., packages = c("data.table")
     packages = packages
   )
 }
-
-#' Process CNEFE data chunk with memory-optimized controller
-#'
-#' @param chunk_data CNEFE data chunk to process
-#' @param operation Character string describing the operation
-#' @return Processed data
-#' @export
-process_cnefe_chunk <- function(chunk_data, operation = "clean") {
-  route_task(
-    task_type = "cnefe",
-    task_function = function(data) {
-      # Ensure data.table
-      setDT(data)
-      
-      # Perform operation based on type
-      if (operation == "clean") {
-        # Example cleaning operations
-        data[, norm_address := normalize_address(address)]
-        data[, norm_street := normalize_street(street)]
-      } else if (operation == "geocode") {
-        # Geocoding operations
-        data[, `:=`(
-          lat_processed = process_latitude(latitude),
-          long_processed = process_longitude(longitude)
-        )]
-      }
-      
-      # Force garbage collection before returning
-      gc()
-      
-      data
-    },
-    data = chunk_data,
-    packages = c("data.table", "stringr")
-  )
-}
-
-#' Process validation batch with parallel controller
-#'
-#' @param data_batch Data to validate
-#' @param validation_rules List of validation rules
-#' @return Validation results
-#' @export
-process_validation <- function(data_batch, validation_rules = NULL) {
-  route_task(
-    task_type = "light",
-    task_function = function(data, rules) {
-      # Default validation rules if not provided
-      if (is.null(rules)) {
-        rules <- list(
-          field_checks = quote(is.character(field)),
-          numeric_checks = quote(is.numeric(value))
-        )
-      }
-      
-      # Apply validation
-      validator <- validate::validator(.list = rules)
-      results <- validate::confront(data, validator)
-      
-      validate::summary(results)
-    },
-    data = data_batch,
-    rules = validation_rules,
-    packages = c("validate", "data.table")
-  )
-}
-
 #' Monitor resource usage across controllers
 #'
 #' @param controllers List of crew controllers

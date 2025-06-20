@@ -10,6 +10,10 @@
 #' 
 #' @return Logical indicating if quarto was found and path was set
 #' @export
+# Note: 3 unused functions were moved to backup/unused_functions/
+# Date: 2025-06-20
+# Functions removed: configure_report_targets, generate_validation_report_complete, render_methodology_report
+
 ensure_quarto_path <- function() {
   if (Sys.getenv("QUARTO_PATH") == "") {
     quarto_bin <- Sys.which("quarto")
@@ -111,35 +115,6 @@ get_report_output_files <- function(input_file) {
   # Only return files that actually exist
   output_files[file.exists(output_files)]
 }
-
-#' Render Methodology Report
-#' 
-#' Renders the methodology/writeup report using tar_render approach.
-#' 
-#' @param input_file Path to the R Markdown document
-#' @return Character vector of output files
-#' @export
-render_methodology_report <- function(input_file = "doc/geocoding_procedure.Rmd") {
-  
-  if (!file.exists(input_file)) {
-    stop("Input file not found: ", input_file)
-  }
-  
-  # Ensure quarto/pandoc can be found
-  ensure_quarto_path()
-  
-  message("Rendering methodology report: ", input_file)
-  
-  # Use rmarkdown to render (since this is .Rmd not .qmd)
-  output_file <- rmarkdown::render(
-    input = input_file,
-    quiet = FALSE
-  )
-  
-  message("Methodology report rendered: ", output_file)
-  return(output_file)
-}
-
 #' Create Validation Report Target
 #' 
 #' Factory function to create a validation report target with proper dependencies.
@@ -185,37 +160,6 @@ create_validation_report_target <- function(target_name,
   
   stop("Unsupported report configuration")
 }
-
-#' Configure Report Targets
-#' 
-#' Creates all standard report targets for the pipeline.
-#' 
-#' @param dev_mode Logical indicating if running in development mode
-#' @return List of report targets
-#' @export
-configure_report_targets <- function(dev_mode = FALSE) {
-  targets <- list()
-  
-  # Sanity check report (always included)
-  targets$sanity_check <- create_validation_report_target(
-    target_name = "sanity_check_report",
-    input_file = "reports/polling_station_sanity_check.qmd",
-    dependencies = c("geocoded_locais", "panel_ids"),
-    report_type = "sanity_check"
-  )
-  
-  # Methodology report (only in production mode)
-  if (!dev_mode) {
-    targets$methodology <- tar_render(
-      name = geocode_writeup,
-      path = "doc/geocoding_procedure.Rmd",
-      cue = tar_cue(mode = "thorough")
-    )
-  }
-  
-  return(targets)
-}
-
 #' Create comprehensive validation report
 #'
 #' Collects all validation results, manages data references, and generates reports
@@ -322,93 +266,6 @@ create_validation_report <- function(validation_list, data_sources,
       )
     })
   )
-  
-  summary_stats
-}
-
-#' Generate and save validation report with summary
-#'
-#' Complete wrapper function that collects validation results, generates report,
-#' saves summary, and prints console output
-#' @param validate_muni_ids Validation result for muni_ids
-#' @param validate_inep_codes Validation result for inep_codes
-#' @param validate_inep_clean Validation result for inep data
-#' @param validate_locais Validation result for locais
-#' @param validate_inep_match Validation result for inep matches
-#' @param validate_model_data Validation result for model data
-#' @param validate_predictions Validation result for predictions
-#' @param validate_geocoded_output Validation result for geocoded output
-#' @param muni_ids Municipality IDs data
-#' @param inep_codes INEP codes data
-#' @param inep_data INEP data
-#' @param locais_filtered Filtered locais data
-#' @param inep_string_match INEP string match results
-#' @param model_data Model data
-#' @param model_predictions Model predictions
-#' @param geocoded_locais Geocoded locais
-#' @param pipeline_config Pipeline configuration
-#' @return Validation summary statistics
-#' @export
-generate_validation_report_complete <- function(
-  validate_muni_ids, validate_inep_codes, validate_inep_clean, validate_locais,
-  validate_inep_match, validate_model_data, validate_predictions,
-  validate_geocoded_output, muni_ids, inep_codes, inep_data,
-  locais_filtered, inep_string_match, model_data, model_predictions,
-  geocoded_locais, pipeline_config
-) {
-  
-  # Collect all validation results
-  validation_results <- list(
-    muni_ids = validate_muni_ids,
-    inep_codes = validate_inep_codes,
-    inep_cleaned = validate_inep_clean,
-    locais = validate_locais,
-    inep_string_match = validate_inep_match,
-    model_data_merge = validate_model_data,
-    model_predictions = validate_predictions,
-    geocoded_output = validate_geocoded_output
-  )
-  
-  # Create data source mapping
-  data_sources <- list(
-    muni_ids = muni_ids,
-    inep_codes = inep_codes,
-    inep_cleaned = inep_data,
-    locais = locais_filtered,
-    inep_string_match = inep_string_match,
-    model_data_merge = model_data,
-    model_predictions = model_predictions,
-    geocoded_output = geocoded_locais
-  )
-  
-  # Generate comprehensive report
-  summary_stats <- create_validation_report(
-    validation_list = validation_results,
-    data_sources = data_sources,
-    locais_filtered = locais_filtered,
-    pipeline_config = pipeline_config
-  )
-  
-  # Save summary
-  saveRDS(summary_stats, "output/validation_summary.rds")
-  
-  # Print summary to console
-  cat("\n========== VALIDATION REPORT SUMMARY ==========\n")
-  cat("Report generated:", summary_stats$report_path, "\n")
-  cat("Total stages validated:", summary_stats$total_validations, "\n")
-  cat("Passed:", summary_stats$passed, "\n")
-  cat("Failed:", summary_stats$failed, "\n")
-  cat(
-    "Mode:",
-    ifelse(summary_stats$dev_mode, "DEVELOPMENT", "PRODUCTION"),
-    "\n"
-  )
-  cat(
-    "Overall status:",
-    ifelse(summary_stats$failed == 0, "✅ SUCCESS", "❌ FAILURES DETECTED"),
-    "\n"
-  )
-  cat("===============================================\n\n")
   
   summary_stats
 }

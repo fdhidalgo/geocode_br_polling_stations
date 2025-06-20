@@ -7,6 +7,10 @@
 #' @param include_df Logical; whether to include Brasília (DF) in the count
 #' @return Expected municipality count
 #' @export
+# Note: 1 unused functions were moved to backup/unused_functions/
+# Date: 2025-06-20
+# Functions removed: validate_municipality_count
+
 get_expected_municipality_count <- function(year, include_df = TRUE) {
   # Base municipality count (as of 2022)
   base_count <- 5570
@@ -60,36 +64,5 @@ get_expected_municipality_range <- function(year, tolerance_pct = 2) {
     min = expected - tolerance,
     max = expected + tolerance,
     expected = expected
-  )
-}
-
-#' Validate Municipality Count
-#'
-#' Checks if the observed municipality count is within expected range.
-#'
-#' @param observed_count The observed number of municipalities
-#' @param year The election year
-#' @param tolerance_pct Percentage tolerance for the check
-#' @return A list with validation results
-#' @export
-validate_municipality_count <- function(observed_count, year, tolerance_pct = 2) {
-  range <- get_expected_municipality_range(year, tolerance_pct)
-  
-  list(
-    passed = observed_count >= range$min && observed_count <= range$max,
-    observed = observed_count,
-    expected = range$expected,
-    min = range$min,
-    max = range$max,
-    message = if (observed_count < range$min) {
-      sprintf("Municipality count too low: %d (expected %d-%d)", 
-              observed_count, range$min, range$max)
-    } else if (observed_count > range$max) {
-      sprintf("Municipality count too high: %d (expected %d-%d)", 
-              observed_count, range$min, range$max)
-    } else {
-      sprintf("Municipality count OK: %d (within expected range %d-%d)", 
-              observed_count, range$min, range$max)
-    }
   )
 }

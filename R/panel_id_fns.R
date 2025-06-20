@@ -1,8 +1,11 @@
 ## Panel ID functions
 
+# Note: 3 unused functions were moved to backup/unused_functions/
+# Date: 2025-06-20
+# Functions removed: process_multiple_blocks, process_panel_ids_single_state, validate_panel_consistency
+
 library(data.table)
 library(reclin2)
-source("R/data_table_utils.R")
 
 process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
   # Check if best_pairs is NULL or empty
@@ -216,15 +219,15 @@ create_and_select_best_pairs <- function(data, years, blocking_column, scoring_c
   return(pairs_list)
 }
 
-make_panel_1block <- function(block, years, blocking_column, scoring_columns) {
+make_panel_1block <- function(block, years, blocking_column, scoring_columns, use_word_blocking = FALSE) {
   # Standardize column names in block
   standardize_column_names(block, inplace = TRUE)
   
   cat("Processing block with", nrow(block), "rows\n")
   
-  # Use optimized version if available
+  # Use optimized version if available, otherwise use original
   if (exists("create_and_select_best_pairs_optimized")) {
-    pairs_list <- create_and_select_best_pairs_optimized(block, years, blocking_column, scoring_columns)
+    pairs_list <- create_and_select_best_pairs_optimized(block, years, blocking_column, scoring_columns, use_word_blocking)
   } else {
     pairs_list <- create_and_select_best_pairs(block, years, blocking_column, scoring_columns)
   }
@@ -240,105 +243,10 @@ make_panel_1block <- function(block, years, blocking_column, scoring_columns) {
   
   return(panel)
 }
-
-# Function to validate panel consistency
-validate_panel_consistency <- function(panel_data, years) {
-  cat("=== Panel Consistency Validation ===\n\n")
-  
-  # Check for duplicates
-  duplicates <- panel_data[, .N, by = local_id][N > 1]
-  cat("Duplicate local_ids:", nrow(duplicates), "\n")
-  
-  # Check panel_id distribution
-  panel_sizes <- panel_data[, .N, by = panel_id]
-  cat("Panel size distribution:\n")
-  print(panel_sizes[, .N, by = N][order(N)])
-  
-  # Check for missing years in panels
-  if ("year" %in% names(panel_data)) {
-    year_coverage <- panel_data[, .(years_present = length(unique(year))), by = panel_id]
-    cat("Year coverage distribution:\n")
-    print(year_coverage[, .N, by = years_present][order(years_present)])
-  }
-  
-  invisible(list(
-    duplicates = duplicates,
-    panel_sizes = panel_sizes,
-    year_coverage = if("year" %in% names(panel_data)) year_coverage else NULL
-  ))
-}
-
-# Batch processing function for multiple states/blocks
-# Note: This function is kept for backwards compatibility but is not used
-# when targets dynamic branching is enabled (which is the default)
-process_multiple_blocks <- function(data_list, years, blocking_column, scoring_columns, parallel = TRUE) {
-  cat("Processing", length(data_list), "blocks/states\n")
-  
-  # Process blocks sequentially
-  results <- lapply(seq_along(data_list), function(i) {
-    cat("Block", i, "of", length(data_list), "\n")
-    make_panel_1block(data_list[[i]], years, blocking_column, scoring_columns)
-  })
-  
-  # Remove NULL results and combine
-  valid_results <- results[!sapply(results, is.null)]
-  
-  if (length(valid_results) > 0) {
-    combined <- rbindlist(valid_results, fill = TRUE)
-    cat("Combined panel has", nrow(combined), "total observations\n")
-    return(combined)
-  } else {
-    cat("No valid results found\n")
-    return(NULL)
-  }
-}
-
 export_panel_ids <- function(panel_ids) {
   fwrite(panel_ids, "./output/panel_ids.csv.gz")
   "./output/panel_ids.csv.gz"
 }
-
-# Wrapper function for single-state panel ID processing (for targets dynamic branching)
-process_panel_ids_single_state <- function(locais_full, state_code, years, blocking_column, scoring_columns) {
-  # Filter data for the specific state
-  state_data <- locais_full[sg_uf == state_code]
-  
-  # Check if there's data for this state
-  if (nrow(state_data) == 0) {
-    cat("No data found for state:", state_code, "\n")
-    return(data.table())
-  }
-  
-  # Filter out rows with NA values in the blocking column
-  blocking_col_vals <- state_data[[blocking_column]]
-  if (any(is.na(blocking_col_vals))) {
-    n_na <- sum(is.na(blocking_col_vals))
-    cat("Warning: Removing", n_na, "rows with NA values in blocking column", blocking_column, "for state", state_code, "\n")
-    state_data <- state_data[!is.na(get(blocking_column))]
-  }
-  
-  # Check if there's still data after filtering
-  if (nrow(state_data) == 0) {
-    cat("No valid data found for state:", state_code, "after filtering NA values\n")
-    return(data.table())
-  }
-  
-  # Process panel IDs for this state
-  result <- make_panel_1block(
-    block = state_data,
-    years = years,
-    blocking_column = blocking_column,
-    scoring_columns = scoring_columns
-  )
-  
-  # Add state identifier to the result for tracking
-  if (!is.null(result) && nrow(result) > 0) {
-    result[, sg_uf := state_code]
-  }
-  
-  return(result)
-}
-
 # Function to combine panel IDs from multiple states
 combine_state_panel_ids <- function(panel_ids_list) {
   # Remove NULL or empty results

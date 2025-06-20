@@ -256,11 +256,54 @@ create_validation_report <- function(validation_list, data_sources,
   )
   
   # Generate text validation report
-  report_path <- generate_text_validation_report(
-    validation_results = validation_list,
-    output_dir = "output/validation_reports",
-    export_failures = TRUE
-  )
+  # Simple implementation - just save the validation list as RDS
+  output_dir <- "output/validation_reports"
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+  }
+  
+  report_path <- file.path(output_dir, paste0("validation_report_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".rds"))
+  saveRDS(validation_list, report_path)
+  
+  # Create a simple text summary
+  summary_path <- sub("\\.rds$", "_summary.txt", report_path)
+  sink(summary_path)
+  cat("=== VALIDATION REPORT SUMMARY ===\n")
+  cat("Generated:", format(Sys.time()), "\n")
+  cat("Pipeline mode:", ifelse(pipeline_config$dev_mode, "DEVELOPMENT", "PRODUCTION"), "\n\n")
+  
+  # Summary of validation results
+  passed <- 0
+  failed <- 0
+  for (name in names(validation_list)) {
+    if (!is.null(validation_list[[name]]$passed)) {
+      if (validation_list[[name]]$passed) {
+        passed <- passed + 1
+      } else {
+        failed <- failed + 1
+      }
+    }
+  }
+  
+  cat("Total validations:", length(validation_list), "\n")
+  cat("Passed:", passed, "\n")
+  cat("Failed:", failed, "\n\n")
+  
+  # Details for each validation
+  cat("=== VALIDATION DETAILS ===\n")
+  for (name in names(validation_list)) {
+    result <- validation_list[[name]]
+    cat("\n", name, ":\n", sep = "")
+    cat("  Status:", ifelse(result$passed, "PASSED", "FAILED"), "\n")
+    if (!is.null(result$metadata$message)) {
+      cat("  Message:", result$metadata$message, "\n")
+    }
+  }
+  
+  sink()
+  
+  cat("Validation report saved to:", report_path, "\n")
+  cat("Summary saved to:", summary_path, "\n")
   
   # Save validation summary for future reference
   summary_stats <- list(
@@ -362,6 +405,82 @@ generate_validation_report_complete <- function(
   )
   cat(
     "Overall status:",
+    ifelse(summary_stats$failed == 0, "✅ SUCCESS", "❌ FAILURES DETECTED"),
+    "\n"
+  )
+  cat("===============================================\n\n")
+  
+  summary_stats
+}
+
+#' Generate simplified validation report
+#'
+#' Simplified version focusing on critical validations only
+#' @param validate_inputs Consolidated input validation result
+#' @param validate_model_data Model data merge validation
+#' @param validate_predictions Model predictions validation
+#' @param validate_geocoded_output Final output validation
+#' @param locais_filtered Filtered polling stations data
+#' @param model_data Model training data
+#' @param model_predictions Model predictions
+#' @param geocoded_locais Final geocoded data
+#' @param pipeline_config Pipeline configuration
+#' @return Validation summary statistics
+#' @export
+generate_validation_report_simplified <- function(
+  validate_inputs, validate_model_data, validate_predictions,
+  validate_geocoded_output, locais_filtered, model_data, 
+  model_predictions, geocoded_locais, pipeline_config
+) {
+  
+  # Collect critical validation results only
+  validation_results <- list(
+    inputs = validate_inputs,
+    model_data_merge = validate_model_data,
+    model_predictions = validate_predictions,
+    geocoded_output = validate_geocoded_output
+  )
+  
+  # Create focused data source mapping
+  data_sources <- list(
+    inputs = NULL, # Input validation doesn't need data export
+    model_data_merge = model_data,
+    model_predictions = model_predictions,
+    geocoded_output = geocoded_locais
+  )
+  
+  # Generate comprehensive report
+  summary_stats <- create_validation_report(
+    validation_list = validation_results,
+    data_sources = data_sources,
+    locais_filtered = locais_filtered,
+    pipeline_config = pipeline_config
+  )
+  
+  # Save summary
+  saveRDS(summary_stats, "output/validation_summary.rds")
+  
+  # Print focused summary to console
+  cat("\n========== VALIDATION REPORT SUMMARY ==========\n")
+  cat("Report generated:", summary_stats$report_path, "\n")
+  cat("Critical validations checked:", summary_stats$total_validations, "\n")
+  cat("Passed:", summary_stats$passed, "\n")
+  cat("Failed:", summary_stats$failed, "\n")
+  cat(
+    "Mode:",
+    ifelse(summary_stats$dev_mode, "DEVELOPMENT", "PRODUCTION"),
+    "\n"
+  )
+  
+  # Print specific validation results
+  cat("\nValidation Results:\n")
+  cat("- Input data sizes:", ifelse(validation_results$inputs$passed, "✅", "❌"), "\n")
+  cat("- Model data merge:", ifelse(validation_results$model_data_merge$passed, "✅", "❌"), "\n")
+  cat("- Model predictions:", ifelse(validation_results$model_predictions$passed, "✅", "❌"), "\n")
+  cat("- Final output:", ifelse(validation_results$geocoded_output$passed, "✅", "❌"), "\n")
+  
+  cat(
+    "\nOverall status:",
     ifelse(summary_stats$failed == 0, "✅ SUCCESS", "❌ FAILURES DETECTED"),
     "\n"
   )

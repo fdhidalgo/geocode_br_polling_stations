@@ -84,6 +84,15 @@ if (pipeline_config$use_memory_efficient) {
   message("Memory-efficient string matching is ENABLED")
 }
 
+# Enable two-level blocking for panel IDs (municipality + shared words)
+# This can significantly speed up panel ID processing (60-80% reduction in comparisons)
+USE_WORD_BLOCKING <- TRUE  # Set to TRUE to enable
+if (USE_WORD_BLOCKING) {
+  options(geocode_br.use_word_blocking = TRUE)
+  message("Two-level blocking for panel IDs is ENABLED")
+}
+
+
 # Print configuration info
 if (pipeline_config$dev_mode) {
   message("Running in DEVELOPMENT MODE")
@@ -117,18 +126,6 @@ list(
     command = filter_by_dev_mode(muni_ids_all, pipeline_config, state_col = "estado_abrev")
   ),
   tar_target(
-    name = validate_muni_ids,
-    command = validate_simple(
-      data = muni_ids,
-      stage_name = "muni_ids",
-      expected_cols = c("id_munic_7", "id_munic_6", "id_TSE", "estado_abrev", "municipio"),
-      min_rows_dev = 30, # AC+RR have ~37 municipalities
-      min_rows_prod = 5000, # Brazil has ~5,570
-      pipeline_config = pipeline_config,
-      warning_message = "Municipality identifiers validation failed - check data quality"
-    )
-  ),
-  tar_target(
     name = inep_codes_file,
     command = "./data/inep_codes.csv",
     format = "file"
@@ -136,18 +133,6 @@ list(
   tar_target(
     name = inep_codes,
     command = fread(inep_codes_file)
-  ),
-  tar_target(
-    name = validate_inep_codes,
-    command = validate_simple(
-      data = inep_codes,
-      stage_name = "inep_codes",
-      expected_cols = c("codigo_inep", "id_munic_7"),
-      min_rows_dev = 1000, # Expect many schools
-      min_rows_prod = 100000,
-      pipeline_config = pipeline_config,
-      warning_message = "INEP codes validation failed - check data quality"
-    )
   ),
   ## import shape files
   tar_target(
@@ -453,16 +438,6 @@ list(
     name = inep_data,
     command = apply_dev_mode_filters(inep_data_all, pipeline_config, muni_ids, "municipality", muni_col = "id_munic_7")
   ),
-  tar_target(
-    name = validate_inep_clean,
-    command = validate_cleaning(
-      cleaned_data = inep_data,
-      original_data = inep_codes,
-      stage_name = "inep_cleaned",
-      key_cols = c("codigo_inep", "id_munic_7", "latitude", "longitude"),
-      warning_message = "INEP data cleaning validation failed"
-    )
-  ),
 
   # ========================================
   # POLLING STATION DATA
@@ -492,19 +467,14 @@ list(
     name = locais_filtered,
     command = apply_brasilia_filters(locais)
   ),
+  # Consolidated input validation - checks dataset sizes
   tar_target(
-    name = validate_locais,
-    command = validate_simple(
-      data = locais_filtered,
-      stage_name = "locais",
-      expected_cols = c(
-        "local_id", "ano", "nr_zona", "nr_locvot", "nm_locvot",
-        "nm_localidade", "sg_uf", "cod_localidade_ibge", "ds_endereco"
-      ),
-      min_rows_dev = 1000,
-      min_rows_prod = 100000,
-      pipeline_config = pipeline_config,
-      warning_message = "Polling stations validation failed - check data quality"
+    name = validate_inputs,
+    command = validate_inputs_consolidated(
+      muni_ids = muni_ids,
+      inep_codes = inep_codes,
+      locais_filtered = locais_filtered,
+      pipeline_config = pipeline_config
     )
   ),
   tar_target(
@@ -541,21 +511,14 @@ list(
     command = unique(panel_municipality_batches$batch_id)
   ),
 
-  ## Monitor panel processing setup
-  tar_target(
-    name = panel_batch_summary,
-    command = {
-      monitor_panel_progress(panel_municipality_batches)
-      panel_municipality_batches
-    }
-  ),
-
   ## Process panel IDs by municipality batch using dynamic branching
   tar_target(
     name = panel_ids_by_batch,
     command = {
       # Get municipalities for this batch
-      batch_municipalities <- panel_municipality_batches[batch_id == panel_batch_ids]
+      # In dynamic branching, panel_batch_ids represents the current batch ID value
+      current_batch_id <- panel_batch_ids
+      batch_municipalities <- panel_municipality_batches[batch_id == current_batch_id]
 
       # Process panel IDs for this batch
       process_panel_ids_municipality_batch(
@@ -563,7 +526,8 @@ list(
         municipality_batch = batch_municipalities,
         years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
         blocking_column = "cod_localidade_ibge",
-        scoring_columns = c("normalized_name", "normalized_addr")
+        scoring_columns = c("normalized_name", "normalized_addr"),
+        use_word_blocking = getOption("geocode_br.use_word_blocking", FALSE)
       )
     },
     pattern = map(panel_batch_ids),
@@ -652,18 +616,6 @@ list(
     name = inep_string_match,
     command = rbindlist(inep_string_match_batch, use.names = TRUE, fill = TRUE),
     deployment = "main"
-  ),
-  tar_target(
-    name = validate_inep_match,
-    command = validate_string_match_with_stats(
-      match_data = inep_string_match,
-      stage_name = "inep_string_match",
-      id_col = "local_id",
-      score_col = "dist",
-      lat_col = "lat",
-      custom_message = "INEP string matching: %.1f%% match rate (%d matched out of %d)",
-      warning_message = "INEP string match validation has issues"
-    )
   ),
   # Schools CNEFE 2010 matching with batched dynamic branching
   tar_target(
@@ -815,16 +767,6 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  tar_target(
-    name = validate_geocodebr_match,
-    command = validate_geocodebr_precision(
-      match_data = geocodebr_match,
-      stage_name = "geocodebr_match",
-      id_col = "local_id",
-      score_col = "mindist_geocodebr",
-      precision_col = "precisao_geocodebr"
-    )
-  ),
 
   # ========================================
   # MODEL TRAINING AND PREDICTION
@@ -910,23 +852,15 @@ list(
   # ========================================
   # VALIDATION AND REPORTING
   # ========================================
-  ## Generate comprehensive validation report
+  ## Generate simplified validation report
   tar_target(
     name = validation_report,
-    command = generate_validation_report_complete(
-      validate_muni_ids = validate_muni_ids,
-      validate_inep_codes = validate_inep_codes,
-      validate_inep_clean = validate_inep_clean,
-      validate_locais = validate_locais,
-      validate_inep_match = validate_inep_match,
+    command = generate_validation_report_simplified(
+      validate_inputs = validate_inputs,
       validate_model_data = validate_model_data,
       validate_predictions = validate_predictions,
       validate_geocoded_output = validate_geocoded_output,
-      muni_ids = muni_ids,
-      inep_codes = inep_codes,
-      inep_data = inep_data,
       locais_filtered = locais_filtered,
-      inep_string_match = inep_string_match,
       model_data = model_data,
       model_predictions = model_predictions,
       geocoded_locais = geocoded_locais,

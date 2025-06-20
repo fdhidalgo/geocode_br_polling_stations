@@ -295,3 +295,107 @@ validate_final_output <- function(output_data,
   
   return(result)
 }
+
+#' Validate all input datasets
+#' 
+#' Consolidated validation for all input datasets, focusing on size checks
+#' 
+#' @param muni_ids Municipality identifiers data
+#' @param inep_codes INEP codes data  
+#' @param locais_filtered Filtered polling stations data
+#' @param pipeline_config Pipeline configuration object
+#' @return Validation result object with summary of all input checks
+#' @export
+validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, pipeline_config) {
+  
+  # Define expected sizes based on mode
+  expected_sizes <- if (pipeline_config$dev_mode) {
+    list(
+      muni_ids = list(min = 30, max = 100, name = "municipalities"),
+      inep_codes = list(min = 1000, max = 50000, name = "INEP schools"),
+      locais = list(min = 1000, max = 20000, name = "polling stations")
+    )
+  } else {
+    list(
+      muni_ids = list(min = 5000, max = 6000, name = "municipalities"),
+      inep_codes = list(min = 100000, max = 300000, name = "INEP schools"), 
+      locais = list(min = 100000, max = 1000000, name = "polling stations")
+    )
+  }
+  
+  # Collect validation results
+  checks <- list()
+  messages <- list()
+  all_passed <- TRUE
+  
+  # Check municipality data
+  muni_count <- nrow(muni_ids)
+  checks$muni_ids_size <- muni_count >= expected_sizes$muni_ids$min && 
+                          muni_count <= expected_sizes$muni_ids$max
+  messages$muni_ids <- sprintf("%s: %d (expected %d-%d)", 
+                               expected_sizes$muni_ids$name,
+                               muni_count,
+                               expected_sizes$muni_ids$min,
+                               expected_sizes$muni_ids$max)
+  all_passed <- all_passed && checks$muni_ids_size
+  
+  # Check INEP codes
+  inep_count <- nrow(inep_codes)
+  checks$inep_codes_size <- inep_count >= expected_sizes$inep_codes$min &&
+                            inep_count <= expected_sizes$inep_codes$max
+  messages$inep_codes <- sprintf("%s: %d (expected %d-%d)",
+                                 expected_sizes$inep_codes$name,
+                                 inep_count,
+                                 expected_sizes$inep_codes$min,
+                                 expected_sizes$inep_codes$max)
+  all_passed <- all_passed && checks$inep_codes_size
+  
+  # Check polling stations
+  locais_count <- nrow(locais_filtered)
+  checks$locais_size <- locais_count >= expected_sizes$locais$min &&
+                        locais_count <= expected_sizes$locais$max
+  messages$locais <- sprintf("%s: %d (expected %d-%d)",
+                             expected_sizes$locais$name,
+                             locais_count,
+                             expected_sizes$locais$min,
+                             expected_sizes$locais$max)
+  all_passed <- all_passed && checks$locais_size
+  
+  # Create metadata
+  metadata <- list(
+    stage = "input_validation",
+    type = "consolidated",
+    timestamp = Sys.time(),
+    mode = ifelse(pipeline_config$dev_mode, "DEVELOPMENT", "PRODUCTION"),
+    counts = list(
+      municipalities = muni_count,
+      inep_schools = inep_count,
+      polling_stations = locais_count
+    ),
+    messages = messages
+  )
+  
+  # Print summary
+  cat("\n=== INPUT DATA VALIDATION ===\n")
+  cat("Mode:", metadata$mode, "\n")
+  for (msg in messages) {
+    cat("-", msg, ifelse(grepl("expected", msg) && !all_passed, "❌", "✓"), "\n")
+  }
+  cat("=============================\n\n")
+  
+  # Return validation result
+  validation_output <- list(
+    result = NULL, # No detailed rules, just size checks
+    metadata = metadata,
+    passed = all_passed,
+    checks = checks
+  )
+  
+  class(validation_output) <- "validation_result"
+  
+  if (!all_passed) {
+    warning("Input data validation failed - check dataset sizes")
+  }
+  
+  return(validation_output)
+}

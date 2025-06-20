@@ -230,5 +230,72 @@ mcp__taskmaster-ai__expand_task(
 ```
 
 
+## R Session Integration with MCP (acquaint/btw)
+
+This project can leverage R MCP integration for enhanced development workflows using the **acquaint** and **btw** packages. These tools enable structured interaction with active R sessions through the Model Context Protocol.
+
+### Setting Up R MCP Integration
+
+1. **Install Required Packages**:
+   ```r
+   install.packages(c("acquaint", "btw"))
+   ```
+
+2. **Register R Session**:
+   ```r
+   # In your R session, enable MCP integration
+   acquaint::mcp_session()
+   ```
+
+### Available R MCP Tools
+
+When an R session is registered with acquaint, Claude Code can use these btw tools:
+
+**Documentation & Help**:
+- `btw_tool_docs_help_page(topic = "tar_make", package = "targets")` - Get function documentation
+- `btw_tool_docs_package_help_topics(package = "data.table")` - List all functions in a package
+- `btw_tool_installed_packages()` - Check available packages
+
+**Environment Inspection**:
+- `btw_tool_env_objects()` - List objects in the global environment
+- `btw_tool_attached_packages()` - See loaded packages
+- `btw_tool_platform_info()` - Get R version and system info
+
+**File & Workspace**:
+- `btw_tool_wd(path = "./R/")` - Read file contents or list directory
+- `btw_tool_current_file()` - Get active RStudio file content
+- `btw_tool_current_selection()` - Get selected code in RStudio
+
+### Recommended Workflow for This Project
+
+1. **Before Writing Code**:
+   - Verify package availability: `btw_tool_installed_packages()`
+   - Check function signatures: `btw_tool_docs_help_page(topic="tar_make", package="targets")`
+   - Inspect existing objects: `btw_tool_env_objects()`
+
+2. **During Development**:
+   - Use MCP tools to verify data structures before suggesting transformations
+   - Check loaded data.table objects with `btw_tool_env_objects()` 
+   - Verify targets pipeline state without running commands
+
+3. **Example Usage for This Project**:
+   ```r
+   # Check if development data is loaded
+   btw_tool_env_objects()  # Look for polling_stations, cnefe_data, etc.
+   
+   # Get documentation for key functions
+   btw_tool_docs_help_page(topic="tar_load", package="targets")
+   btw_tool_docs_help_page(topic="fread", package="data.table")
+   
+   # Inspect pipeline configuration
+   btw_tool_wd(path = "./_targets.R")
+   ```
+
+### Best Practices
+- Use MCP tools for read-only operations to avoid side effects
+- Always validate object existence before suggesting operations
+- Prefer MCP documentation retrieval over assumptions about function behavior
+- Fall back to requesting explicit `btw()` output if MCP tools are unavailable
+
 ## Workflow Guidelines
 - Anytime you are asked to make a substantial change, please make a plan and get approval before proceeding.

@@ -53,7 +53,7 @@ validate_import_stage <- function(data, stage_name, expected_cols = NULL, min_ro
       result = result,
       metadata = metadata,
       stage = stage_name,
-      passed = all(result$passes, na.rm = TRUE)
+      passed = all(result)
     ),
     class = "validation_result"
   )
@@ -96,7 +96,7 @@ validate_cleaning_stage <- function(data, stage_name, original_data = NULL) {
       result = result,
       metadata = metadata,
       stage = stage_name,
-      passed = all(result$passes, na.rm = TRUE)
+      passed = all(result)
     ),
     class = "validation_result"
   )
@@ -154,20 +154,34 @@ validate_string_match_stage <- function(match_result, stage_name, min_match_rate
       result = result,
       metadata = metadata,
       stage = stage_name,
-      passed = all(result$passes, na.rm = TRUE)
+      passed = all(result)
     ),
     class = "validation_result"
   )
 }
 
-validate_merge_stage <- function(merged_data, stage_name, left_data = NULL, right_data = NULL) {
+validate_merge_stage <- function(merged_data, left_data, right_data = NULL,
+                                stage_name, merge_keys, join_type = "left") {
   # Validates data after merge operations
   
   # Create merge-specific rules
-  rules <- validator(
-    has_rows = nrow(.) > 0,
-    no_complete_duplicates = nrow(.) == nrow(unique(.))
+  base_rules <- list(
+    # Should have results
+    has_rows = quote(nrow(.) > 0),
+    no_complete_duplicates = quote(nrow(.) == nrow(unique(.)))
   )
+  
+  # Add merge key checks
+  if (!is.null(merge_keys)) {
+    for (key in merge_keys) {
+      base_rules[[paste0("has_key_", key)]] <- parse(text = sprintf(
+        "'%s' %%in%% names(.)", key
+      ))[[1]]
+    }
+  }
+  
+  # Create validator
+  rules <- do.call(validator, base_rules)
   
   # Run validation
   result <- confront(merged_data, rules)
@@ -201,30 +215,72 @@ validate_merge_stage <- function(merged_data, stage_name, left_data = NULL, righ
       result = result,
       metadata = metadata,
       stage = stage_name,
-      passed = all(result$passes, na.rm = TRUE)
+      passed = all(result)
     ),
     class = "validation_result"
   )
 }
 
-validate_prediction_stage <- function(predictions, stage_name, min_prediction_rate = 0.8) {
+validate_prediction_stage <- function(predictions, stage_name,
+                                     pred_col = "prediction", prob_col = NULL) {
   # Validates model prediction results
   
   # Create prediction-specific rules
-  rules <- validator(
-    has_rows = nrow(.) > 0,
-    has_predictions = any(c("pred_long", "pred_lat", "long", "lat") %in% names(.)),
-    
-    # Check prediction coverage
-    sufficient_predictions = mean(!is.na(.$long) | !is.na(.$lat)) >= min_prediction_rate
+  base_rules <- list(
+    # Should have predictions
+    has_rows = quote(nrow(.) > 0),
+    # Check for prediction column
+    has_pred_col = parse(text = sprintf("'%s' %%in%% names(.)", pred_col))[[1]]
   )
+  
+  # Add prediction column validation
+  if (pred_col %in% names(predictions)) {
+    base_rules$predictions_numeric <- parse(text = sprintf(
+      "is.numeric(.[[%s]])", deparse(pred_col)
+    ))[[1]]
+    base_rules$predictions_valid <- parse(text = sprintf(
+      "all(!is.na(.[[%s]]))", deparse(pred_col)
+    ))[[1]]
+  }
+  
+  # Add probability column checks if specified
+  if (!is.null(prob_col)) {
+    base_rules$has_prob_col <- parse(text = sprintf(
+      "'%s' %%in%% names(.)", prob_col
+    ))[[1]]
+    if (prob_col %in% names(predictions)) {
+      base_rules$probs_valid <- parse(text = sprintf(
+        "all(.[[%s]] >= 0 & .[[%s]] <= 1, na.rm = TRUE)", 
+        deparse(prob_col), deparse(prob_col)
+      ))[[1]]
+    }
+  }
+  
+  # For backward compatibility, also check for coordinate predictions
+  if (any(c("pred_long", "pred_lat", "long", "lat") %in% names(predictions))) {
+    base_rules$has_coordinate_predictions <- quote(
+      any(c("pred_long", "pred_lat", "long", "lat") %in% names(.))
+    )
+  }
+  
+  # Create validator
+  rules <- do.call(validator, base_rules)
   
   # Run validation
   result <- confront(predictions, rules)
   
-  # Calculate prediction statistics
-  n_predictions <- sum(!is.na(predictions$long) | !is.na(predictions$lat))
-  prediction_rate <- n_predictions / nrow(predictions)
+  # Calculate prediction statistics based on pred_col
+  if (pred_col %in% names(predictions)) {
+    n_predictions <- sum(!is.na(predictions[[pred_col]]))
+    prediction_rate <- n_predictions / nrow(predictions)
+  } else if ("long" %in% names(predictions) && "lat" %in% names(predictions)) {
+    # Fallback for coordinate predictions
+    n_predictions <- sum(!is.na(predictions$long) | !is.na(predictions$lat))
+    prediction_rate <- n_predictions / nrow(predictions)
+  } else {
+    n_predictions <- 0
+    prediction_rate <- 0
+  }
   
   # Create metadata
   metadata <- list(
@@ -234,7 +290,8 @@ validate_prediction_stage <- function(predictions, stage_name, min_prediction_ra
     n_rows = nrow(predictions),
     n_predictions = n_predictions,
     prediction_rate = prediction_rate,
-    min_required_rate = min_prediction_rate
+    pred_col = pred_col,
+    prob_col = prob_col
   )
   
   # Return structured result
@@ -243,7 +300,7 @@ validate_prediction_stage <- function(predictions, stage_name, min_prediction_ra
       result = result,
       metadata = metadata,
       stage = stage_name,
-      passed = all(result$passes, na.rm = TRUE)
+      passed = all(result)
     ),
     class = "validation_result"
   )
@@ -304,7 +361,7 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL)
       result = result,
       metadata = metadata,
       stage = stage_name,
-      passed = all(result$passes, na.rm = TRUE)
+      passed = all(result)
     ),
     class = "validation_result"
   )

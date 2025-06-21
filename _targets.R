@@ -886,9 +886,6 @@ list(
   tar_target(
     name = data_quality_monitoring,
     command = {
-      # Load monitoring functions
-      source("R/data_quality_monitor_v2.R")
-
       # Create monitoring report with export files as dependencies
       results <- create_data_quality_monitor(
         geocoded_export = geocoded_export,

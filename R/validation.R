@@ -4,7 +4,7 @@
 ## - validation_stages.R (6 functions)
 ## - validation_target_functions.R (4 functions)
 ## - validation_report_helpers.R (6 functions)
-## - data_quality_monitor_v2.R (1 function)
+## - monitoring.R (1 function)
 ##
 ## Total functions: 17
 
@@ -771,82 +771,4 @@ generate_validation_report_simplified <- function(
   cat("===============================================\n\n")
   
   return(summary_stats)
-}
-
-# ===== DATA QUALITY MONITOR =====
-
-create_data_quality_monitor <- function(initial_config = list()) {
-  # Create a data quality monitoring object
-  
-  # Default configuration
-  default_config <- list(
-    track_memory = TRUE,
-    track_time = TRUE,
-    log_warnings = TRUE,
-    save_intermediate = FALSE,
-    output_dir = "output/data_quality"
-  )
-  
-  # Merge with user config
-  config <- modifyList(default_config, initial_config)
-  
-  # Initialize monitor
-  monitor <- list(
-    config = config,
-    stages = list(),
-    start_time = Sys.time(),
-    warnings = list()
-  )
-  
-  # Add methods
-  monitor$log_stage <- function(stage_name, data, notes = NULL) {
-    stage_info <- list(
-      name = stage_name,
-      timestamp = Sys.time(),
-      n_rows = nrow(data),
-      n_cols = ncol(data),
-      memory_used = if (config$track_memory) pryr::object_size(data) else NA,
-      notes = notes
-    )
-    
-    monitor$stages[[stage_name]] <- stage_info
-  }
-  
-  monitor$log_warning <- function(stage_name, warning_msg) {
-    if (config$log_warnings) {
-      monitor$warnings[[length(monitor$warnings) + 1]] <- list(
-        stage = stage_name,
-        message = warning_msg,
-        timestamp = Sys.time()
-      )
-    }
-  }
-  
-  monitor$get_summary <- function() {
-    list(
-      total_stages = length(monitor$stages),
-      total_warnings = length(monitor$warnings),
-      runtime = difftime(Sys.time(), monitor$start_time, units = "mins"),
-      stages = monitor$stages,
-      warnings = monitor$warnings
-    )
-  }
-  
-  monitor$save_report <- function(filename = NULL) {
-    if (is.null(filename)) {
-      filename <- file.path(
-        config$output_dir,
-        paste0("quality_monitoring_", format(Sys.time(), "%Y-%m-%d"), ".rds")
-      )
-    }
-    
-    dir.create(dirname(filename), showWarnings = FALSE, recursive = TRUE)
-    saveRDS(monitor$get_summary(), filename)
-    
-    return(filename)
-  }
-  
-  class(monitor) <- c("data_quality_monitor", "list")
-  
-  return(monitor)
 }

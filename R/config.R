@@ -65,11 +65,49 @@ get_agro_cnefe_files <- function(states = NULL) {
   
   if (is.null(states)) {
     # Get all available files
-    pattern <- "*.csv.gz"
+    pattern <- "\\.csv\\.gz$"
   } else {
+    # Map state codes to names used in file names
+    state_name_map <- list(
+      AC = "ACRE",
+      AL = "ALAGOAS", 
+      AM = "AMAZONAS",
+      AP = "AMAPA",
+      BA = "BAHIA",
+      CE = "CEARA",
+      DF = "DISTRITO_FEDERAL",
+      ES = "ESPIRITO_SANTO",
+      GO = "GOIAS",
+      MA = "MARANHAO",
+      MG = "MINAS_GERAIS",
+      MS = "MATO_GROSSO_DO_SUL",
+      MT = "MATO_GROSSO",
+      PA = "PARA",
+      PB = "PARAIBA",
+      PE = "PERNAMBUCO",
+      PI = "PIAUI",
+      PR = "PARANA",
+      RJ = "RIO_DE_JANEIRO",
+      RN = "RIO_GRANDE_DO_NORTE",
+      RO = "RONDONIA",
+      RR = "RORAIMA",
+      RS = "RIO_GRANDE_DO_SUL",
+      SC = "SANTA_CATARINA",
+      SE = "SERGIPE",
+      SP = "SAO_PAULO",
+      TO = "TOCANTINS"
+    )
+    
+    # Get state names for the requested codes
+    state_names <- unlist(state_name_map[states])
+    state_names <- state_names[!is.na(state_names)]
+    
+    if (length(state_names) == 0) {
+      return(character(0))
+    }
+    
     # Create pattern for specific states
-    state_patterns <- paste0("(", paste(states, collapse = "|"), ")\\.")
-    pattern <- paste0(state_patterns, "csv.gz$")
+    pattern <- paste0("(", paste(state_names, collapse = "|"), ")\\.csv\\.gz$")
   }
   
   # Find files in agro_censo directory

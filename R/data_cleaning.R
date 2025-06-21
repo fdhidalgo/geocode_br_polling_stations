@@ -336,24 +336,28 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
   standardize_column_names(agro_cnefe, inplace = TRUE)
 
   # Create street column combining type and name (similar to clean_cnefe10)
+  # Note: Agro censo files have uppercase column names
   agro_cnefe[,
     street := str_squish(paste(
-      nom_tipo_seglogr,
-      nom_titulo_seglogr,
-      nom_seglogr
+      NOM_TIPO_SEGLOGR,
+      NOM_TITULO_SEGLOGR,
+      NOM_SEGLOGR
     ))
   ]
   
   # Create normalized street and neighborhood columns
   agro_cnefe[, norm_street := normalize_address(street)]
-  agro_cnefe[, norm_bairro := normalize_address(dsc_localidade)]
+  agro_cnefe[, norm_bairro := normalize_address(DSC_LOCALIDADE)]
   
   # Convert latitude and longitude to numeric
-  agro_cnefe[, latitude := as.numeric(latitude)]
-  agro_cnefe[, longitude := as.numeric(longitude)]
+  agro_cnefe[, LATITUDE := as.numeric(LATITUDE)]
+  agro_cnefe[, LONGITUDE := as.numeric(LONGITUDE)]
+  
+  # Rename to lowercase for consistency with downstream processing
+  setnames(agro_cnefe, c("LATITUDE", "LONGITUDE"), c("latitude", "longitude"))
 
   # Create id_munic_7 from cod_uf and cod_municipio
-  agro_cnefe[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
+  agro_cnefe[, id_munic_7 := as.numeric(paste0(COD_UF, COD_MUNICIPIO))]
 
   # Join with municipality IDs
   agro_cnefe <- muni_ids[

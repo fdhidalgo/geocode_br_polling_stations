@@ -123,7 +123,7 @@ list(
   ),
   tar_target(
     name = muni_ids,
-    command = filter_by_dev_mode(muni_ids_all, pipeline_config, state_col = "estado_abrev")
+    command = filter_by_dev_mode(muni_ids_all, pipeline_config$dev_states, id_column = "estado_abrev")
   ),
   tar_target(
     name = inep_codes_file,
@@ -340,7 +340,7 @@ list(
   ## Import and clean 2017 CNEFE
   tar_target(
     name = agro_cnefe_files,
-    command = get_agro_cnefe_files(pipeline_config)
+    command = get_agro_cnefe_files(pipeline_config$states)
   ),
   tar_target(
     name = agro_cnefe,
@@ -908,13 +908,23 @@ list(
     cue = tar_cue(mode = "always")
   ),
   ## Sanity Check Report
-  # Sanity check report - using helper function
-  create_validation_report_target(
-    target_name = "sanity_check_report",
-    input_file = "reports/polling_station_sanity_check.qmd",
-    dependencies = c("geocoded_locais", "panel_ids"),
-    report_type = "sanity_check"
-  ),
+  # Sanity check report - generate if quarto file exists
+  if (file.exists("reports/polling_station_sanity_check.qmd")) {
+    tar_render(
+      name = sanity_check_report,
+      path = "reports/polling_station_sanity_check.qmd",
+      output_dir = "reports"
+    )
+  } else {
+    # Fallback: simple validation report
+    tar_target(
+      name = sanity_check_report,
+      command = render_sanity_check_report(
+        geocoded_data = geocoded_locais,
+        output_file = "reports/sanity_check_report.html"
+      )
+    )
+  },
   ## Methodology and Evaluation
   # Only render in production mode
   if (!pipeline_config$dev_mode) {

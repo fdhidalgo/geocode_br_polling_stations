@@ -431,23 +431,23 @@ match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_m
     match_long_cnefe_st <- ifelse(
       is.na(st_results$best_index),
       NA_real_,
-      cnefe_st_muni$cnefe_long[st_results$best_index]
+      cnefe_st_muni$long[st_results$best_index]
     )
     match_lat_cnefe_st <- ifelse(
       is.na(st_results$best_index),
       NA_real_,
-      cnefe_st_muni$cnefe_lat[st_results$best_index]
+      cnefe_st_muni$lat[st_results$best_index]
     )
     
     match_long_cnefe_bairro <- ifelse(
       is.na(bairro_results$best_index),
       NA_real_,
-      cnefe_bairro_muni$cnefe_long[bairro_results$best_index]
+      cnefe_bairro_muni$long[bairro_results$best_index]
     )
     match_lat_cnefe_bairro <- ifelse(
       is.na(bairro_results$best_index),
       NA_real_,
-      cnefe_bairro_muni$cnefe_lat[bairro_results$best_index]
+      cnefe_bairro_muni$lat[bairro_results$best_index]
     )
     
     # Create output
@@ -483,8 +483,8 @@ match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_m
     idx_cnefe_st <- apply(st_cnefe_dists, 1, which.min)
     
     match_cnefe_st <- cnefe_st_muni$norm_street[idx_cnefe_st]
-    match_long_cnefe_st <- cnefe_st_muni$cnefe_long[idx_cnefe_st]
-    match_lat_cnefe_st <- cnefe_st_muni$cnefe_lat[idx_cnefe_st]
+    match_long_cnefe_st <- cnefe_st_muni$long[idx_cnefe_st]
+    match_lat_cnefe_st <- cnefe_st_muni$lat[idx_cnefe_st]
     
     # Neighborhood matching
     bairro_cnefe_dists <- stringdist::stringdistmatrix(
@@ -497,8 +497,8 @@ match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_m
     idx_cnefe_bairro <- apply(bairro_cnefe_dists, 1, which.min)
     
     match_cnefe_bairro <- cnefe_bairro_muni$norm_bairro[idx_cnefe_bairro]
-    match_long_cnefe_bairro <- cnefe_bairro_muni$cnefe_long[idx_cnefe_bairro]
-    match_lat_cnefe_bairro <- cnefe_bairro_muni$cnefe_lat[idx_cnefe_bairro]
+    match_long_cnefe_bairro <- cnefe_bairro_muni$long[idx_cnefe_bairro]
+    match_lat_cnefe_bairro <- cnefe_bairro_muni$lat[idx_cnefe_bairro]
     
     # Create output
     output <- data.table(
@@ -555,23 +555,23 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
     match_long_agrocnefe_st <- ifelse(
       is.na(st_results$best_index),
       NA_real_,
-      agrocnefe_st_muni$longitude[st_results$best_index]
+      agrocnefe_st_muni$long[st_results$best_index]
     )
     match_lat_agrocnefe_st <- ifelse(
       is.na(st_results$best_index),
       NA_real_,
-      agrocnefe_st_muni$latitude[st_results$best_index]
+      agrocnefe_st_muni$lat[st_results$best_index]
     )
     
     match_long_agrocnefe_bairro <- ifelse(
       is.na(bairro_results$best_index),
       NA_real_,
-      agrocnefe_bairro_muni$longitude[bairro_results$best_index]
+      agrocnefe_bairro_muni$long[bairro_results$best_index]
     )
     match_lat_agrocnefe_bairro <- ifelse(
       is.na(bairro_results$best_index),
       NA_real_,
-      agrocnefe_bairro_muni$latitude[bairro_results$best_index]
+      agrocnefe_bairro_muni$lat[bairro_results$best_index]
     )
     
     # Create output
@@ -607,8 +607,8 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
     idx_agrocnefe_st <- apply(st_agrocnefe_dists, 1, which.min)
     
     match_agrocnefe_st <- agrocnefe_st_muni$norm_street[idx_agrocnefe_st]
-    match_long_agrocnefe_st <- agrocnefe_st_muni$longitude[idx_agrocnefe_st]
-    match_lat_agrocnefe_st <- agrocnefe_st_muni$latitude[idx_agrocnefe_st]
+    match_long_agrocnefe_st <- agrocnefe_st_muni$long[idx_agrocnefe_st]
+    match_lat_agrocnefe_st <- agrocnefe_st_muni$lat[idx_agrocnefe_st]
     
     # Neighborhood matching
     bairro_agrocnefe_dists <- stringdist::stringdistmatrix(
@@ -621,8 +621,8 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
     idx_agrocnefe_bairro <- apply(bairro_agrocnefe_dists, 1, which.min)
     
     match_agrocnefe_bairro <- agrocnefe_bairro_muni$norm_bairro[idx_agrocnefe_bairro]
-    match_long_agrocnefe_bairro <- agrocnefe_bairro_muni$longitude[idx_agrocnefe_bairro]
-    match_lat_agrocnefe_bairro <- agrocnefe_bairro_muni$latitude[idx_agrocnefe_bairro]
+    match_long_agrocnefe_bairro <- agrocnefe_bairro_muni$long[idx_agrocnefe_bairro]
+    match_lat_agrocnefe_bairro <- agrocnefe_bairro_muni$lat[idx_agrocnefe_bairro]
     
     # Create output
     output <- data.table(

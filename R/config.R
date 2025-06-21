@@ -216,7 +216,16 @@ configure_targets_options <- function(controller_group) {
       "stringdist",
       "validate",
       "sf",
-      "reclin2"
+      "reclin2",
+      "bonsai",
+      "geosphere",
+      "rsample",
+      "recipes",
+      "parsnip",
+      "workflows",
+      "yardstick",
+      "finetune",
+      "tune"
     ),
     format = "qs",
     controller = controller_group,

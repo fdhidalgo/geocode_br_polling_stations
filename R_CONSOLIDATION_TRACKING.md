@@ -255,3 +255,10 @@
 3. `clean_agro_cnefe` - Fixed column name handling after tolower()
 4. `clean_cnefe10` - Temporarily using backup version to avoid circular dependency
 5. `apply_dev_mode_filters` - Added backward compatibility for old call signatures
+6. `match_stbairro_cnefe_muni` - Fixed parameter names (cnefe_st_muni, cnefe_bairro_muni)
+7. `match_stbairro_agrocnefe_muni` - Fixed parameter names (agrocnefe_st_muni, agrocnefe_bairro_muni)
+8. Added missing empty data checks to prevent "non-conformable arrays" errors
+9. Fixed model.R functions - restored correct implementations from backup (not placeholders)
+10. Fixed melt patterns in make_model_data - changed to match actual column names (match_long_, match_lat_, mindist_)
+11. Fixed column references in string_matching.R - cnefe data uses 'long'/'lat', not 'cnefe_long'/'cnefe_lat'
+12. Added missing tidymodels packages to tar_option_set in config.R

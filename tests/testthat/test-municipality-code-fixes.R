@@ -4,9 +4,12 @@
 library(testthat)
 library(data.table)
 
-# Source the fix functions
+# Source the data cleaning functions which now includes fix_municipality_codes_2024
 project_root <- rprojroot::find_root(rprojroot::is_rstudio_project)
-source(file.path(project_root, "R", "fix_municipality_codes_2024.R"))
+source(file.path(project_root, "R", "data_cleaning.R"))
+
+# Source validation functions for testing
+source(file.path(project_root, "R_backup_20250620_consolidation", "fix_municipality_codes_2024_validation_fns.R"))
 
 test_that("conversion preserves data integrity", {
   # Test that the function doesn't lose or corrupt data

@@ -14,9 +14,8 @@ setwd(project_root)
 
 # Source with error handling
 tryCatch({
-  source("R/data_table_utils.R")
-  source("R/data_cleaning_fns.R")
-  source("R/fix_municipality_codes_2024.R")
+  source("R/utils.R")  # Updated consolidated file name
+  source("R/data_cleaning.R")  # Now includes fix_municipality_codes_2024
 }, error = function(e) {
   setwd(old_wd)
   stop(e)

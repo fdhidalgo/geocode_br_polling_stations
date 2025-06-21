@@ -116,34 +116,35 @@
 - [ ] Updated source calls
 - [ ] Tested
 
-#### 8. utilities.R (Target: 10 functions - COMPLETED by Task agent)
-**Source files**: data_table_utils.R (2), filtering_helpers.R (9 including operator)
+#### 8. utilities.R (Target: 10 functions) ✓
+**Source files**: data_table_utils.R (1), filtering_helpers.R (9 including operator)
+**Note**: standardize_column_names stayed in data_cleaning.R
 - [x] Created file
 - [x] Migrated all functions:
-  - From data_table_utils.R: standardize_column_names, apply_padding_batch
+  - From data_table_utils.R: apply_padding_batch
   - From filtering_helpers.R: filter_by_dev_mode, filter_data_by_state, filter_data_by_municipalities, get_muni_codes_for_states, filter_geographic_by_state, apply_dev_mode_filters, apply_brasilia_filters, %||% operator
-- [ ] Updated source calls
-- [ ] Tested
+- [x] Updated source calls
+- [x] Tested
 
-#### 9. config.R (Target: 5 functions - COMPLETED by Task agent)
+#### 9. config.R (Target: 5 functions - COMPLETED with 7 functions) ✓
 **Source files**: pipeline_config.R (3), expected_municipality_counts.R (2), target_helpers.R (2 config functions)
 - [x] Created file
 - [x] Migrated all functions:
   - From pipeline_config.R: get_pipeline_config, get_states_for_processing, get_agro_cnefe_files
   - From expected_municipality_counts.R: get_expected_municipality_count, get_expected_municipality_range
   - From target_helpers.R: get_crew_controllers, configure_targets_options
-- [ ] Updated source calls
-- [ ] Tested
+- [x] Updated source calls
+- [x] Tested
 
-#### 10. model.R (Target: 3 functions)
+#### 10. model.R (Target: 3 functions) ✓
 **Source files**: string_matching_geocode_fns.R (model functions)
 - [x] Created file
 - [x] Migrated model functions:
   - [x] make_model_data
   - [x] train_model
   - [x] get_predictions
-- [ ] Updated source calls
-- [ ] Tested
+- [x] Updated source calls (string_matching_geocode_fns.R now sources model.R)
+- [ ] Pipeline tested
 
 #### 11. monitoring.R (Target: 1 function)
 **Source files**: data_quality_monitor_v2.R

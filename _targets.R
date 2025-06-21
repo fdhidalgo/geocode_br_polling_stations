@@ -13,7 +13,7 @@
 
 # ===== CONFIGURATION =====
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- FALSE # Process only AC, RR states when TRUE
+DEV_MODE <- TRUE # Process only AC, RR states when TRUE
 
 # ===== SETUP =====
 # Load packages required to define the pipeline:

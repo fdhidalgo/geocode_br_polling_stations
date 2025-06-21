@@ -70,7 +70,7 @@
 - [ ] Updated source calls
 - [ ] Tested
 
-#### 4. validation.R (Target: 14 functions - REVISED to 17 functions)
+#### 4. validation.R (Target: 14 functions - REVISED to 17 functions) ✓
 **Source files**: validation_stages.R (6), validation_target_functions.R (5), validation_report_helpers.R (6)
 - [x] Created file
 - [x] Migrated all functions:
@@ -78,8 +78,9 @@
   - From validation_target_functions.R: validate_merge_simple, validate_predictions_simple, validate_final_output, validate_inputs_consolidated
   - From validation_report_helpers.R: ensure_quarto_path, render_sanity_check_report, get_report_output_files, create_validation_report_target, create_validation_report, generate_validation_report_simplified
 - [x] Removed empty functions_validate.R (updated to source new file)
-- [x] Updated source calls
-- [ ] Tested
+- [x] Updated source calls (all old files now source the new consolidated file)
+- [x] Tested (validate_inputs target runs successfully)
+- [x] Fixed apply_dev_mode_filters in utilities.R to support old call signature
 
 #### 5. pipeline_helpers.R (Target: 12 functions - REVISED to 8 functions)
 **Source files**: target_helpers.R (processing functions only)

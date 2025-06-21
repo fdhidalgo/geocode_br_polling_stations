@@ -1,18 +1,17 @@
 # validation_report_helpers.R
 #
-# Helper functions for generating validation reports.
-# This extracts inline report generation logic from _targets.R to make it more maintainable.
+# This file now sources the consolidated validation.R file
+# Original functions have been moved to R/validation.R
 
-#' Ensure Quarto Path is Set
-#' 
-#' Sets the QUARTO_PATH environment variable if not already set.
-#' This is needed for crew workers to find the quarto binary.
-#' 
-#' @return Logical indicating if quarto was found and path was set
-#' @export
 # Note: 3 unused functions were moved to backup/unused_functions/
 # Date: 2025-06-20
 # Functions removed: configure_report_targets, generate_validation_report_complete, render_methodology_report
+
+# Source the consolidated validation functions
+source("R/validation.R")
+
+# The functions below remain in this file because they were not listed in the
+# consolidation plan and appear to be specific overrides or extensions
 
 ensure_quarto_path <- function() {
   if (Sys.getenv("QUARTO_PATH") == "") {

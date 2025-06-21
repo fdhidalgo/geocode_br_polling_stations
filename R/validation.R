@@ -312,120 +312,171 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL)
 
 # ===== VALIDATION TARGET FUNCTIONS =====
 
-validate_merge_simple <- function(merged_data, left_data, right_data, merge_key) {
-  # Simple validation for merge operations used in targets
+validate_merge_simple <- function(merged_data,
+                                 left_data,
+                                 stage_name,
+                                 merge_keys,
+                                 join_type = "left_many",
+                                 warning_message = NULL) {
+  # Validate merge operation
   
-  # Basic checks
-  n_left <- nrow(left_data)
-  n_right <- nrow(right_data)
-  n_merged <- nrow(merged_data)
+  result <- validate_merge_stage(
+    merged_data = merged_data,
+    left_data = left_data,
+    right_data = NULL,  # Multiple sources merged
+    stage_name = stage_name,
+    merge_keys = merge_keys,
+    join_type = join_type
+  )
   
-  # Check for unexpected row count changes
-  if (n_merged > n_left * n_right) {
-    warning("Merge resulted in more rows than expected - possible many-to-many join")
+  if (!result$passed && !is.null(warning_message)) {
+    warning(warning_message)
   }
   
-  # Check for key preservation
-  if (merge_key %in% names(merged_data)) {
-    n_unique_keys <- length(unique(merged_data[[merge_key]]))
-    if (n_unique_keys < n_left) {
-      message(sprintf("Merge key coverage: %d/%d unique keys preserved", 
-                      n_unique_keys, n_left))
-    }
+  return(result)
+}
+
+validate_predictions_simple <- function(predictions,
+                                       stage_name = "model_predictions",
+                                       pred_col = "pred_dist",
+                                       stop_on_failure = TRUE) {
+  # Validate predictions
+  
+  result <- validate_prediction_stage(
+    predictions = predictions,
+    stage_name = stage_name,
+    pred_col = pred_col,
+    prob_col = NULL  # No probability column
+  )
+  
+  if (!result$passed && stop_on_failure) {
+    stop("Model predictions validation failed")
   }
   
-  # Return validation summary
-  list(
-    passed = n_merged > 0,
-    n_rows = n_merged,
-    merge_efficiency = n_merged / n_left,
-    timestamp = Sys.time()
-  )
+  return(result)
 }
 
-validate_predictions_simple <- function(predictions) {
-  # Simple validation for prediction results
-  
-  n_total <- nrow(predictions)
-  n_predicted <- sum(!is.na(predictions$long) & !is.na(predictions$lat))
-  prediction_rate <- n_predicted / n_total
-  
-  list(
-    passed = prediction_rate > 0.5,
-    n_predictions = n_predicted,
-    prediction_rate = prediction_rate,
-    timestamp = Sys.time()
-  )
-}
-
-validate_final_output <- function(geocoded_data) {
+validate_final_output <- function(output_data,
+                                 stage_name = "geocoded_locais",
+                                 required_cols,
+                                 unique_keys,
+                                 stop_on_failure = TRUE) {
   # Validate final geocoded output
   
-  # Check required columns
-  required_cols <- c("local_id", "ano", "final_long", "final_lat")
-  has_required <- all(required_cols %in% names(geocoded_data))
-  
-  # Calculate statistics
-  n_total <- nrow(geocoded_data)
-  n_geocoded <- sum(!is.na(geocoded_data$final_long) & !is.na(geocoded_data$final_lat))
-  geocoding_rate <- n_geocoded / n_total
-  
-  # Check for duplicates
-  n_duplicates <- sum(duplicated(geocoded_data[, .(local_id, ano)]))
-  
-  list(
-    passed = has_required && geocoding_rate > 0.7 && n_duplicates == 0,
-    has_required_columns = has_required,
-    n_rows = n_total,
-    n_geocoded = n_geocoded,
-    geocoding_rate = geocoding_rate,
-    n_duplicates = n_duplicates,
-    timestamp = Sys.time()
+  result <- validate_output_stage(
+    output_data = output_data,
+    stage_name = stage_name,
+    required_cols = required_cols,
+    unique_keys = unique_keys
   )
+  
+  # Final quality check
+  if (!result$passed && stop_on_failure) {
+    stop("Final output validation failed - do not export!")
+  }
+  
+  message(sprintf(
+    "Geocoding complete: %d polling stations geocoded",
+    nrow(output_data)
+  ))
+  
+  return(result)
 }
 
-validate_inputs_consolidated <- function(muni_ids, locais, inep_data) {
-  # Consolidated validation for all input data
+validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, pipeline_config) {
+  # Validate all input datasets
+  # Consolidated validation for all input datasets, focusing on size checks
   
-  results <- list()
+  # Define expected sizes based on mode
+  expected_sizes <- if (pipeline_config$dev_mode) {
+    list(
+      muni_ids = list(min = 30, max = 100, name = "municipalities"),
+      inep_codes = list(min = 1000, max = 50000, name = "INEP schools"),
+      locais = list(min = 1000, max = 20000, name = "polling stations")
+    )
+  } else {
+    list(
+      muni_ids = list(min = 5000, max = 6000, name = "municipalities"),
+      inep_codes = list(min = 100000, max = 300000, name = "INEP schools"), 
+      locais = list(min = 100000, max = 1000000, name = "polling stations")
+    )
+  }
   
-  # Validate muni_ids
-  results$muni_ids <- list(
-    has_data = nrow(muni_ids) > 0,
-    has_required_cols = all(c("id_munic_7", "id_TSE", "estado_abrev") %in% names(muni_ids)),
-    n_municipalities = length(unique(muni_ids$id_munic_7)),
-    n_states = length(unique(muni_ids$estado_abrev))
+  # Collect validation results
+  checks <- list()
+  messages <- list()
+  all_passed <- TRUE
+  
+  # Check municipality data
+  muni_count <- nrow(muni_ids)
+  checks$muni_ids_size <- muni_count >= expected_sizes$muni_ids$min && 
+                          muni_count <= expected_sizes$muni_ids$max
+  messages$muni_ids <- sprintf("%s: %d (expected %d-%d)", 
+                               expected_sizes$muni_ids$name,
+                               muni_count,
+                               expected_sizes$muni_ids$min,
+                               expected_sizes$muni_ids$max)
+  all_passed <- all_passed && checks$muni_ids_size
+  
+  # Check INEP codes
+  inep_count <- nrow(inep_codes)
+  checks$inep_codes_size <- inep_count >= expected_sizes$inep_codes$min &&
+                            inep_count <= expected_sizes$inep_codes$max
+  messages$inep_codes <- sprintf("%s: %d (expected %d-%d)",
+                                 expected_sizes$inep_codes$name,
+                                 inep_count,
+                                 expected_sizes$inep_codes$min,
+                                 expected_sizes$inep_codes$max)
+  all_passed <- all_passed && checks$inep_codes_size
+  
+  # Check polling stations
+  locais_count <- nrow(locais_filtered)
+  checks$locais_size <- locais_count >= expected_sizes$locais$min &&
+                        locais_count <= expected_sizes$locais$max
+  messages$locais <- sprintf("%s: %d (expected %d-%d)",
+                             expected_sizes$locais$name,
+                             locais_count,
+                             expected_sizes$locais$min,
+                             expected_sizes$locais$max)
+  all_passed <- all_passed && checks$locais_size
+  
+  # Create metadata
+  metadata <- list(
+    stage = "input_validation",
+    type = "consolidated",
+    timestamp = Sys.time(),
+    mode = ifelse(pipeline_config$dev_mode, "DEVELOPMENT", "PRODUCTION"),
+    counts = list(
+      municipalities = muni_count,
+      inep_schools = inep_count,
+      polling_stations = locais_count
+    ),
+    messages = messages
   )
   
-  # Validate locais
-  results$locais <- list(
-    has_data = nrow(locais) > 0,
-    has_required_cols = all(c("local_id", "ano", "nr_zona", "nr_locvot") %in% names(locais)),
-    n_locations = length(unique(locais$local_id)),
-    years = sort(unique(locais$ano))
+  # Print summary
+  cat("\n=== INPUT DATA VALIDATION ===\n")
+  cat("Mode:", metadata$mode, "\n")
+  for (msg in messages) {
+    cat("-", msg, ifelse(grepl("expected", msg) && !all_passed, "❌", "✓"), "\n")
+  }
+  cat("=============================\n\n")
+  
+  # Return validation result
+  validation_output <- list(
+    result = NULL, # No detailed rules, just size checks
+    metadata = metadata,
+    passed = all_passed,
+    checks = checks
   )
   
-  # Validate INEP data
-  results$inep <- list(
-    has_data = nrow(inep_data) > 0,
-    has_coordinates = all(c("latitude", "longitude") %in% names(inep_data)),
-    n_schools = nrow(inep_data),
-    n_with_coords = sum(!is.na(inep_data$latitude) & !is.na(inep_data$longitude))
-  )
+  class(validation_output) <- "validation_result"
   
-  # Overall pass/fail
-  results$passed <- all(
-    results$muni_ids$has_data,
-    results$muni_ids$has_required_cols,
-    results$locais$has_data,
-    results$locais$has_required_cols,
-    results$inep$has_data,
-    results$inep$has_coordinates
-  )
+  if (!all_passed) {
+    warning("Input data validation failed - check dataset sizes")
+  }
   
-  results$timestamp <- Sys.time()
-  
-  return(results)
+  return(validation_output)
 }
 
 # ===== VALIDATION REPORT HELPERS =====
@@ -584,40 +635,65 @@ create_validation_report <- function(validation_results, output_dir = "output/va
   return(report)
 }
 
-generate_validation_report_simplified <- function(validation_results, output_path = NULL) {
-  # Simplified report generation for quick checks
+generate_validation_report_simplified <- function(
+  validate_inputs, validate_model_data, validate_predictions,
+  validate_geocoded_output, locais_filtered, model_data, 
+  model_predictions, geocoded_locais, pipeline_config
+) {
+  # Simplified version focusing on critical validations only
   
-  if (is.null(output_path)) {
-    output_path <- paste0("validation_summary_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".txt")
-  }
-  
-  # Create simple text report
-  report_lines <- c(
-    "VALIDATION SUMMARY",
-    "==================",
-    paste("Generated:", Sys.time()),
-    "",
-    "Results by Stage:"
+  # Collect critical validation results only
+  validation_results <- list(
+    inputs = validate_inputs,
+    model_data_merge = validate_model_data,
+    model_predictions = validate_predictions,
+    geocoded_output = validate_geocoded_output
   )
   
-  # Add results for each stage
-  for (stage in names(validation_results)) {
-    result <- validation_results[[stage]]
-    status <- ifelse(result$passed, "PASS", "FAIL")
-    
-    stage_info <- sprintf("  %s: %s", stage, status)
-    
-    if (!is.null(result$metadata$n_rows)) {
-      stage_info <- paste(stage_info, sprintf("(n=%d)", result$metadata$n_rows))
-    }
-    
-    report_lines <- c(report_lines, stage_info)
-  }
+  # Create focused data source mapping
+  data_sources <- list(
+    inputs = NULL, # Input validation doesn't need data export
+    model_data_merge = model_data,
+    model_predictions = model_predictions,
+    geocoded_output = geocoded_locais
+  )
   
-  # Write report
-  writeLines(report_lines, output_path)
+  # Generate comprehensive report
+  summary_stats <- create_validation_report(
+    validation_results,
+    output_dir = "output/validation_reports"
+  )
   
-  return(output_path)
+  # Save summary
+  saveRDS(summary_stats, "output/validation_summary.rds")
+  
+  # Print focused summary to console
+  cat("\n========== VALIDATION REPORT SUMMARY ==========\n")
+  cat("Report generated:", summary_stats$rds, "\n")
+  cat("Critical validations checked:", length(validation_results), "\n")
+  cat("Passed:", sum(sapply(validation_results, function(x) x$passed)), "\n")
+  cat("Failed:", sum(sapply(validation_results, function(x) !x$passed)), "\n")
+  cat(
+    "Mode:",
+    ifelse(pipeline_config$dev_mode, "DEVELOPMENT", "PRODUCTION"),
+    "\n"
+  )
+  
+  # Print specific validation results
+  cat("\nValidation Results:\n")
+  cat("- Input data sizes:", ifelse(validation_results$inputs$passed, "✅", "❌"), "\n")
+  cat("- Model data merge:", ifelse(validation_results$model_data_merge$passed, "✅", "❌"), "\n")
+  cat("- Model predictions:", ifelse(validation_results$model_predictions$passed, "✅", "❌"), "\n")
+  cat("- Final output:", ifelse(validation_results$geocoded_output$passed, "✅", "❌"), "\n")
+  
+  cat(
+    "\nOverall status:",
+    ifelse(sum(sapply(validation_results, function(x) !x$passed)) == 0, "✅ SUCCESS", "❌ FAILURES DETECTED"),
+    "\n"
+  )
+  cat("===============================================\n\n")
+  
+  return(summary_stats)
 }
 
 # ===== DATA QUALITY MONITOR =====

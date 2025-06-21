@@ -148,10 +148,30 @@ filter_geographic_by_state <- function(geo_data, states) {
   }
 }
 
-apply_dev_mode_filters <- function(data, config) {
+apply_dev_mode_filters <- function(data, config, filter_type = NULL, state_col = NULL, muni_col = NULL) {
   # Apply development mode filters based on configuration
-  # config should contain dev_states and/or dev_municipalities
+  # Supports both old and new call signatures for backward compatibility
   
+  # Handle old-style calls with named parameters
+  if (!is.null(filter_type)) {
+    if (filter_type == "state" && !is.null(state_col)) {
+      # Old-style state filtering
+      if (!is.null(config$dev_states)) {
+        return(filter_data_by_state(data, config$dev_states, state_col))
+      } else {
+        return(data)
+      }
+    } else if (filter_type == "municipality" && !is.null(muni_col)) {
+      # Old-style municipality filtering
+      if (!is.null(config$dev_municipalities)) {
+        return(filter_data_by_municipalities(data, config$dev_municipalities, muni_col))
+      } else {
+        return(data)
+      }
+    }
+  }
+  
+  # New-style filtering based on config
   if (!is.null(config$dev_states)) {
     data <- filter_data_by_state(data, config$dev_states)
   }

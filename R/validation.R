@@ -306,7 +306,7 @@ validate_prediction_stage <- function(predictions, stage_name,
   )
 }
 
-validate_output_stage <- function(output_data, stage_name, required_cols = NULL) {
+validate_output_stage <- function(output_data, stage_name, required_cols = NULL, unique_keys = NULL) {
   # Validates final output data before export
   
   # Default required columns for geocoded output
@@ -355,13 +355,33 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL)
     coordinate_columns = coord_cols
   )
   
+  # Check uniqueness if keys specified
+  if (!is.null(unique_keys) && all(unique_keys %in% names(output_data))) {
+    n_unique <- nrow(unique(output_data[, ..unique_keys]))
+    metadata$n_unique_keys <- n_unique
+    metadata$duplicate_keys <- nrow(output_data) - n_unique
+    
+    if (metadata$duplicate_keys > 0) {
+      warning(paste("Found", metadata$duplicate_keys, "duplicate key combinations"))
+    }
+  }
+  
+  # Check if all rules passed
+  summary_df <- summary(result)
+  passed <- all(summary_df$fails == 0, na.rm = TRUE)
+  
+  # Additional check for duplicates
+  if (!is.null(unique_keys) && metadata$duplicate_keys > 0) {
+    passed <- FALSE
+  }
+  
   # Return structured result
   structure(
     list(
       result = result,
       metadata = metadata,
       stage = stage_name,
-      passed = all(result)
+      passed = passed
     ),
     class = "validation_result"
   )

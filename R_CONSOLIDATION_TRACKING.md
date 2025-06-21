@@ -262,3 +262,6 @@
 10. Fixed melt patterns in make_model_data - changed to match actual column names (match_long_, match_lat_, mindist_)
 11. Fixed column references in string_matching.R - cnefe data uses 'long'/'lat', not 'cnefe_long'/'cnefe_lat'
 12. Added missing tidymodels packages to tar_option_set in config.R
+13. Fixed validation function parameter mismatches - restored merge_keys, join_type, pred_col, prob_col parameters
+14. Fixed validate package result access - changed result$passes to all(result) for compatibility
+15. Fixed validate_output_stage function - restored missing unique_keys parameter and uniqueness checking logic

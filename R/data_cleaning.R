@@ -332,32 +332,32 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
   })
   agro_cnefe <- rbindlist(agro_list, fill = TRUE)
 
+  # Convert column names to lowercase first (agro files have uppercase columns)
+  setnames(agro_cnefe, names(agro_cnefe), tolower(names(agro_cnefe)))
+  
   # Standardize column names
   standardize_column_names(agro_cnefe, inplace = TRUE)
 
   # Create street column combining type and name (similar to clean_cnefe10)
-  # Note: Agro censo files have uppercase column names
+  # Note: Using lowercase column names after tolower() but before standardization
   agro_cnefe[,
     street := str_squish(paste(
-      NOM_TIPO_SEGLOGR,
-      NOM_TITULO_SEGLOGR,
-      NOM_SEGLOGR
+      nom_tipo_seglogr,
+      nom_titulo_seglogr,
+      nom_seglogr
     ))
   ]
   
   # Create normalized street and neighborhood columns
   agro_cnefe[, norm_street := normalize_address(street)]
-  agro_cnefe[, norm_bairro := normalize_address(DSC_LOCALIDADE)]
+  agro_cnefe[, norm_bairro := normalize_address(dsc_localidade)]
   
   # Convert latitude and longitude to numeric
-  agro_cnefe[, LATITUDE := as.numeric(LATITUDE)]
-  agro_cnefe[, LONGITUDE := as.numeric(LONGITUDE)]
-  
-  # Rename to lowercase for consistency with downstream processing
-  setnames(agro_cnefe, c("LATITUDE", "LONGITUDE"), c("latitude", "longitude"))
+  agro_cnefe[, latitude := as.numeric(latitude)]
+  agro_cnefe[, longitude := as.numeric(longitude)]
 
   # Create id_munic_7 from cod_uf and cod_municipio
-  agro_cnefe[, id_munic_7 := as.numeric(paste0(COD_UF, COD_MUNICIPIO))]
+  agro_cnefe[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
 
   # Join with municipality IDs
   agro_cnefe <- muni_ids[
@@ -701,66 +701,8 @@ read_cnefe_chunked <- function(file_path, chunk_size = 100000) {
   return(chunks)
 }
 
-clean_cnefe10_efficient <- function(cnefe10_chunks, muni_ids) {
-  # Process CNEFE 2010 data chunk by chunk
-  # This is a memory-efficient version of clean_cnefe10
-  
-  cleaned_chunks <- lapply(cnefe10_chunks, function(chunk) {
-    # Standardize column names
-    standardize_column_names(chunk, inplace = TRUE)
-    
-    # Create street and address columns
-    chunk[, street := str_squish(paste(
-      nom_tipo_seglogr,
-      nom_titulo_seglogr,
-      nom_seglogr
-    ))]
-    
-    chunk[, address := str_squish(paste(
-      street,
-      num_endereco,
-      dsc_modificador
-    ))]
-    
-    # Normalize
-    chunk[, norm_street := normalize_address(street)]
-    chunk[, norm_address := normalize_address(address)]
-    chunk[, norm_bairro := normalize_address(dsc_localidade)]
-    
-    # Select columns
-    chunk <- chunk[, .(
-      cod_municipio,
-      street,
-      address,
-      norm_street,
-      norm_address,
-      norm_bairro,
-      dsc_localidade,
-      dsc_estabelecimento,
-      latitude,
-      longitude
-    )]
-    
-    # Merge with muni_ids
-    if (nrow(muni_ids) > 0) {
-      chunk <- merge(chunk, 
-                     muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)],
-                     by.x = "cod_municipio",
-                     by.y = "id_munic_7",
-                     all.x = TRUE)
-    }
-    
-    gc(verbose = FALSE)
-    return(chunk)
-  })
-  
-  # Combine all chunks
-  result <- rbindlist(cleaned_chunks)
-  rm(cleaned_chunks)
-  gc(verbose = FALSE)
-  
-  return(result)
-}
+# Note: clean_cnefe10_efficient is defined in memory_efficient_cnefe.R
+# which sources this file. To avoid circular dependency, we don't define it here.
 
 monitor_memory <- function(message = "") {
   # Monitor memory usage during processing
@@ -776,66 +718,19 @@ monitor_memory <- function(message = "") {
   ))
 }
 
-clean_cnefe10 <- function(cnefe10_file, muni_ids) {
-  # Main function that decides whether to use chunked processing
-  # based on file size
+clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools = FALSE) {
+  # Main function for CNEFE 2010 processing
+  # Temporarily use the original implementation from backup
   
-  file_size <- file.info(cnefe10_file)$size / 1e9  # Size in GB
+  # Define a temporary environment to avoid conflicts
+  temp_env <- new.env()
   
-  if (file_size > 1) {  # If file is larger than 1GB
-    message("Large CNEFE file detected, using chunked processing...")
-    chunks <- read_cnefe_chunked(cnefe10_file)
-    result <- clean_cnefe10_efficient(chunks, muni_ids)
-  } else {
-    # Small file, use regular processing
-    cnefe10 <- fread(cnefe10_file)
-    
-    # Standardize column names
-    standardize_column_names(cnefe10, inplace = TRUE)
-    
-    # Create street and address columns
-    cnefe10[, street := str_squish(paste(
-      nom_tipo_seglogr,
-      nom_titulo_seglogr,
-      nom_seglogr
-    ))]
-    
-    cnefe10[, address := str_squish(paste(
-      street,
-      num_endereco,
-      dsc_modificador
-    ))]
-    
-    # Normalize
-    cnefe10[, norm_street := normalize_address(street)]
-    cnefe10[, norm_address := normalize_address(address)]
-    cnefe10[, norm_bairro := normalize_address(dsc_localidade)]
-    
-    # Select columns
-    result <- cnefe10[, .(
-      cod_municipio,
-      street,
-      address,
-      norm_street,
-      norm_address,
-      norm_bairro,
-      dsc_localidade,
-      dsc_estabelecimento,
-      latitude,
-      longitude
-    )]
-    
-    # Merge with muni_ids
-    if (nrow(muni_ids) > 0) {
-      result <- merge(result, 
-                      muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)],
-                      by.x = "cod_municipio",
-                      by.y = "id_munic_7",
-                      all.x = TRUE)
-    }
-  }
+  # Source the original functions into the temporary environment
+  source("R_backup_20250620_consolidation/memory_efficient_cnefe.R", local = temp_env)
+  source("R_backup_20250620_consolidation/data_cleaning_fns.R", local = temp_env)
   
-  return(result)
+  # Call the original clean_cnefe10 function
+  return(temp_env$clean_cnefe10(cnefe_file, muni_ids, tract_centroids, extract_schools))
 }
 
 # ===== GEOCODEBR CLEANING FUNCTIONS (from geocodebr_matching.R) =====

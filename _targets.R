@@ -340,7 +340,7 @@ list(
   ## Import and clean 2017 CNEFE
   tar_target(
     name = agro_cnefe_files,
-    command = get_agro_cnefe_files(pipeline_config$states)
+    command = get_agro_cnefe_files(pipeline_config)
   ),
   tar_target(
     name = agro_cnefe,
@@ -436,7 +436,7 @@ list(
   # INEP data filtered by development mode
   tar_target(
     name = inep_data,
-    command = apply_dev_mode_filters(inep_data_all, pipeline_config, muni_ids, "municipality", muni_col = "id_munic_7")
+    command = apply_dev_mode_filters(inep_data_all, pipeline_config, filter_type = "municipality", muni_col = "id_munic_7")
   ),
 
   # ========================================

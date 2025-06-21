@@ -163,11 +163,17 @@ apply_dev_mode_filters <- function(data, config, filter_type = NULL, state_col =
       }
     } else if (filter_type == "municipality" && !is.null(muni_col)) {
       # Old-style municipality filtering
-      if (!is.null(config$dev_municipalities)) {
-        return(filter_data_by_municipalities(data, config$dev_municipalities, muni_col))
-      } else {
-        return(data)
+      # In dev mode, filter by municipalities from dev states
+      if (config$dev_mode && !is.null(config$dev_states)) {
+        # For municipality filtering in dev mode, we need to filter by state
+        # since we don't have a predefined list of municipalities
+        if ("estado_abrev" %in% names(data)) {
+          return(filter_data_by_state(data, config$dev_states, "estado_abrev"))
+        } else if ("sg_uf" %in% names(data)) {
+          return(filter_data_by_state(data, config$dev_states, "sg_uf"))
+        }
       }
+      return(data)
     }
   }
   

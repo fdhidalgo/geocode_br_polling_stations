@@ -50,75 +50,54 @@ get_pipeline_config <- function(dev_mode = FALSE) {
   return(config)
 }
 
-get_states_for_processing <- function(config) {
-  # Get list of states to process based on configuration
+get_states_for_processing <- function(context, pipeline_config, custom_states = NULL) {
+  # Get states to process based on context and mode
+  # Centralized function to determine which states to process based on the
+  # pipeline context and development mode setting
   
-  if (is.null(config)) {
-    config <- get_pipeline_config()
+  if (pipeline_config$dev_mode) {
+    return(pipeline_config$dev_states)
   }
   
-  return(config$states)
+  # Production mode - determine states based on context
+  switch(context,
+    cnefe10 = {
+      state_files <- list.files("data/cnefe_2010", pattern = "cnefe_2010_.*\\.csv\\.gz$")
+      gsub("cnefe_2010_(.+)\\.csv\\.gz", "\\1", state_files)
+    },
+    cnefe22 = {
+      state_files <- list.files("data/cnefe_2022", pattern = "cnefe_2022_.*\\.csv\\.gz$")
+      gsub("cnefe_2022_(.+)\\.csv\\.gz", "\\1", state_files)
+    },
+    panel = {
+      # Use custom states or default to all Brazilian states
+      custom_states %||% c("AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", 
+                          "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", 
+                          "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", 
+                          "SE", "SP", "TO")
+    },
+    stop("Unknown context: ", context)
+  )
 }
 
-get_agro_cnefe_files <- function(states = NULL) {
-  # Get list of agro CNEFE files for specified states
+get_agro_cnefe_files <- function(pipeline_config) {
+  # Get agro CNEFE files based on mode
+  # Special handler for agro_cnefe_files which returns file paths not states
+  # In dev mode, maps state abbreviations to specific file names
+  # In production mode, returns all files in the agro_censo directory
   
-  if (is.null(states)) {
-    # Get all available files
-    pattern <- "\\.csv\\.gz$"
-  } else {
-    # Map state codes to names used in file names
-    state_name_map <- list(
-      AC = "ACRE",
-      AL = "ALAGOAS", 
-      AM = "AMAZONAS",
-      AP = "AMAPA",
-      BA = "BAHIA",
-      CE = "CEARA",
-      DF = "DISTRITO_FEDERAL",
-      ES = "ESPIRITO_SANTO",
-      GO = "GOIAS",
-      MA = "MARANHAO",
-      MG = "MINAS_GERAIS",
-      MS = "MATO_GROSSO_DO_SUL",
-      MT = "MATO_GROSSO",
-      PA = "PARA",
-      PB = "PARAIBA",
-      PE = "PERNAMBUCO",
-      PI = "PIAUI",
-      PR = "PARANA",
-      RJ = "RIO_DE_JANEIRO",
-      RN = "RIO_GRANDE_DO_NORTE",
-      RO = "RONDONIA",
-      RR = "RORAIMA",
-      RS = "RIO_GRANDE_DO_SUL",
-      SC = "SANTA_CATARINA",
-      SE = "SERGIPE",
-      SP = "SAO_PAULO",
-      TO = "TOCANTINS"
+  if (pipeline_config$dev_mode) {
+    state_file_map <- c(
+      "AC" = "12_ACRE.csv.gz",
+      "RR" = "14_RORAIMA.csv.gz",
+      "AP" = "16_AMAPA.csv.gz",
+      "RO" = "11_RONDONIA.csv.gz"
     )
-    
-    # Get state names for the requested codes
-    state_names <- unlist(state_name_map[states])
-    state_names <- state_names[!is.na(state_names)]
-    
-    if (length(state_names) == 0) {
-      return(character(0))
-    }
-    
-    # Create pattern for specific states
-    pattern <- paste0("(", paste(state_names, collapse = "|"), ")\\.csv\\.gz$")
+    dev_files <- state_file_map[pipeline_config$dev_states]
+    file.path("data/agro_censo", dev_files[!is.na(dev_files)])
+  } else {
+    dir("data/agro_censo/", full.names = TRUE)
   }
-  
-  # Find files in agro_censo directory
-  files <- list.files(
-    path = "data/agro_censo",
-    pattern = pattern,
-    full.names = TRUE,
-    ignore.case = TRUE
-  )
-  
-  return(files)
 }
 
 # ===== EXPECTED MUNICIPALITY COUNTS =====
@@ -193,32 +172,34 @@ get_expected_municipality_range <- function(state_abbrev, tolerance = 0.05) {
 get_crew_controllers <- function(dev_mode = FALSE) {
   # Create crew controller group for parallel processing
   
-  # Get configuration
-  config <- get_pipeline_config(dev_mode)
-  
-  # Create controllers for different task types
-  controller_io <- crew_controller_local(
-    name = "io",
-    workers = min(2, config$max_workers),
-    seconds_idle = 30
+  # Standard controller for most tasks - optimized for 32-core machine
+  controller_standard <- crew::crew_controller_local(
+    name = "standard",
+    workers = if (dev_mode) 8 else 28,
+    seconds_idle = 30,
+    seconds_wall = 3600,
+    seconds_timeout = 300,
+    reset_globals = TRUE,
+    reset_packages = FALSE,
+    garbage_collection = TRUE
   )
   
-  controller_compute <- crew_controller_local(
-    name = "compute",
-    workers = config$max_workers,
-    seconds_idle = 60
+  # Memory-limited controller for CNEFE operations
+  # Fewer workers but more memory per worker
+  controller_memory <- crew::crew_controller_local(
+    name = "memory_limited",
+    workers = if (dev_mode) 4 else 8,
+    seconds_idle = 60,
+    seconds_wall = 7200,  # 2 hours for memory-intensive tasks
+    seconds_timeout = 600,  # 10 minutes timeout
+    reset_globals = TRUE,
+    reset_packages = FALSE,
+    garbage_collection = TRUE
   )
   
-  controller_memory <- crew_controller_local(
-    name = "memory",
-    workers = max(1, config$max_workers / 2),
-    seconds_idle = 30
-  )
-  
-  # Create controller group
-  controller_group <- crew_controller_group(
-    controller_io,
-    controller_compute,
+  # Return controller group
+  controller_group <- crew::crew_controller_group(
+    controller_standard,
     controller_memory
   )
   
@@ -233,18 +214,18 @@ configure_targets_options <- function(controller_group) {
       "data.table",
       "stringr",
       "stringdist",
+      "validate",
       "sf",
-      "janitor",
-      "reclin2",
-      "future",
-      "lightgbm"
+      "reclin2"
     ),
     format = "qs",
     controller = controller_group,
+    storage = "worker",
+    retrieval = "worker",
     memory = "transient",
     garbage_collection = TRUE,
-    deployment = "worker",
-    # Set a reasonable timeout for workers
-    seconds_timeout = 3600  # 1 hour timeout
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "standard")  # Default to standard controller
+    )
   )
 }

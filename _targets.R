@@ -885,7 +885,18 @@ list(
         panelid_export = panelid_export,
         geocoded_locais = geocoded_locais,
         panel_ids = panel_ids,
-        config_file = "config/data_quality_config.yaml"
+        # Thresholds from former config file
+        expected_municipality_count = 5570,
+        muni_count_tolerance = 50,
+        extreme_change_threshold = 30,
+        duplicate_coord_threshold = 10,
+        near_duplicate_threshold = 50,
+        near_duplicate_distance = 100,
+        alert_muni_discrepancy = 100,
+        alert_extreme_changes = 50,
+        alert_panel_coverage = 90,
+        alert_geocoding_coverage = 95,
+        min_years_required = 2
       )
 
       # Save latest results for tracking

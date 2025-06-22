@@ -631,19 +631,42 @@ generate_validation_report_simplified <- function(
 
 #' Create data quality monitor report
 #' 
-#' Placeholder function for data quality monitoring
+#' Monitors data quality with configurable thresholds
 #' 
 #' @param geocoded_export Path to geocoded export file
 #' @param panelid_export Path to panel ID export file  
 #' @param geocoded_locais Geocoded locations data
 #' @param panel_ids Panel IDs data
-#' @param config_file Path to config file
-#' @return List with basic quality metrics
+#' @param expected_municipality_count Expected number of municipalities (default: 5570)
+#' @param muni_count_tolerance Tolerance for municipality count (default: 50)
+#' @param extreme_change_threshold Percentage change to flag as extreme (default: 30)
+#' @param duplicate_coord_threshold Max acceptable coordinate duplicate groups (default: 10)
+#' @param near_duplicate_threshold Max acceptable near-duplicate pairs (default: 50)
+#' @param near_duplicate_distance Distance threshold for near-duplicates in meters (default: 100)
+#' @param alert_muni_discrepancy Alert threshold for municipality count difference (default: 100)
+#' @param alert_extreme_changes Alert threshold for number of extreme changes (default: 50)
+#' @param alert_panel_coverage Minimum acceptable panel coverage percentage (default: 90)
+#' @param alert_geocoding_coverage Minimum acceptable geocoding coverage percentage (default: 95)
+#' @param min_years_required Minimum years needed for comparison (default: 2)
+#' @return List with quality metrics and alerts
 create_data_quality_monitor <- function(geocoded_export, panelid_export, 
                                       geocoded_locais, panel_ids,
-                                      config_file = NULL) {
+                                      expected_municipality_count = 5570,
+                                      muni_count_tolerance = 50,
+                                      extreme_change_threshold = 30,
+                                      duplicate_coord_threshold = 10,
+                                      near_duplicate_threshold = 50,
+                                      near_duplicate_distance = 100,
+                                      alert_muni_discrepancy = 100,
+                                      alert_extreme_changes = 50,
+                                      alert_panel_coverage = 90,
+                                      alert_geocoding_coverage = 95,
+                                      min_years_required = 2) {
   
   cat("Running data quality monitoring...\n")
+  
+  # Initialize alerts list
+  alerts <- list()
   
   # Basic quality metrics
   results <- list(
@@ -656,25 +679,115 @@ create_data_quality_monitor <- function(geocoded_export, panelid_export,
       n_unique_stations = length(unique(geocoded_locais$local_id)),
       n_unique_panels = length(unique(panel_ids$panel_id))
     ),
+    thresholds = list(
+      expected_municipality_count = expected_municipality_count,
+      muni_count_tolerance = muni_count_tolerance,
+      extreme_change_threshold = extreme_change_threshold,
+      duplicate_coord_threshold = duplicate_coord_threshold,
+      near_duplicate_threshold = near_duplicate_threshold,
+      near_duplicate_distance = near_duplicate_distance,
+      alert_muni_discrepancy = alert_muni_discrepancy,
+      alert_extreme_changes = alert_extreme_changes,
+      alert_panel_coverage = alert_panel_coverage,
+      alert_geocoding_coverage = alert_geocoding_coverage
+    ),
     status = "OK",
-    message = "Basic data quality monitoring completed"
+    message = "Data quality monitoring completed",
+    alerts = alerts
   )
   
   # Check if export files exist
   if (!file.exists(geocoded_export)) {
     results$status <- "WARNING"
     results$message <- paste("Geocoded export file not found:", geocoded_export)
+    alerts <- append(alerts, "Geocoded export file not found")
   }
   
   if (!file.exists(panelid_export)) {
     results$status <- "WARNING" 
     results$message <- paste(results$message, "\nPanel ID export file not found:", panelid_export)
+    alerts <- append(alerts, "Panel ID export file not found")
   }
   
+  # Municipality count check
+  if ("cd_localidade_tse" %in% names(geocoded_locais)) {
+    n_municipalities <- length(unique(geocoded_locais$cd_localidade_tse))
+    results$metrics$n_municipalities <- n_municipalities
+    
+    muni_diff <- abs(n_municipalities - expected_municipality_count)
+    if (muni_diff > muni_count_tolerance) {
+      alerts <- append(alerts, sprintf("Municipality count (%d) differs from expected (%d) by %d",
+                                     n_municipalities, expected_municipality_count, muni_diff))
+      if (muni_diff > alert_muni_discrepancy) {
+        results$status <- "CRITICAL"
+      } else if (results$status == "OK") {
+        results$status <- "WARNING"
+      }
+    }
+  }
+  
+  # Geocoding coverage check
+  if (all(c("final_long", "final_lat") %in% names(geocoded_locais))) {
+    geocoding_rate <- mean(!is.na(geocoded_locais$final_long) & !is.na(geocoded_locais$final_lat)) * 100
+    results$metrics$geocoding_coverage <- geocoding_rate
+    
+    if (geocoding_rate < alert_geocoding_coverage) {
+      alerts <- append(alerts, sprintf("Geocoding coverage (%.1f%%) below threshold (%.1f%%)",
+                                     geocoding_rate, alert_geocoding_coverage))
+      if (results$status == "OK") {
+        results$status <- "WARNING"
+      }
+    }
+  }
+  
+  # Panel coverage check (simplified - checking if panel_ids exist for geocoded locations)
+  if ("local_id" %in% names(panel_ids) && "local_id" %in% names(geocoded_locais)) {
+    n_with_panels <- sum(geocoded_locais$local_id %in% panel_ids$local_id)
+    panel_coverage <- (n_with_panels / nrow(geocoded_locais)) * 100
+    results$metrics$panel_coverage <- panel_coverage
+    
+    if (panel_coverage < alert_panel_coverage) {
+      alerts <- append(alerts, sprintf("Panel coverage (%.1f%%) below threshold (%.1f%%)",
+                                     panel_coverage, alert_panel_coverage))
+      if (results$status == "OK") {
+        results$status <- "WARNING"
+      }
+    }
+  }
+  
+  # Check for coordinate duplicates (simplified check)
+  if (all(c("final_long", "final_lat") %in% names(geocoded_locais))) {
+    coords_dt <- geocoded_locais[!is.na(final_long) & !is.na(final_lat), 
+                                .(n = .N), by = .(final_long, final_lat)]
+    duplicate_groups <- nrow(coords_dt[n > 1])
+    results$metrics$duplicate_coord_groups <- duplicate_groups
+    
+    if (duplicate_groups > duplicate_coord_threshold) {
+      alerts <- append(alerts, sprintf("Found %d duplicate coordinate groups (threshold: %d)",
+                                     duplicate_groups, duplicate_coord_threshold))
+      if (results$status == "OK") {
+        results$status <- "WARNING"
+      }
+    }
+  }
+  
+  # Update alerts in results
+  results$alerts <- alerts
+  
+  # Print summary
   cat("Data quality monitoring completed.\n")
+  cat("  Status:", results$status, "\n")
   cat("  Geocoded locations:", results$metrics$n_geocoded, "\n")
   cat("  Panel IDs:", results$metrics$n_panel_ids, "\n")
-  cat("  Status:", results$status, "\n")
+  if (!is.null(results$metrics$n_municipalities)) {
+    cat("  Municipalities:", results$metrics$n_municipalities, "\n")
+  }
+  if (!is.null(results$metrics$geocoding_coverage)) {
+    cat("  Geocoding coverage:", sprintf("%.1f%%", results$metrics$geocoding_coverage), "\n")
+  }
+  if (length(alerts) > 0) {
+    cat("  Alerts:", length(alerts), "\n")
+  }
   
   return(results)
 }

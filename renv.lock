@@ -1,6 +1,6 @@
 {
   "R": {
-    "Version": "4.5.0",
+    "Version": "4.5.1",
     "Repositories": [
       {
         "Name": "P3M",
@@ -314,16 +314,6 @@
       ],
       "Hash": "c5e77b0aa69a206018642e20d8c8d589"
     },
-    "brio": {
-      "Package": "brio",
-      "Version": "1.1.5",
-      "Source": "Repository",
-      "Repository": "P3M",
-      "Requirements": [
-        "R"
-      ],
-      "Hash": "c1ee497a6d999947c2c224ae46799b1a"
-    },
     "bs4Dash": {
       "Package": "bs4Dash",
       "Version": "2.3.4",
@@ -579,19 +569,6 @@
       ],
       "Hash": "70da4288a2c210772673d98f767e763d"
     },
-    "desc": {
-      "Package": "desc",
-      "Version": "1.4.3",
-      "Source": "Repository",
-      "Repository": "https://cloud.r-project.org",
-      "Requirements": [
-        "R",
-        "R6",
-        "cli",
-        "utils"
-      ],
-      "Hash": "99b79fcbd6c4d1ce087f5c5c758b384f"
-    },
     "diagram": {
       "Package": "diagram",
       "Version": "1.6.5",
@@ -629,21 +606,6 @@
         "withr"
       ],
       "Hash": "0a10c1d456fc2b9ac84b12e5ce60cf73"
-    },
-    "diffobj": {
-      "Package": "diffobj",
-      "Version": "0.3.6",
-      "Source": "Repository",
-      "Repository": "P3M",
-      "Requirements": [
-        "R",
-        "crayon",
-        "methods",
-        "stats",
-        "tools",
-        "utils"
-      ],
-      "Hash": "e036ce354ab60e705ac5f40bac87e8cb"
     },
     "digest": {
       "Package": "digest",
@@ -1698,21 +1660,6 @@
       ],
       "Hash": "63d34946057b145d9e812ccbf3b36ea1"
     },
-    "pkgbuild": {
-      "Package": "pkgbuild",
-      "Version": "1.4.8",
-      "Source": "Repository",
-      "Repository": "https://cloud.r-project.org",
-      "Requirements": [
-        "R",
-        "R6",
-        "callr",
-        "cli",
-        "desc",
-        "processx"
-      ],
-      "Hash": "fc9fc4162e79a94f760aac8d328ee6c9"
-    },
     "pkgconfig": {
       "Package": "pkgconfig",
       "Version": "2.0.3",
@@ -1722,35 +1669,6 @@
         "utils"
       ],
       "Hash": "01f28d4278f15c76cddbea05899c5d6f"
-    },
-    "pkgload": {
-      "Package": "pkgload",
-      "Version": "1.4.0",
-      "Source": "Repository",
-      "Repository": "https://cloud.r-project.org",
-      "Requirements": [
-        "R",
-        "cli",
-        "desc",
-        "fs",
-        "glue",
-        "lifecycle",
-        "methods",
-        "pkgbuild",
-        "processx",
-        "rlang",
-        "rprojroot",
-        "utils",
-        "withr"
-      ],
-      "Hash": "2ec30ffbeec83da57655b850cf2d3e0e"
-    },
-    "praise": {
-      "Package": "praise",
-      "Version": "1.0.0",
-      "Source": "Repository",
-      "Repository": "P3M",
-      "Hash": "a555924add98c99d2f411e37e7d25e9f"
     },
     "prettyunits": {
       "Package": "prettyunits",
@@ -1889,26 +1807,6 @@
         "stringfish"
       ],
       "Hash": "c9b643f00e514841ba0ded6dc33f788b"
-    },
-    "quarto": {
-      "Package": "quarto",
-      "Version": "1.4.4",
-      "Source": "Repository",
-      "Repository": "P3M",
-      "Requirements": [
-        "R",
-        "cli",
-        "jsonlite",
-        "later",
-        "processx",
-        "rlang",
-        "rmarkdown",
-        "rstudioapi",
-        "tools",
-        "utils",
-        "yaml"
-      ],
-      "Hash": "af456d7a181750812bd8b2bfedb3ea4e"
     },
     "rappdirs": {
       "Package": "rappdirs",
@@ -2074,16 +1972,6 @@
         "stats"
       ],
       "Hash": "ad31b457482eda7a12e51c5d8e7b0be4"
-    },
-    "rprojroot": {
-      "Package": "rprojroot",
-      "Version": "2.0.4",
-      "Source": "Repository",
-      "Repository": "https://cloud.r-project.org",
-      "Requirements": [
-        "R"
-      ],
-      "Hash": "4c8415e0ec1e29f3f4f6fc108bef0144"
     },
     "rsample": {
       "Package": "rsample",
@@ -2499,35 +2387,6 @@
       ],
       "Hash": "19f79f73e18a4bd63c668080faae39d1"
     },
-    "testthat": {
-      "Package": "testthat",
-      "Version": "3.2.3",
-      "Source": "Repository",
-      "Repository": "P3M",
-      "Requirements": [
-        "R",
-        "R6",
-        "brio",
-        "callr",
-        "cli",
-        "desc",
-        "digest",
-        "evaluate",
-        "jsonlite",
-        "lifecycle",
-        "magrittr",
-        "methods",
-        "pkgload",
-        "praise",
-        "processx",
-        "ps",
-        "rlang",
-        "utils",
-        "waldo",
-        "withr"
-      ],
-      "Hash": "42f889439ccb14c55fc3d75c9c755056"
-    },
     "tibble": {
       "Package": "tibble",
       "Version": "3.2.1",
@@ -2782,21 +2641,6 @@
         "shiny"
       ],
       "Hash": "93e6b6c8ae3f81d4be77a0dc74e5cf5e"
-    },
-    "waldo": {
-      "Package": "waldo",
-      "Version": "0.6.1",
-      "Source": "Repository",
-      "Repository": "P3M",
-      "Requirements": [
-        "R",
-        "cli",
-        "diffobj",
-        "glue",
-        "methods",
-        "rlang"
-      ],
-      "Hash": "52f574062a7b66e56926988c3fbdb3b7"
     },
     "warp": {
       "Package": "warp",

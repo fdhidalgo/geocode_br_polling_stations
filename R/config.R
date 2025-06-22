@@ -1,16 +1,16 @@
 ## Configuration Functions
 ##
-## This file consolidates configuration functions from:
-## - pipeline_config.R (3 functions)
-## - expected_municipality_counts.R (2 functions)
-## - target_helpers.R (2 config functions)
-##
-## Total functions: 7
+## Functions for managing pipeline configuration, including:
+## - Development vs production mode settings
+## - Parallel processing configuration
+## - Memory management thresholds
+## - Expected data validation counts
 
 library(data.table)
 library(crew)
 
 # ===== PIPELINE CONFIGURATION =====
+# Core configuration settings that control pipeline behavior
 
 get_pipeline_config <- function(dev_mode = FALSE) {
   # Get pipeline configuration based on development mode
@@ -18,7 +18,7 @@ get_pipeline_config <- function(dev_mode = FALSE) {
   if (dev_mode) {
     config <- list(
       dev_mode = TRUE,
-      dev_states = c("AC", "RR"),  # Small states for testing
+      dev_states = c("AC", "RR"),  # Acre and Roraima - smallest states by population for fast testing
       batch_size = 10,
       max_workers = 2,
       cache_dir = "_targets/cache",

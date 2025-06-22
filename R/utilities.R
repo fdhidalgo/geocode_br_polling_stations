@@ -1,21 +1,16 @@
 ## Utility Functions
 ##
-## This file consolidates utility functions from:
-## - data_table_utils.R (1 function - standardize_column_names moved to data_cleaning.R)
-## - filtering_helpers.R (5 functions + 1 operator)
-## - pipeline_helpers.R (8 functions)
-## - parallel_processing.R (1 function)
-## - data_export.R (4 functions - moved here on consolidation)
-##
-## Total functions: 20 (including %||% operator)
+## Helper functions for common operations throughout the pipeline:
+## - State/municipality filtering for development mode
+## - File I/O operations with compression support
+## - Parallel processing configuration
+## - Memory monitoring and management
+## - Data export utilities
 
 library(data.table)
 
-# ===== DATA TABLE UTILITIES =====
-
-# Note: standardize_column_names was moved to data_cleaning.R to avoid circular dependencies
-
 # ===== FILTERING HELPERS =====
+# Functions to subset data for development mode testing
 
 # Define the null coalescing operator
 `%||%` <- function(x, y) if (is.null(x)) y else x

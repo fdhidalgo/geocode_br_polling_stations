@@ -1,18 +1,17 @@
 ## Validation Functions
 ##
-## This file consolidates all validation functions from:
-## - validation_stages.R (3 functions - 3 unused removed)
-## - validation_target_functions.R (4 functions)
-## - validation_report_helpers.R (6 functions)
-## - monitoring.R (1 function - create_data_quality_monitor)
-##
-## Total functions: 14
+## Functions for validating data quality throughout the geocoding pipeline.
+## Implements stage-based validation (import, transformation, merge, output)
+## with automatic reporting and error tracking. Uses the validate package
+## to define and check business rules at each pipeline stage.
 
 library(validate)
 library(data.table)
 library(knitr)
 
 # ===== VALIDATION STAGE FUNCTIONS =====
+# Functions to validate data at specific pipeline stages
+# Each returns structured results for tracking and reporting
 
 validate_merge_stage <- function(merged_data, left_data, right_data = NULL,
                                 stage_name, merge_keys, join_type = "left") {

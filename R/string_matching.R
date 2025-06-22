@@ -1,19 +1,18 @@
 ## String Matching Functions
 ## 
-## This file consolidates all string matching functions from:
-## - string_matching_geocode_fns.R (4 match functions)
-## - string_matching_geocode_fns_memory_efficient.R (4 duplicate functions) 
-## - memory_efficient_string_matching.R (4 functions)
-## - geocodebr_matching.R (1 function)
-##
-## All functions now use memory-efficient chunked processing by default
-## Total functions: 9
+## Functions for fuzzy string matching between polling station addresses and
+## reference datasets (CNEFE, INEP schools, geocodebr). Uses Jaro-Winkler
+## distance for name matching and Levenshtein distance for addresses.
+## All functions implement memory-efficient chunked processing to handle
+## large datasets without exhausting system memory.
 
 library(data.table)
 library(stringr)
 library(stringdist)
 
 # ===== MEMORY EFFICIENT HELPER FUNCTIONS =====
+# These functions enable processing of large string matching tasks
+# by breaking them into manageable chunks and pre-filtering candidates
 
 prefilter_by_common_words <- function(query_strings, target_strings, min_common_words = 1) {
   # Pre-filter strings based on common words to reduce comparison space

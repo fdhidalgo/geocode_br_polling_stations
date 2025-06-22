@@ -1,9 +1,9 @@
 ## Model Functions for Geocoding Prediction
 ##
-## This file contains the machine learning model functions
-## moved from string_matching_geocode_fns.R
-##
-## Total functions: 3
+## Functions for training and using gradient boosted tree models (LightGBM)
+## to select the best geocoding match from multiple candidate coordinates.
+## The model learns from TSE ground truth data to predict which string
+## matching result is most likely to be correct.
 
 library(data.table)
 library(stringr)
@@ -135,7 +135,8 @@ make_model_data <- function(
       )
     )]
     # Adjust mindist to reflect precision (lower = better in the model)
-    # Municipality precision gets penalty, street/number precision gets bonus
+    # Since geocodebr returns exact matches (mindist=0), we use a synthetic distance
+    # based on geocoding precision: number-level (best) < street-level < municipality-level (worst)
     geocodebr_long[, mindist := (3 - precision_score) * 0.1]
   } else {
     geocodebr_long <- data.table()
@@ -150,6 +151,8 @@ make_model_data <- function(
   ]
 
   # Define synonyms for school names
+  # Most polling stations are located in schools, so detecting school-related
+  # terms helps the model prioritize school matches from CNEFE/INEP data
   school_syns <- c(
     "e m e i",
     "esc inf",

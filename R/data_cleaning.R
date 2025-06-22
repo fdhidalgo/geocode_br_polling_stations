@@ -1,16 +1,16 @@
 ## Data Import and Cleaning Functions
 ## 
-## This file consolidates all data import, cleaning, and normalization functions
-## from the following original files:
-## - data_cleaning_fns.R (12 functions)
-## - memory_efficient_cnefe.R (4 functions)
-## - geocodebr_matching.R (2 cleaning functions)
-##
-## Total functions: 18
+## Functions for importing and cleaning polling station data from multiple sources:
+## - TSE geocoded polling stations (2018-2024)
+## - CNEFE census data (2010, 2017, 2022) 
+## - INEP school census data
+## - Municipal demographic and geographic data
+## Includes memory-efficient processing for large CNEFE files (>40GB)
 
 
-# ===== UTILITY FUNCTIONS (from data_table_utils.R) =====
-# Note: These are loaded here to avoid circular dependencies
+# ===== COLUMN STANDARDIZATION =====
+# Handles variations in column naming across different data sources
+# to ensure consistent processing throughout the pipeline
 
 standardize_column_names <- function(dt, inplace = FALSE) {
   # Standardize column names across different data sources
@@ -63,7 +63,7 @@ standardize_column_names <- function(dt, inplace = FALSE) {
   }
 }
 
-# ===== DATA CLEANING FUNCTIONS (from data_cleaning_fns.R) =====
+# ===== DATA CLEANING FUNCTIONS =====
 
 clean_cnefe22 <- function(cnefe22_file, muni_ids) {
   # Accept either file path or data.table
@@ -101,7 +101,7 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
       as.character(num_endereco)
     )
   ]
-  # Remove SN designation
+  # Remove "SN" (sem número/no number) - a placeholder that interferes with address matching
   cnefe22[, num_endereco_char := str_remove(num_endereco_char, "SN")]
   cnefe22[,
     dsc_modificador_nosn := fifelse(
@@ -533,7 +533,9 @@ import_locais <- function(locais_file, muni_ids) {
   locais_data[, local_id := .I]
 
   # Fix 2024 municipality codes (TSE to IBGE conversion)
-  # In 2024, TSE switched from IBGE codes to their internal codes
+  # Starting in 2024, TSE switched from using standard IBGE municipality codes
+  # to their own internal coding system. This breaks compatibility with all
+  # other datasets, so we need to convert back to IBGE codes.
   if ("ano" %in% names(locais_data) && 2024 %in% unique(locais_data$ano)) {
     message("Detected 2024 data - applying TSE to IBGE code conversion...")
     
@@ -608,10 +610,14 @@ make_tract_centroids <- function(tracts) {
 }
 
 normalize_address <- function(x) {
-  # Apply all transformations in sequence to match original logic
+  # Normalize addresses for consistent matching across datasets
+  # The order of operations matters: lowercase -> transliterate -> remove punctuation
+  # This ensures maximum consistency when comparing addresses from different sources
   result <- str_to_lower(x)
   result <- stringi::stri_trans_general(result, "Latin-ASCII")
   result <- str_remove_all(result, "[[:punct:]]")
+  # Remove generic location descriptors that add noise without improving matches
+  # These terms are inconsistently used across datasets
   result <- str_remove(result, "\\bzona rural\\b")
   result <- str_remove(result, "\\bpovoado\\b")
   result <- str_remove(result, "\\blocalidade\\b")
@@ -773,6 +779,9 @@ convert_coord <- function(coord) {
 
 
 read_cnefe_chunked <- function(file_path, chunk_size = 5e6, process_fn = NULL) {
+  # Read large CNEFE files in chunks to avoid memory exhaustion
+  # CNEFE 2022 files can exceed 40GB and contain >100M rows
+  # Processing in 5M row chunks keeps memory usage manageable
   message(sprintf("Reading %s in chunks of %s rows", 
                   basename(file_path), 
                   format(chunk_size, big.mark = ",")))
@@ -1053,7 +1062,8 @@ clean_text_for_geocodebr <- function(text) {
 
 simplify_address_for_geocodebr <- function(address) {
   # Simplify address for better geocodebr matching
-  # Remove common address components that may cause issues
+  # GeocodeR API works best with street names only - numbers, prefixes, and 
+  # suffixes often cause failed matches or incorrect results
   
   # Remove common prefixes
   address <- gsub("^(rua|avenida|av|r|travessa|tv|praca|pc|alameda|al)\\s+", "", address)

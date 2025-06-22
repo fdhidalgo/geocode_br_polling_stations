@@ -7,6 +7,8 @@
 ## - Municipal demographic and geographic data
 ## Includes memory-efficient processing for large CNEFE files (>40GB)
 
+library(data.table)
+library(stringr)
 
 # ===== COLUMN STANDARDIZATION =====
 # Handles variations in column naming across different data sources
@@ -159,7 +161,7 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
     # If no muni_ids for this state, add empty columns
     cnefe22[, `:=`(id_TSE = NA_integer_, municipio = NA_character_, estado_abrev = NA_character_)]
   }
-  # Merge in especie labels
+  # Add human-readable labels for CNEFE establishment types (especie codes)
   especie_labs <- data.table(
     cod_especie = 1:8,
     especie_lab = c(
@@ -227,7 +229,7 @@ clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
     suppressWarnings(fread(tse_files[3], encoding = "Latin-1"))
   })
   
-  # Check if 2024 file exists (for backward compatibility)
+  # Check if 2024 file exists (may not be available in all environments)
   if (length(tse_files) >= 4 && file.exists(tse_files[4])) {
     loc24 <- tryCatch({
       fread(tse_files[4], encoding = "Latin-1")
@@ -631,7 +633,7 @@ normalize_address <- function(x) {
 }
 
 normalize_school <- function(x) {
-  ## School synonyms - exact same list as original
+  ## Common school-related terms to remove for better name matching
   school_syns <- c(
     "e m e i",
     "esc inf",
@@ -690,7 +692,7 @@ normalize_school <- function(x) {
     "ensino fundamental"
   )
 
-  ## Normalize school names - using same logic as original
+  ## Normalize school names by removing generic terms and standardizing format
   result <- stringi::stri_trans_general(x, "Latin-ASCII")
   result <- str_to_lower(result)
   result <- str_remove_all(result, "\\.")

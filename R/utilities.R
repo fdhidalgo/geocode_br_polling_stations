@@ -98,8 +98,8 @@ apply_dev_mode_filters <- function(data, config, filter_type = NULL, state_col =
         return(data)
       }
     } else if (filter_type == "municipality" && !is.null(muni_col)) {
-      # Old-style municipality filtering
-      # In dev mode, filter by municipalities from dev states
+      # Municipality-based filtering for development mode
+      # Filter by municipalities from development states only
       if (config$dev_mode && !is.null(config$dev_states)) {
         # For municipality filtering in dev mode, we need to filter by state
         # since we don't have a predefined list of municipalities
@@ -113,7 +113,7 @@ apply_dev_mode_filters <- function(data, config, filter_type = NULL, state_col =
     }
   }
   
-  # New-style filtering based on config
+  # Apply filtering based on configuration
   if (!is.null(config$dev_states)) {
     data <- filter_data_by_state(data, config$dev_states)
   }

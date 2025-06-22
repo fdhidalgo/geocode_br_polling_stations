@@ -314,8 +314,8 @@ validate_final_output <- function(output_data,
 }
 
 validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, pipeline_config) {
-  # Validate all input datasets
-  # Consolidated validation for all input datasets, focusing on size checks
+  # Validate all input datasets by checking their sizes against expected ranges
+  # Size validation helps catch data loading issues early in the pipeline
   
   # Define expected sizes based on mode
   expected_sizes <- if (pipeline_config$dev_mode) {

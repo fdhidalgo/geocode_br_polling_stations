@@ -71,7 +71,6 @@ make_model_data <- function(
       id.vars = c("local_id", "ano"),
       measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
       variable.name = "type",
-      value.name = c("long", "lat", "mindist"),
       variable.factor = FALSE
     )
     cnefe_stbairro_match[,
@@ -87,7 +86,6 @@ make_model_data <- function(
       id.vars = c("local_id", "ano"),
       measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
       variable.name = "type",
-      value.name = c("long", "lat", "mindist"),
       variable.factor = FALSE
     )
     schools_cnefe_match[,
@@ -107,7 +105,6 @@ make_model_data <- function(
       id.vars = c("local_id"),
       measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
       variable.name = "type",
-      value.name = c("long", "lat", "mindist"),
       variable.factor = FALSE
     )
     inep_string_match[,

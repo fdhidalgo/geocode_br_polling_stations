@@ -368,122 +368,6 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
   return(agro_cnefe)
 }
 
-#' Convert TSE municipality codes to IBGE codes for 2024 data
-#' 
-#' In 2024, TSE switched from using IBGE codes to their own internal codes.
-#' This function converts TSE codes back to standard IBGE codes.
-#' 
-#' @param dt_2024 data.table with 2024 polling station data
-#' @param muni_map data.table with municipality identifier mapping (from muni_identifiers.csv)
-#' @param verbose logical, print progress messages
-#' @return data.table with fixed municipality codes
-fix_municipality_codes_2024 <- function(dt_2024, muni_map, verbose = TRUE) {
-  
-  if (verbose) cat("Fixing municipality codes in 2024 data...\n")
-  
-  # Create TSE to IBGE mapping
-  tse_to_ibge <- muni_map[existe == 1, .(
-    id_TSE = as.integer(id_TSE),
-    id_munic_7 = as.integer(id_munic_7),
-    municipio_nome = municipio,
-    estado_abrev
-  )]
-  
-  if (verbose) {
-    cat(sprintf("  - Loaded mapping for %d municipalities\n", nrow(tse_to_ibge)))
-  }
-  
-  # Check current situation
-  # Determine which column we're working with
-  muni_col <- if ("CD_MUNICIPIO" %in% names(dt_2024)) "CD_MUNICIPIO" else "cd_localidade_tse"
-  original_codes <- unique(dt_2024[[muni_col]])
-  if (verbose) {
-    cat(sprintf("  - Original unique municipality codes: %d\n", length(original_codes)))
-    cat(sprintf("  - Code range: %d - %d\n", min(original_codes), max(original_codes)))
-  }
-  
-  # Create a copy to preserve original
-  dt_fixed <- copy(dt_2024)
-  
-  # Add row number to preserve order
-  dt_fixed[, .row_order := .I]
-  
-  # Determine which column names we're working with
-  # Handle both original TSE format (CD_MUNICIPIO) and cleaned pipeline format (cd_localidade_tse)
-  muni_col <- if ("CD_MUNICIPIO" %in% names(dt_fixed)) "CD_MUNICIPIO" else "cd_localidade_tse"
-  uf_col <- if ("SG_UF" %in% names(dt_fixed)) "SG_UF" else "sg_uf"
-  
-  # Add IBGE code column by merging with mapping
-  dt_fixed <- merge(
-    dt_fixed,
-    tse_to_ibge,
-    by.x = c(muni_col, uf_col),
-    by.y = c("id_TSE", "estado_abrev"),
-    all.x = TRUE
-  )
-  
-  # Restore original order
-  setorder(dt_fixed, .row_order)
-  dt_fixed[, .row_order := NULL]
-  
-  # Check merge results
-  unmatched <- dt_fixed[is.na(id_munic_7)]
-  if (nrow(unmatched) > 0 && verbose) {
-    cat(sprintf("  - WARNING: %d records could not be matched to IBGE codes\n", nrow(unmatched)))
-    # Handle different possible municipality name columns
-    nm_col <- if ("NM_MUNICIPIO" %in% names(unmatched)) "NM_MUNICIPIO" else "nm_localidade"
-    unmatched_summary <- unmatched[, .(count = .N), by = c(muni_col, uf_col, nm_col)][order(-count)]
-    cat("  - Top unmatched municipalities:\n")
-    print(head(unmatched_summary, 10))
-  }
-  
-  # Replace municipality code with IBGE code
-  if (muni_col == "CD_MUNICIPIO") {
-    dt_fixed[, CD_MUNICIPIO_TSE := CD_MUNICIPIO]  # Keep original for reference
-    dt_fixed[!is.na(id_munic_7), CD_MUNICIPIO := id_munic_7]
-  } else {
-    # For pipeline data, return the IBGE code in the expected column
-    dt_fixed[!is.na(id_munic_7), cod_localidade_ibge := id_munic_7]
-    # Keep track of original TSE code
-    dt_fixed[, cd_localidade_tse_original := get(muni_col)]
-  }
-  
-  dt_fixed[, id_munic_7 := NULL]  # Remove temporary column
-  dt_fixed[, municipio_nome := NULL]  # Remove temporary column
-  
-  # Validate the fix
-  final_col <- if (muni_col == "CD_MUNICIPIO") "CD_MUNICIPIO" else "cod_localidade_ibge"
-  if (final_col %in% names(dt_fixed)) {
-    fixed_codes <- unique(dt_fixed[[final_col]])
-    ibge_codes <- fixed_codes[fixed_codes >= 1000000 & fixed_codes <= 9999999]
-    
-    if (verbose) {
-      cat("\nAfter fix:\n")
-      cat(sprintf("  - Unique municipality codes: %d\n", length(fixed_codes)))
-      cat(sprintf("  - Valid IBGE codes (7 digits): %d\n", length(ibge_codes)))
-      
-      # Count conversions
-      if (muni_col == "CD_MUNICIPIO") {
-        converted <- sum(dt_fixed$CD_MUNICIPIO != dt_fixed$CD_MUNICIPIO_TSE, na.rm = TRUE)
-      } else {
-        converted <- sum(!is.na(dt_fixed$cod_localidade_ibge))
-      }
-      cat(sprintf("  - Successfully converted: %d records\n", converted))
-      
-      # Check MT specifically
-      mt_fixed <- dt_fixed[get(uf_col) == "MT"]
-      if (final_col %in% names(mt_fixed)) {
-        mt_codes_fixed <- unique(mt_fixed[[final_col]])
-        mt_in_range <- sum(mt_codes_fixed >= 5100000 & mt_codes_fixed <= 5199999, na.rm = TRUE)
-        cat(sprintf("\n  - MT codes in correct range (51xxxxx): %d/%d\n", 
-                    mt_in_range, length(mt_codes_fixed)))
-      }
-    }
-  }
-  
-  return(dt_fixed)
-}
-
 import_locais <- function(locais_file, muni_ids) {
   # Try to detect encoding by checking if it's a TSE file
   is_tse_file <- grepl("eleitorado_local_votacao", locais_file)
@@ -533,19 +417,6 @@ import_locais <- function(locais_file, muni_ids) {
 
   # Filter and add local_id
   locais_data[, local_id := .I]
-
-  # Fix 2024 municipality codes (TSE to IBGE conversion)
-  # Starting in 2024, TSE switched from using standard IBGE municipality codes
-  # to their own internal coding system. This breaks compatibility with all
-  # other datasets, so we need to convert back to IBGE codes.
-  if ("ano" %in% names(locais_data) && 2024 %in% unique(locais_data$ano)) {
-    message("Detected 2024 data - applying TSE to IBGE code conversion...")
-    
-    # Apply fix - the function now handles both data formats
-    locais_data <- fix_municipality_codes_2024(locais_data, muni_ids, verbose = TRUE)
-    
-    message("2024 municipality codes fixed")
-  }
 
   return(locais_data)
 }
@@ -764,19 +635,36 @@ get_cnefe22_schools <- function(cnefe22) {
 
 convert_coord <- function(coord) {
   # Function to convert a single coordinate to decimal degrees
-  parts <- unlist(strsplit(coord, " "))
-  degrees <- as.numeric(parts[1])
-  minutes <- as.numeric(parts[2])
-  seconds <- as.numeric(parts[3])
-  direction <- gsub("[^NSWO]", "", parts[4])
+  # Handle potential errors in coordinate parsing
   
-  decimal_degrees <- degrees + (minutes / 60) + (seconds / 3600)
-  
-  if (direction %in% c("S", "W", "O")) {
-    decimal_degrees <- -decimal_degrees
-  }
-  
-  return(decimal_degrees)
+  tryCatch({
+    parts <- unlist(strsplit(coord, " "))
+    
+    # Check if we have enough parts
+    if (length(parts) < 4) {
+      return(NA_real_)
+    }
+    
+    degrees <- suppressWarnings(as.numeric(parts[1]))
+    minutes <- suppressWarnings(as.numeric(parts[2]))
+    seconds <- suppressWarnings(as.numeric(parts[3]))
+    direction <- gsub("[^NSWO]", "", parts[4])
+    
+    # Check for NA values from conversion
+    if (is.na(degrees) || is.na(minutes) || is.na(seconds)) {
+      return(NA_real_)
+    }
+    
+    decimal_degrees <- degrees + (minutes / 60) + (seconds / 3600)
+    
+    if (direction %in% c("S", "W", "O")) {
+      decimal_degrees <- -decimal_degrees
+    }
+    
+    return(decimal_degrees)
+  }, error = function(e) {
+    return(NA_real_)
+  })
 }
 
 
@@ -988,15 +876,23 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
     street, address,
     bairro = dsc_localidade,
     desc = dsc_estabelecimento,
-    cnefe_long = as.numeric(val_longitude),
-    cnefe_lat = as.numeric(val_latitude)
+    val_longitude = val_longitude,  # Keep as character for convert_coord
+    val_latitude = val_latitude      # Keep as character for convert_coord
   )]
   
   # Convert coordinates
   message("Converting coordinates...")
-  addr[!is.na(cnefe_long) & !is.na(cnefe_lat), 
-       `:=`(cnefe_long = convert_coord(cnefe_long), 
-            cnefe_lat = convert_coord(cnefe_lat))]
+  # Initialize numeric columns
+  addr[, `:=`(cnefe_long = NA_real_, cnefe_lat = NA_real_)]
+  
+  # Convert coordinates for non-empty values
+  # Use sapply to vectorize convert_coord function
+  addr[val_longitude != "" & val_latitude != "", 
+       `:=`(cnefe_long = sapply(val_longitude, convert_coord), 
+            cnefe_lat = sapply(val_latitude, convert_coord))]
+  
+  # Remove the character columns
+  addr[, c("val_longitude", "val_latitude") := NULL]
   
   # Merge tract centroids
   message("Merging tract centroids...")

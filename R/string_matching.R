@@ -6,15 +6,12 @@
 ## - memory_efficient_string_matching.R (4 functions)
 ## - geocodebr_matching.R (1 function)
 ##
-## The duplicate functions are unified with a memory_efficient parameter
+## All functions now use memory-efficient chunked processing by default
 ## Total functions: 9
 
 library(data.table)
 library(stringr)
 library(stringdist)
-
-# Check if memory-efficient mode is enabled globally
-USE_MEMORY_EFFICIENT <- isTRUE(getOption("geocode_br.use_memory_efficient", FALSE))
 
 # ===== MEMORY EFFICIENT HELPER FUNCTIONS =====
 
@@ -194,331 +191,191 @@ get_adaptive_chunk_size <- function(n_items, available_memory_gb = 4) {
 
 # ===== UNIFIED STRING MATCHING FUNCTIONS =====
 
-match_inep_muni <- function(locais_muni, inep_muni, memory_efficient = USE_MEMORY_EFFICIENT) {
+match_inep_muni <- function(locais_muni, inep_muni) {
   # Match polling stations with INEP school data for a single municipality
   
   if (nrow(inep_muni) == 0) {
     return(NULL)
   }
   
-  if (memory_efficient) {
-    # Memory-efficient version
-    
-    # Match on name
-    name_results <- match_strings_memory_efficient(
-      locais_muni$normalized_name,
-      inep_muni$norm_school,
-      method = "jw",
-      chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-      normalize_by_length = TRUE,
-      prefilter = TRUE,
-      min_common_words = 1
-    )
-    
-    # Match on address
-    addr_results <- match_strings_memory_efficient(
-      locais_muni$normalized_addr,
-      inep_muni$norm_addr,
-      method = "jw",
-      chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-      normalize_by_length = TRUE,
-      prefilter = TRUE,
-      min_common_words = 1
-    )
-    
-    # Get coordinates for best matches
-    match_long_inep_name <- ifelse(
-      is.na(name_results$best_index),
-      NA_real_,
-      inep_muni$longitude[name_results$best_index]
-    )
-    match_lat_inep_name <- ifelse(
-      is.na(name_results$best_index),
-      NA_real_,
-      inep_muni$latitude[name_results$best_index]
-    )
-    
-    match_long_inep_addr <- ifelse(
-      is.na(addr_results$best_index),
-      NA_real_,
-      inep_muni$longitude[addr_results$best_index]
-    )
-    match_lat_inep_addr <- ifelse(
-      is.na(addr_results$best_index),
-      NA_real_,
-      inep_muni$latitude[addr_results$best_index]
-    )
-    
-    # Create output
-    output <- data.table(
-      local_id = locais_muni$local_id,
-      match_inep_name = name_results$best_match,
-      mindist_inep_name = name_results$min_dist,
-      match_long_inep_name = match_long_inep_name,
-      match_lat_inep_name = match_lat_inep_name,
-      match_inep_addr = addr_results$best_match,
-      mindist_inep_addr = addr_results$min_dist,
-      match_long_inep_addr = match_long_inep_addr,
-      match_lat_inep_addr = match_lat_inep_addr
-    )
-    
-  } else {
-    # Original version
-    
-    # Match on inep name
-    name_inep_dists <- stringdist::stringdistmatrix(
-      locais_muni$normalized_name,
-      inep_muni$norm_school,
-      method = "jw"
-    )
-    # Normalize for string length
-    name_inep_dists <- name_inep_dists /
-      outer(
-        nchar(locais_muni$normalized_name),
-        nchar(inep_muni$norm_school),
-        FUN = "pmax"
-      )
-    
-    mindist_name_inep <- apply(name_inep_dists, 1, min)
-    match_inep_name <- inep_muni$norm_school[apply(name_inep_dists, 1, which.min)]
-    match_long_inep_name <- inep_muni$longitude[apply(name_inep_dists, 1, which.min)]
-    match_lat_inep_name <- inep_muni$latitude[apply(name_inep_dists, 1, which.min)]
-    
-    # Match on inep address
-    addr_inep_dists <- stringdist::stringdistmatrix(
-      locais_muni$normalized_addr,
-      inep_muni$norm_addr,
-      method = "jw"
-    )
-    
-    mindist_addr_inep <- apply(addr_inep_dists, 1, min)
-    match_inep_addr <- inep_muni$norm_addr[apply(addr_inep_dists, 1, which.min)]
-    match_long_inep_addr <- inep_muni$longitude[apply(addr_inep_dists, 1, which.min)]
-    match_lat_inep_addr <- inep_muni$latitude[apply(addr_inep_dists, 1, which.min)]
-    
-    # Create output
-    output <- data.table(
-      local_id = locais_muni$local_id,
-      match_inep_name = match_inep_name,
-      mindist_inep_name = mindist_name_inep,
-      match_long_inep_name = match_long_inep_name,
-      match_lat_inep_name = match_lat_inep_name,
-      match_inep_addr = match_inep_addr,
-      mindist_inep_addr = mindist_addr_inep,
-      match_long_inep_addr = match_long_inep_addr,
-      match_lat_inep_addr = match_lat_inep_addr
-    )
-  }
+  # Match on name
+  name_results <- match_strings_memory_efficient(
+    locais_muni$normalized_name,
+    inep_muni$norm_school,
+    method = "jw",
+    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
+    normalize_by_length = TRUE,
+    prefilter = TRUE,
+    min_common_words = 1
+  )
+  
+  # Match on address
+  addr_results <- match_strings_memory_efficient(
+    locais_muni$normalized_addr,
+    inep_muni$norm_addr,
+    method = "jw",
+    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
+    normalize_by_length = TRUE,
+    prefilter = TRUE,
+    min_common_words = 1
+  )
+  
+  # Get coordinates for best matches
+  match_long_inep_name <- ifelse(
+    is.na(name_results$best_index),
+    NA_real_,
+    inep_muni$longitude[name_results$best_index]
+  )
+  match_lat_inep_name <- ifelse(
+    is.na(name_results$best_index),
+    NA_real_,
+    inep_muni$latitude[name_results$best_index]
+  )
+  
+  match_long_inep_addr <- ifelse(
+    is.na(addr_results$best_index),
+    NA_real_,
+    inep_muni$longitude[addr_results$best_index]
+  )
+  match_lat_inep_addr <- ifelse(
+    is.na(addr_results$best_index),
+    NA_real_,
+    inep_muni$latitude[addr_results$best_index]
+  )
+  
+  # Create output
+  output <- data.table(
+    local_id = locais_muni$local_id,
+    match_inep_name = name_results$best_match,
+    mindist_inep_name = name_results$min_dist,
+    match_long_inep_name = match_long_inep_name,
+    match_lat_inep_name = match_lat_inep_name,
+    match_inep_addr = addr_results$best_match,
+    mindist_inep_addr = addr_results$min_dist,
+    match_long_inep_addr = match_long_inep_addr,
+    match_lat_inep_addr = match_lat_inep_addr
+  )
   
   return(output)
 }
 
-match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni, 
-                                   memory_efficient = USE_MEMORY_EFFICIENT) {
+match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
   # Match polling stations with CNEFE school data
   
   if (nrow(schools_cnefe_muni) == 0) {
     return(NULL)
   }
   
-  if (memory_efficient) {
-    # Memory-efficient version
-    
-    # Match on name
-    name_results <- match_strings_memory_efficient(
-      locais_muni$normalized_name,
-      schools_cnefe_muni$norm_desc,
-      method = "jw",
-      chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-      normalize_by_length = TRUE,
-      prefilter = TRUE,
-      min_common_words = 1
-    )
-    
-    # Get coordinates for best matches
-    match_long_schools_cnefe <- ifelse(
-      is.na(name_results$best_index),
-      NA_real_,
-      schools_cnefe_muni$cnefe_long[name_results$best_index]
-    )
-    match_lat_schools_cnefe <- ifelse(
-      is.na(name_results$best_index),
-      NA_real_,
-      schools_cnefe_muni$cnefe_lat[name_results$best_index]
-    )
-    match_bairro_schools_cnefe <- ifelse(
-      is.na(name_results$best_index),
-      NA_character_,
-      schools_cnefe_muni$norm_bairro[name_results$best_index]
-    )
-    
-    # Create output
-    output <- data.table(
-      local_id = locais_muni$local_id,
-      match_schools_cnefe = name_results$best_match,
-      mindist_schools_cnefe = name_results$min_dist,
-      match_long_schools_cnefe = match_long_schools_cnefe,
-      match_lat_schools_cnefe = match_lat_schools_cnefe,
-      match_bairro_schools_cnefe = match_bairro_schools_cnefe
-    )
-    
-  } else {
-    # Original version
-    
-    # Match on school name
-    name_schools_cnefe_dists <- stringdist::stringdistmatrix(
-      locais_muni$normalized_name,
-      schools_cnefe_muni$norm_desc,
-      method = "jw"
-    )
-    
-    mindist_schools_cnefe <- apply(name_schools_cnefe_dists, 1, min)
-    idx_schools_cnefe <- apply(name_schools_cnefe_dists, 1, which.min)
-    
-    match_schools_cnefe <- schools_cnefe_muni$norm_desc[idx_schools_cnefe]
-    match_long_schools_cnefe <- schools_cnefe_muni$cnefe_long[idx_schools_cnefe]
-    match_lat_schools_cnefe <- schools_cnefe_muni$cnefe_lat[idx_schools_cnefe]
-    match_bairro_schools_cnefe <- schools_cnefe_muni$norm_bairro[idx_schools_cnefe]
-    
-    # Create output
-    output <- data.table(
-      local_id = locais_muni$local_id,
-      match_schools_cnefe = match_schools_cnefe,
-      mindist_schools_cnefe = mindist_schools_cnefe,
-      match_long_schools_cnefe = match_long_schools_cnefe,
-      match_lat_schools_cnefe = match_lat_schools_cnefe,
-      match_bairro_schools_cnefe = match_bairro_schools_cnefe
-    )
-  }
+  # Match on name
+  name_results <- match_strings_memory_efficient(
+    locais_muni$normalized_name,
+    schools_cnefe_muni$norm_desc,
+    method = "jw",
+    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
+    normalize_by_length = TRUE,
+    prefilter = TRUE,
+    min_common_words = 1
+  )
+  
+  # Get coordinates for best matches
+  match_long_schools_cnefe <- ifelse(
+    is.na(name_results$best_index),
+    NA_real_,
+    schools_cnefe_muni$cnefe_long[name_results$best_index]
+  )
+  match_lat_schools_cnefe <- ifelse(
+    is.na(name_results$best_index),
+    NA_real_,
+    schools_cnefe_muni$cnefe_lat[name_results$best_index]
+  )
+  match_bairro_schools_cnefe <- ifelse(
+    is.na(name_results$best_index),
+    NA_character_,
+    schools_cnefe_muni$norm_bairro[name_results$best_index]
+  )
+  
+  # Create output
+  output <- data.table(
+    local_id = locais_muni$local_id,
+    match_schools_cnefe = name_results$best_match,
+    mindist_schools_cnefe = name_results$min_dist,
+    match_long_schools_cnefe = match_long_schools_cnefe,
+    match_lat_schools_cnefe = match_lat_schools_cnefe,
+    match_bairro_schools_cnefe = match_bairro_schools_cnefe
+  )
   
   return(output)
 }
 
-match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_muni,
-                                    memory_efficient = USE_MEMORY_EFFICIENT) {
+match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_muni) {
   # Match polling stations with CNEFE street and neighborhood data
   
   if (nrow(cnefe_st_muni) == 0) {
     return(NULL)
   }
   
-  if (memory_efficient) {
-    # Memory-efficient version
-    
-    # Match on street
-    st_results <- match_strings_memory_efficient(
-      locais_muni$normalized_st,
-      cnefe_st_muni$norm_street,
-      method = "jw",
-      chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-      normalize_by_length = TRUE,
-      prefilter = TRUE,
-      min_common_words = 1
-    )
-    
-    # Match on neighborhood
-    bairro_results <- match_strings_memory_efficient(
-      locais_muni$normalized_bairro,
-      cnefe_bairro_muni$norm_bairro,
-      method = "jw", 
-      chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-      normalize_by_length = FALSE,  # Don't normalize for neighborhoods
-      prefilter = TRUE,
-      min_common_words = 1
-    )
-    
-    # Get coordinates for best matches
-    match_long_cnefe_st <- ifelse(
-      is.na(st_results$best_index),
-      NA_real_,
-      cnefe_st_muni$long[st_results$best_index]
-    )
-    match_lat_cnefe_st <- ifelse(
-      is.na(st_results$best_index),
-      NA_real_,
-      cnefe_st_muni$lat[st_results$best_index]
-    )
-    
-    match_long_cnefe_bairro <- ifelse(
-      is.na(bairro_results$best_index),
-      NA_real_,
-      cnefe_bairro_muni$long[bairro_results$best_index]
-    )
-    match_lat_cnefe_bairro <- ifelse(
-      is.na(bairro_results$best_index),
-      NA_real_,
-      cnefe_bairro_muni$lat[bairro_results$best_index]
-    )
-    
-    # Create output
-    output <- data.table(
-      local_id = locais_muni$local_id,
-      match_cnefe_st = st_results$best_match,
-      mindist_cnefe_st = st_results$min_dist,
-      match_long_cnefe_st = match_long_cnefe_st,
-      match_lat_cnefe_st = match_lat_cnefe_st,
-      match_cnefe_bairro = bairro_results$best_match,
-      mindist_cnefe_bairro = bairro_results$min_dist,
-      match_long_cnefe_bairro = match_long_cnefe_bairro,
-      match_lat_cnefe_bairro = match_lat_cnefe_bairro
-    )
-    
-  } else {
-    # Original version
-    
-    # Street matching
-    st_cnefe_dists <- stringdist::stringdistmatrix(
-      locais_muni$normalized_st,
-      cnefe_st_muni$norm_street,
-      method = "jw"
-    )
-    st_cnefe_dists <- st_cnefe_dists /
-      outer(
-        nchar(locais_muni$normalized_st),
-        nchar(cnefe_st_muni$norm_street),
-        FUN = "pmax"
-      )
-    
-    mindist_cnefe_st <- apply(st_cnefe_dists, 1, min)
-    idx_cnefe_st <- apply(st_cnefe_dists, 1, which.min)
-    
-    match_cnefe_st <- cnefe_st_muni$norm_street[idx_cnefe_st]
-    match_long_cnefe_st <- cnefe_st_muni$long[idx_cnefe_st]
-    match_lat_cnefe_st <- cnefe_st_muni$lat[idx_cnefe_st]
-    
-    # Neighborhood matching
-    bairro_cnefe_dists <- stringdist::stringdistmatrix(
-      locais_muni$normalized_bairro,
-      cnefe_bairro_muni$norm_bairro,
-      method = "jw"
-    )
-    
-    mindist_cnefe_bairro <- apply(bairro_cnefe_dists, 1, min)
-    idx_cnefe_bairro <- apply(bairro_cnefe_dists, 1, which.min)
-    
-    match_cnefe_bairro <- cnefe_bairro_muni$norm_bairro[idx_cnefe_bairro]
-    match_long_cnefe_bairro <- cnefe_bairro_muni$long[idx_cnefe_bairro]
-    match_lat_cnefe_bairro <- cnefe_bairro_muni$lat[idx_cnefe_bairro]
-    
-    # Create output
-    output <- data.table(
-      local_id = locais_muni$local_id,
-      match_cnefe_st = match_cnefe_st,
-      mindist_cnefe_st = mindist_cnefe_st,
-      match_long_cnefe_st = match_long_cnefe_st,
-      match_lat_cnefe_st = match_lat_cnefe_st,
-      match_cnefe_bairro = match_cnefe_bairro,
-      mindist_cnefe_bairro = mindist_cnefe_bairro,
-      match_long_cnefe_bairro = match_long_cnefe_bairro,
-      match_lat_cnefe_bairro = match_lat_cnefe_bairro
-    )
-  }
+  # Match on street
+  st_results <- match_strings_memory_efficient(
+    locais_muni$normalized_st,
+    cnefe_st_muni$norm_street,
+    method = "jw",
+    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
+    normalize_by_length = TRUE,
+    prefilter = TRUE,
+    min_common_words = 1
+  )
+  
+  # Match on neighborhood
+  bairro_results <- match_strings_memory_efficient(
+    locais_muni$normalized_bairro,
+    cnefe_bairro_muni$norm_bairro,
+    method = "jw", 
+    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
+    normalize_by_length = FALSE,  # Don't normalize for neighborhoods
+    prefilter = TRUE,
+    min_common_words = 1
+  )
+  
+  # Get coordinates for best matches
+  match_long_cnefe_st <- ifelse(
+    is.na(st_results$best_index),
+    NA_real_,
+    cnefe_st_muni$long[st_results$best_index]
+  )
+  match_lat_cnefe_st <- ifelse(
+    is.na(st_results$best_index),
+    NA_real_,
+    cnefe_st_muni$lat[st_results$best_index]
+  )
+  
+  match_long_cnefe_bairro <- ifelse(
+    is.na(bairro_results$best_index),
+    NA_real_,
+    cnefe_bairro_muni$long[bairro_results$best_index]
+  )
+  match_lat_cnefe_bairro <- ifelse(
+    is.na(bairro_results$best_index),
+    NA_real_,
+    cnefe_bairro_muni$lat[bairro_results$best_index]
+  )
+  
+  # Create output
+  output <- data.table(
+    local_id = locais_muni$local_id,
+    match_cnefe_st = st_results$best_match,
+    mindist_cnefe_st = st_results$min_dist,
+    match_long_cnefe_st = match_long_cnefe_st,
+    match_lat_cnefe_st = match_lat_cnefe_st,
+    match_cnefe_bairro = bairro_results$best_match,
+    mindist_cnefe_bairro = bairro_results$min_dist,
+    match_long_cnefe_bairro = match_long_cnefe_bairro,
+    match_lat_cnefe_bairro = match_lat_cnefe_bairro
+  )
   
   return(output)
 }
 
-match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocnefe_bairro_muni,
-                                        memory_efficient = USE_MEMORY_EFFICIENT) {
+match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocnefe_bairro_muni) {
   # Match polling stations with Agro CNEFE data
   # This follows the same pattern as match_stbairro_cnefe_muni
   
@@ -526,117 +383,63 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
     return(NULL)
   }
   
-  if (memory_efficient) {
-    # Memory-efficient version
-    
-    # Match on street
-    st_results <- match_strings_memory_efficient(
-      locais_muni$normalized_st,
-      agrocnefe_st_muni$norm_street,
-      method = "jw",
-      chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-      normalize_by_length = TRUE,
-      prefilter = TRUE,
-      min_common_words = 1
-    )
-    
-    # Match on neighborhood
-    bairro_results <- match_strings_memory_efficient(
-      locais_muni$normalized_bairro,
-      agrocnefe_bairro_muni$norm_bairro,
-      method = "jw",
-      chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-      normalize_by_length = FALSE,
-      prefilter = TRUE,
-      min_common_words = 1
-    )
-    
-    # Get coordinates for best matches
-    match_long_agrocnefe_st <- ifelse(
-      is.na(st_results$best_index),
-      NA_real_,
-      agrocnefe_st_muni$long[st_results$best_index]
-    )
-    match_lat_agrocnefe_st <- ifelse(
-      is.na(st_results$best_index),
-      NA_real_,
-      agrocnefe_st_muni$lat[st_results$best_index]
-    )
-    
-    match_long_agrocnefe_bairro <- ifelse(
-      is.na(bairro_results$best_index),
-      NA_real_,
-      agrocnefe_bairro_muni$long[bairro_results$best_index]
-    )
-    match_lat_agrocnefe_bairro <- ifelse(
-      is.na(bairro_results$best_index),
-      NA_real_,
-      agrocnefe_bairro_muni$lat[bairro_results$best_index]
-    )
-    
-    # Create output
-    output <- data.table(
-      local_id = locais_muni$local_id,
-      match_agrocnefe_st = st_results$best_match,
-      mindist_agrocnefe_st = st_results$min_dist,
-      match_long_agrocnefe_st = match_long_agrocnefe_st,
-      match_lat_agrocnefe_st = match_lat_agrocnefe_st,
-      match_agrocnefe_bairro = bairro_results$best_match,
-      mindist_agrocnefe_bairro = bairro_results$min_dist,
-      match_long_agrocnefe_bairro = match_long_agrocnefe_bairro,
-      match_lat_agrocnefe_bairro = match_lat_agrocnefe_bairro
-    )
-    
-  } else {
-    # Original version
-    
-    # Street matching
-    st_agrocnefe_dists <- stringdist::stringdistmatrix(
-      locais_muni$normalized_st,
-      agrocnefe_st_muni$norm_street,
-      method = "jw"
-    )
-    st_agrocnefe_dists <- st_agrocnefe_dists /
-      outer(
-        nchar(locais_muni$normalized_st),
-        nchar(agrocnefe_st_muni$norm_street),
-        FUN = "pmax"
-      )
-    
-    mindist_agrocnefe_st <- apply(st_agrocnefe_dists, 1, min)
-    idx_agrocnefe_st <- apply(st_agrocnefe_dists, 1, which.min)
-    
-    match_agrocnefe_st <- agrocnefe_st_muni$norm_street[idx_agrocnefe_st]
-    match_long_agrocnefe_st <- agrocnefe_st_muni$long[idx_agrocnefe_st]
-    match_lat_agrocnefe_st <- agrocnefe_st_muni$lat[idx_agrocnefe_st]
-    
-    # Neighborhood matching
-    bairro_agrocnefe_dists <- stringdist::stringdistmatrix(
-      locais_muni$normalized_bairro,
-      agrocnefe_bairro_muni$norm_bairro,
-      method = "jw"
-    )
-    
-    mindist_agrocnefe_bairro <- apply(bairro_agrocnefe_dists, 1, min)
-    idx_agrocnefe_bairro <- apply(bairro_agrocnefe_dists, 1, which.min)
-    
-    match_agrocnefe_bairro <- agrocnefe_bairro_muni$norm_bairro[idx_agrocnefe_bairro]
-    match_long_agrocnefe_bairro <- agrocnefe_bairro_muni$long[idx_agrocnefe_bairro]
-    match_lat_agrocnefe_bairro <- agrocnefe_bairro_muni$lat[idx_agrocnefe_bairro]
-    
-    # Create output
-    output <- data.table(
-      local_id = locais_muni$local_id,
-      match_agrocnefe_st = match_agrocnefe_st,
-      mindist_agrocnefe_st = mindist_agrocnefe_st,
-      match_long_agrocnefe_st = match_long_agrocnefe_st,
-      match_lat_agrocnefe_st = match_lat_agrocnefe_st,
-      match_agrocnefe_bairro = match_agrocnefe_bairro,
-      mindist_agrocnefe_bairro = mindist_agrocnefe_bairro,
-      match_long_agrocnefe_bairro = match_long_agrocnefe_bairro,
-      match_lat_agrocnefe_bairro = match_lat_agrocnefe_bairro
-    )
-  }
+  # Match on street
+  st_results <- match_strings_memory_efficient(
+    locais_muni$normalized_st,
+    agrocnefe_st_muni$norm_street,
+    method = "jw",
+    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
+    normalize_by_length = TRUE,
+    prefilter = TRUE,
+    min_common_words = 1
+  )
+  
+  # Match on neighborhood
+  bairro_results <- match_strings_memory_efficient(
+    locais_muni$normalized_bairro,
+    agrocnefe_bairro_muni$norm_bairro,
+    method = "jw",
+    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
+    normalize_by_length = FALSE,
+    prefilter = TRUE,
+    min_common_words = 1
+  )
+  
+  # Get coordinates for best matches
+  match_long_agrocnefe_st <- ifelse(
+    is.na(st_results$best_index),
+    NA_real_,
+    agrocnefe_st_muni$long[st_results$best_index]
+  )
+  match_lat_agrocnefe_st <- ifelse(
+    is.na(st_results$best_index),
+    NA_real_,
+    agrocnefe_st_muni$lat[st_results$best_index]
+  )
+  
+  match_long_agrocnefe_bairro <- ifelse(
+    is.na(bairro_results$best_index),
+    NA_real_,
+    agrocnefe_bairro_muni$long[bairro_results$best_index]
+  )
+  match_lat_agrocnefe_bairro <- ifelse(
+    is.na(bairro_results$best_index),
+    NA_real_,
+    agrocnefe_bairro_muni$lat[bairro_results$best_index]
+  )
+  
+  # Create output
+  output <- data.table(
+    local_id = locais_muni$local_id,
+    match_agrocnefe_st = st_results$best_match,
+    mindist_agrocnefe_st = st_results$min_dist,
+    match_long_agrocnefe_st = match_long_agrocnefe_st,
+    match_lat_agrocnefe_st = match_lat_agrocnefe_st,
+    match_agrocnefe_bairro = bairro_results$best_match,
+    mindist_agrocnefe_bairro = bairro_results$min_dist,
+    match_long_agrocnefe_bairro = match_long_agrocnefe_bairro,
+    match_lat_agrocnefe_bairro = match_lat_agrocnefe_bairro
+  )
   
   return(output)
 }

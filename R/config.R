@@ -21,7 +21,6 @@ get_pipeline_config <- function(dev_mode = FALSE) {
       dev_states = c("AC", "RR"),  # Small states for testing
       batch_size = 10,
       max_workers = 2,
-      use_memory_efficient = TRUE,
       cache_dir = "_targets/cache",
       log_level = "DEBUG"
     )
@@ -31,7 +30,6 @@ get_pipeline_config <- function(dev_mode = FALSE) {
       dev_states = NULL,  # Process all states
       batch_size = 100,
       max_workers = parallel::detectCores() - 1,
-      use_memory_efficient = TRUE,
       cache_dir = "_targets/cache",
       log_level = "INFO"
     )

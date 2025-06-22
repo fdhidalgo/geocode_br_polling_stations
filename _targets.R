@@ -78,12 +78,6 @@ configure_targets_options(controller_group)
 # Get pipeline configuration based on development mode
 pipeline_config <- get_pipeline_config(DEV_MODE)
 
-# Enable memory-efficient string matching if configured
-if (pipeline_config$use_memory_efficient) {
-  options(geocode_br.use_memory_efficient = TRUE)
-  message("Memory-efficient string matching is ENABLED")
-}
-
 # Enable two-level blocking for panel IDs (municipality + shared words)
 # This can significantly speed up panel ID processing (60-80% reduction in comparisons)
 USE_WORD_BLOCKING <- TRUE  # Set to TRUE to enable

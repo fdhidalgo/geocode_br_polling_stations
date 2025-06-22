@@ -71,7 +71,7 @@ make_model_data <- function(
       id.vars = c("local_id", "ano"),
       measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
       variable.name = "type",
-      value.name = "value",
+      value.name = c("long", "lat", "mindist"),
       variable.factor = FALSE
     )
     cnefe_stbairro_match[,
@@ -87,7 +87,7 @@ make_model_data <- function(
       id.vars = c("local_id", "ano"),
       measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
       variable.name = "type",
-      value.name = "value",
+      value.name = c("long", "lat", "mindist"),
       variable.factor = FALSE
     )
     schools_cnefe_match[,
@@ -107,7 +107,7 @@ make_model_data <- function(
       id.vars = c("local_id"),
       measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
       variable.name = "type",
-      value.name = "value",
+      value.name = c("long", "lat", "mindist"),
       variable.factor = FALSE
     )
     inep_string_match[,
@@ -316,10 +316,22 @@ train_model <- function(model_data, grid_n = 10, sample = NULL) {
   # Function to train a model using the provided data
 
   library(bonsai)
+  
+  # Check if model_data is NULL or empty
+  if (is.null(model_data) || nrow(model_data) == 0) {
+    warning("No data available for model training")
+    return(NULL)
+  }
 
   ## Remove data with missing outcome and covariate
   model_data <- model_data[!is.na(dist)]
   model_data <- model_data[!is.na(mindist)]
+  
+  # Check if we have any data left after filtering
+  if (nrow(model_data) == 0) {
+    warning("No data left after filtering missing values")
+    return(NULL)
+  }
 
   if (is.null(sample) == FALSE) {
     # Sample the data if a sample size is provided

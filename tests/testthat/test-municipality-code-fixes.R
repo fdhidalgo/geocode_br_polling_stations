@@ -11,6 +11,9 @@ source(file.path(project_root, "R", "data_cleaning.R"))
 # Source validation functions for testing
 source(file.path(project_root, "R_backup_20250620_consolidation", "fix_municipality_codes_2024_validation_fns.R"))
 
+# Load muni_identifiers data for tests
+muni_map <- fread(file.path(project_root, "data", "muni_identifiers.csv"), encoding = "UTF-8")
+
 test_that("conversion preserves data integrity", {
   # Test that the function doesn't lose or corrupt data
   
@@ -21,7 +24,7 @@ test_that("conversion preserves data integrity", {
     other_col2 = letters[1:4]
   )
   
-  result <- fix_municipality_codes_2024(test_data, verbose = FALSE)
+  result <- fix_municipality_codes_2024(test_data, muni_map, verbose = FALSE)
   
   # Core integrity checks
   expect_equal(nrow(result), nrow(test_data))
@@ -42,7 +45,7 @@ test_that("IBGE codes follow expected format rules", {
     SG_UF = rep(c("AC", "MT"), 5)
   )
   
-  result <- fix_municipality_codes_2024(test_data, verbose = FALSE)
+  result <- fix_municipality_codes_2024(test_data, muni_map, verbose = FALSE)
   
   # Check IBGE code format (7 digits, specific ranges per state)
   ibge_codes <- result$CD_MUNICIPIO[result$CD_MUNICIPIO != result$CD_MUNICIPIO_TSE]
@@ -155,7 +158,7 @@ test_that("unmatched codes are handled appropriately", {
     NM_MUNICIPIO = c("Fake City 1", "Fake City 2")
   )
   
-  result <- fix_municipality_codes_2024(test_data, verbose = FALSE)
+  result <- fix_municipality_codes_2024(test_data, muni_map, verbose = FALSE)
   
   # Unmatched codes should remain unchanged
   expect_equal(result$CD_MUNICIPIO, test_data$CD_MUNICIPIO)

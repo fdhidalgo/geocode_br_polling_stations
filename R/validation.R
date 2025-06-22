@@ -1,164 +1,18 @@
 ## Validation Functions
 ##
 ## This file consolidates all validation functions from:
-## - validation_stages.R (6 functions)
+## - validation_stages.R (3 functions - 3 unused removed)
 ## - validation_target_functions.R (4 functions)
 ## - validation_report_helpers.R (6 functions)
-## - monitoring.R (1 function)
+## - monitoring.R (1 function - create_data_quality_monitor)
 ##
-## Total functions: 17
+## Total functions: 14
 
 library(validate)
 library(data.table)
 library(knitr)
 
 # ===== VALIDATION STAGE FUNCTIONS =====
-
-validate_import_stage <- function(data, stage_name, expected_cols = NULL, min_rows = 1) {
-  # Validates data immediately after import to catch loading errors
-  
-  # Create import-specific rules
-  base_rules <- list(
-    # Basic structure checks  
-    has_rows = substitute(nrow(.) >= min_rows_val, list(min_rows_val = min_rows)),
-    not_empty = quote(nrow(.) > 0)
-  )
-  
-  # Add column checks if expected columns provided
-  if (!is.null(expected_cols)) {
-    for (col in expected_cols) {
-      rule_name <- paste0("has_column_", col)
-      base_rules[[rule_name]] <- substitute(col %in% names(.), list(col = col))
-    }
-  }
-  
-  rules <- do.call(validator, base_rules)
-  
-  # Run validation
-  result <- confront(data, rules)
-  
-  # Create metadata
-  metadata <- list(
-    stage = stage_name,
-    type = "import",
-    timestamp = Sys.time(),
-    n_rows = nrow(data),
-    n_cols = ncol(data),
-    columns = names(data)
-  )
-  
-  # Return structured result
-  structure(
-    list(
-      result = result,
-      metadata = metadata,
-      stage = stage_name,
-      passed = all(result)
-    ),
-    class = "validation_result"
-  )
-}
-
-validate_cleaning_stage <- function(data, stage_name, original_data = NULL) {
-  # Validates data after cleaning transformations
-  
-  # Create cleaning-specific rules
-  rules <- validator(
-    # Basic integrity
-    has_rows = nrow(.) > 0,
-    
-    # Data quality improvements expected after cleaning
-    # These are soft checks - we expect improvement but don't require perfection
-    no_duplicate_rows = nrow(.) == length(unique(.))
-  )
-  
-  # Run validation
-  result <- confront(data, rules)
-  
-  # Create metadata
-  metadata <- list(
-    stage = stage_name,
-    type = "cleaning",
-    timestamp = Sys.time(),
-    n_rows = nrow(data),
-    n_cols = ncol(data)
-  )
-  
-  # If original data provided, add comparison metrics
-  if (!is.null(original_data)) {
-    metadata$rows_removed <- nrow(original_data) - nrow(data)
-    metadata$removal_rate <- (nrow(original_data) - nrow(data)) / nrow(original_data)
-  }
-  
-  # Return structured result
-  structure(
-    list(
-      result = result,
-      metadata = metadata,
-      stage = stage_name,
-      passed = all(result)
-    ),
-    class = "validation_result"
-  )
-}
-
-validate_string_match_stage <- function(match_result, stage_name, min_match_rate = 0.0) {
-  # Validates string matching results
-  
-  # Ensure we're working with a data.table
-  if (!is.data.table(match_result)) {
-    match_result <- as.data.table(match_result)
-  }
-  
-  # Create string-matching specific rules
-  rules <- validator(
-    has_rows = nrow(.) > 0,
-    has_local_id = "local_id" %in% names(.),
-    
-    # Check that we have match columns
-    has_match_columns = any(grepl("^match_", names(.))),
-    has_distance_columns = any(grepl("^mindist_", names(.)))
-  )
-  
-  # Run validation
-  result <- confront(match_result, rules)
-  
-  # Calculate match statistics
-  match_cols <- names(match_result)[grepl("^match_", names(match_result))]
-  dist_cols <- names(match_result)[grepl("^mindist_", names(match_result))]
-  
-  match_stats <- list()
-  for (col in match_cols) {
-    if (col %in% names(match_result)) {
-      match_stats[[col]] <- list(
-        n_matched = sum(!is.na(match_result[[col]])),
-        match_rate = mean(!is.na(match_result[[col]]))
-      )
-    }
-  }
-  
-  # Create metadata
-  metadata <- list(
-    stage = stage_name,
-    type = "string_match",
-    timestamp = Sys.time(),
-    n_rows = nrow(match_result),
-    match_columns = match_cols,
-    distance_columns = dist_cols,
-    match_statistics = match_stats
-  )
-  
-  # Return structured result
-  structure(
-    list(
-      result = result,
-      metadata = metadata,
-      stage = stage_name,
-      passed = all(result)
-    ),
-    class = "validation_result"
-  )
-}
 
 validate_merge_stage <- function(merged_data, left_data, right_data = NULL,
                                 stage_name, merge_keys, join_type = "left") {
@@ -771,4 +625,56 @@ generate_validation_report_simplified <- function(
   cat("===============================================\n\n")
   
   return(summary_stats)
+}
+
+# ===== DATA QUALITY MONITORING =====
+
+#' Create data quality monitor report
+#' 
+#' Placeholder function for data quality monitoring
+#' 
+#' @param geocoded_export Path to geocoded export file
+#' @param panelid_export Path to panel ID export file  
+#' @param geocoded_locais Geocoded locations data
+#' @param panel_ids Panel IDs data
+#' @param config_file Path to config file
+#' @return List with basic quality metrics
+create_data_quality_monitor <- function(geocoded_export, panelid_export, 
+                                      geocoded_locais, panel_ids,
+                                      config_file = NULL) {
+  
+  cat("Running data quality monitoring...\n")
+  
+  # Basic quality metrics
+  results <- list(
+    timestamp = Sys.time(),
+    geocoded_export_path = geocoded_export,
+    panelid_export_path = panelid_export,
+    metrics = list(
+      n_geocoded = nrow(geocoded_locais),
+      n_panel_ids = nrow(panel_ids),
+      n_unique_stations = length(unique(geocoded_locais$local_id)),
+      n_unique_panels = length(unique(panel_ids$panel_id))
+    ),
+    status = "OK",
+    message = "Basic data quality monitoring completed"
+  )
+  
+  # Check if export files exist
+  if (!file.exists(geocoded_export)) {
+    results$status <- "WARNING"
+    results$message <- paste("Geocoded export file not found:", geocoded_export)
+  }
+  
+  if (!file.exists(panelid_export)) {
+    results$status <- "WARNING" 
+    results$message <- paste(results$message, "\nPanel ID export file not found:", panelid_export)
+  }
+  
+  cat("Data quality monitoring completed.\n")
+  cat("  Geocoded locations:", results$metrics$n_geocoded, "\n")
+  cat("  Panel IDs:", results$metrics$n_panel_ids, "\n")
+  cat("  Status:", results$status, "\n")
+  
+  return(results)
 }

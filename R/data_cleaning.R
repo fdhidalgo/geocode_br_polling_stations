@@ -8,8 +8,6 @@
 ##
 ## Total functions: 18
 
-library(data.table)
-library(stringr)
 
 # ===== UTILITY FUNCTIONS (from data_table_utils.R) =====
 # Note: These are loaded here to avoid circular dependencies
@@ -58,7 +56,7 @@ standardize_column_names <- function(dt, inplace = FALSE) {
   }
   
   # Set new names
-  setnames(dt, old_names, new_names)
+  data.table::setnames(dt, old_names, new_names)
   
   if (!inplace) {
     return(dt)
@@ -244,7 +242,7 @@ clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
     locs <- rbindlist(list(loc18, loc20, loc22), fill = TRUE)
   }
 
-  # Only keep columns that are present in all data sets
+  # Only keep columns that are present in all data set
   locs <- locs[,
     names(loc22)[names(loc22) %in% names(loc18) == TRUE],
     with = FALSE
@@ -335,11 +333,7 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
   # Convert column names to lowercase first (agro files have uppercase columns)
   setnames(agro_cnefe, names(agro_cnefe), tolower(names(agro_cnefe)))
   
-  # Standardize column names
-  standardize_column_names(agro_cnefe, inplace = TRUE)
-
-  # Create street column combining type and name (similar to clean_cnefe10)
-  # Note: Using lowercase column names after tolower() but before standardization
+  # Create street column combining type and name BEFORE standardization
   agro_cnefe[,
     street := str_squish(paste(
       nom_tipo_seglogr,
@@ -348,16 +342,19 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
     ))
   ]
   
+  # Create id_munic_7 from cod_uf and cod_municipio BEFORE standardization
+  agro_cnefe[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
+  
+  # Now standardize column names
+  standardize_column_names(agro_cnefe, inplace = TRUE)
+  
   # Create normalized street and neighborhood columns
   agro_cnefe[, norm_street := normalize_address(street)]
-  agro_cnefe[, norm_bairro := normalize_address(dsc_localidade)]
+  agro_cnefe[, norm_bairro := normalize_address(nome_localidade)]
   
   # Convert latitude and longitude to numeric
   agro_cnefe[, latitude := as.numeric(latitude)]
   agro_cnefe[, longitude := as.numeric(longitude)]
-
-  # Create id_munic_7 from cod_uf and cod_municipio
-  agro_cnefe[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
 
   # Join with municipality IDs
   agro_cnefe <- muni_ids[
@@ -375,21 +372,12 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
 #' This function converts TSE codes back to standard IBGE codes.
 #' 
 #' @param dt_2024 data.table with 2024 polling station data
+#' @param muni_map data.table with municipality identifier mapping (from muni_identifiers.csv)
 #' @param verbose logical, print progress messages
 #' @return data.table with fixed municipality codes
-fix_municipality_codes_2024 <- function(dt_2024, verbose = TRUE) {
+fix_municipality_codes_2024 <- function(dt_2024, muni_map, verbose = TRUE) {
   
   if (verbose) cat("Fixing municipality codes in 2024 data...\n")
-  
-  # Load municipality identifier mapping
-  # Handle both regular execution and test execution contexts
-  if (file.exists("data/muni_identifiers.csv")) {
-    muni_map <- fread("data/muni_identifiers.csv", encoding = "UTF-8")
-  } else {
-    # Try from project root (for tests)
-    project_root <- rprojroot::find_root(rprojroot::is_rstudio_project)
-    muni_map <- fread(file.path(project_root, "data", "muni_identifiers.csv"), encoding = "UTF-8")
-  }
   
   # Create TSE to IBGE mapping
   tse_to_ibge <- muni_map[existe == 1, .(
@@ -485,7 +473,7 @@ fix_municipality_codes_2024 <- function(dt_2024, verbose = TRUE) {
       if (final_col %in% names(mt_fixed)) {
         mt_codes_fixed <- unique(mt_fixed[[final_col]])
         mt_in_range <- sum(mt_codes_fixed >= 5100000 & mt_codes_fixed <= 5199999, na.rm = TRUE)
-        cat(sprintf("\n  - Montana (MT) codes in correct range (51xxxxx): %d/%d\n", 
+        cat(sprintf("\n  - MT codes in correct range (51xxxxx): %d/%d\n", 
                     mt_in_range, length(mt_codes_fixed)))
       }
     }
@@ -550,7 +538,7 @@ import_locais <- function(locais_file, muni_ids) {
     message("Detected 2024 data - applying TSE to IBGE code conversion...")
     
     # Apply fix - the function now handles both data formats
-    locais_data <- fix_municipality_codes_2024(locais_data, verbose = TRUE)
+    locais_data <- fix_municipality_codes_2024(locais_data, muni_ids, verbose = TRUE)
     
     message("2024 municipality codes fixed")
   }
@@ -783,68 +771,272 @@ convert_coord <- function(coord) {
   return(decimal_degrees)
 }
 
-# ===== MEMORY EFFICIENT FUNCTIONS (from memory_efficient_cnefe.R) =====
 
-read_cnefe_chunked <- function(file_path, chunk_size = 100000) {
-  # Read CNEFE file in chunks to manage memory
-  # Returns a list of data.table chunks
+read_cnefe_chunked <- function(file_path, chunk_size = 5e6, process_fn = NULL) {
+  message(sprintf("Reading %s in chunks of %s rows", 
+                  basename(file_path), 
+                  format(chunk_size, big.mark = ",")))
   
-  # Get total number of rows
-  total_rows <- as.numeric(system2("wc", args = c("-l", file_path), stdout = TRUE))
-  total_rows <- as.numeric(strsplit(total_rows, " ")[[1]][1]) - 1  # Subtract header
+  # First, get total number of rows
+  total_rows <- fread(file_path, select = 1L, sep = ";")[, .N]
+  n_chunks <- ceiling(total_rows / chunk_size)
   
-  chunks <- list()
-  skip <- 0
+  message(sprintf("Total rows: %s, will process in %d chunks", 
+                  format(total_rows, big.mark = ","), 
+                  n_chunks))
   
-  while (skip < total_rows) {
-    chunk <- fread(file_path, 
-                   skip = skip, 
-                   nrows = min(chunk_size, total_rows - skip),
-                   header = (skip == 0))
+  # Process each chunk
+  results <- list()
+  
+  for (i in seq_len(n_chunks)) {
+    skip_rows <- (i - 1) * chunk_size
     
-    chunks[[length(chunks) + 1]] <- chunk
-    skip <- skip + chunk_size
+    message(sprintf("Processing chunk %d/%d (rows %s-%s)...", 
+                    i, n_chunks, 
+                    format(skip_rows + 1, big.mark = ","),
+                    format(min(skip_rows + chunk_size, total_rows), big.mark = ",")))
     
-    # Garbage collection after each chunk
+    # Read chunk
+    chunk <- fread(
+      file_path,
+      sep = ";",
+      nrows = chunk_size,
+      skip = skip_rows,
+      header = (i == 1),  # Only read header for first chunk
+      col.names = if (i > 1) names(results[[1]]) else NULL,
+      encoding = "UTF-8",
+      showProgress = FALSE
+    )
+    
+    # Apply processing function if provided
+    if (!is.null(process_fn)) {
+      chunk <- process_fn(chunk)
+    }
+    
+    results[[i]] <- chunk
+    
+    # Force garbage collection after each chunk
+    rm(chunk)
     gc(verbose = FALSE)
+    
+    # Check memory usage
+    mem_usage <- gc()[2, 2]  # Current memory usage in MB
+    message(sprintf("  Memory usage: %.1f GB", mem_usage / 1024))
+    
+    # If memory usage is high, combine results so far and clear list
+    if (mem_usage > 50000) {  # If using more than 50GB
+      message("  High memory usage detected, combining chunks...")
+      if (length(results) > 1) {
+        combined <- rbindlist(results, use.names = TRUE, fill = TRUE)
+        results <- list(combined)
+        gc(verbose = FALSE)
+      }
+    }
   }
   
-  return(chunks)
+  # Combine all results
+  message("Combining all chunks...")
+  final_result <- rbindlist(results, use.names = TRUE, fill = TRUE)
+  
+  message(sprintf("Finished reading %s rows", 
+                  format(nrow(final_result), big.mark = ",")))
+  
+  return(final_result)
 }
 
-# Note: clean_cnefe10_efficient is defined in memory_efficient_cnefe.R
-# which sources this file. To avoid circular dependency, we don't define it here.
 
-monitor_memory <- function(message = "") {
-  # Monitor memory usage during processing
-  mem_used <- pryr::mem_used()
+monitor_memory <- function() {
   gc_info <- gc()
   
-  cat(sprintf(
-    "[%s] Memory: %.1f GB | GC: %.1f GB used, %.1f GB max\n",
-    message,
-    mem_used / 1e9,
-    gc_info[2, 2] / 1024,  # Used memory in GB
-    gc_info[2, 6] / 1024   # Max memory in GB
-  ))
+  # Get system memory info on Linux
+  if (Sys.info()["sysname"] == "Linux") {
+    mem_info <- system("free -m", intern = TRUE)
+    total_mem <- as.numeric(gsub(".*Mem:\\s+(\\d+).*", "\\1", mem_info[2]))
+    used_mem <- as.numeric(gsub(".*Mem:\\s+\\d+\\s+(\\d+).*", "\\1", mem_info[2]))
+    free_mem <- total_mem - used_mem
+    
+    list(
+      r_memory_mb = sum(gc_info[, "used"]),
+      system_total_gb = total_mem / 1024,
+      system_used_gb = used_mem / 1024,
+      system_free_gb = free_mem / 1024,
+      system_used_pct = used_mem / total_mem * 100
+    )
+  } else {
+    list(
+      r_memory_mb = sum(gc_info[, "used"]),
+      system_info = "Not available on this platform"
+    )
+  }
 }
 
 clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools = FALSE) {
-  # Main function for CNEFE 2010 processing
-  # Temporarily use the original implementation from backup
+  # Memory-efficient processing of CNEFE 2010 data
   
-  # Define a temporary environment to avoid conflicts
-  temp_env <- new.env()
+  # Monitor memory before processing
+  mem_before <- gc()[2, 2]
+  message(sprintf("Memory before CNEFE processing: %.1f GB", mem_before / 1024))
   
-  # Source the original functions into the temporary environment
-  source("R_backup_20250620_consolidation/memory_efficient_cnefe.R", local = temp_env)
-  source("R_backup_20250620_consolidation/data_cleaning_fns.R", local = temp_env)
+  # Define the processing function for each chunk
+  process_chunk <- function(cnefe_chunk) {
+    # Standardize column names
+    setnames(cnefe_chunk, names(cnefe_chunk), tolower(names(cnefe_chunk)))
+    
+    # Drop unnecessary columns early to save memory
+    cols_to_drop <- c(
+      "situacao_setor", "nom_comp_elem1", "val_comp_elem1",
+      "nom_comp_elem2", "val_comp_elem2", "nom_comp_elem3", 
+      "val_comp_elem3", "nom_comp_elem4", "val_comp_elem4",
+      "nom_comp_elem5", "val_comp_elem5", "indicador_endereco",
+      "num_quadra", "num_face", "cep_face", "cod_unico_endereco"
+    )
+    
+    cols_to_drop <- cols_to_drop[cols_to_drop %in% names(cnefe_chunk)]
+    if (length(cols_to_drop) > 0) {
+      cnefe_chunk[, (cols_to_drop) := NULL]
+    }
+    
+    # Pad administrative codes
+    cnefe_chunk[, cod_municipio := str_pad(cod_municipio, width = 5, side = "left", pad = "0")]
+    cnefe_chunk[, cod_distrito := str_pad(cod_distrito, width = 2, side = "left", pad = "0")]
+    cnefe_chunk[, cod_setor := str_pad(cod_setor, width = 6, side = "left", pad = "0")]
+    cnefe_chunk[, setor_code := paste0(cod_uf, cod_municipio, cod_distrito, cod_setor)]
+    cnefe_chunk[, c("cod_distrito", "cod_setor") := NULL]
+    
+    # Create address variables efficiently
+    cnefe_chunk[, num_endereco_char := fifelse(num_endereco == 0, dsc_modificador, as.character(num_endereco))]
+    cnefe_chunk[, dsc_modificador_nosn := fifelse(dsc_modificador != "SN", dsc_modificador, "")]
+    
+    # Create address and street in one operation
+    cnefe_chunk[, `:=`(
+      address = str_squish(paste(nom_tipo_seglogr, nom_titulo_seglogr, nom_seglogr, 
+                                 num_endereco_char, dsc_modificador_nosn)),
+      street = str_squish(paste(nom_tipo_seglogr, nom_titulo_seglogr, nom_seglogr))
+    )]
+    
+    # Remove intermediate columns
+    cnefe_chunk[, c("nom_tipo_seglogr", "nom_titulo_seglogr", "num_endereco_char",
+                    "num_endereco", "nom_seglogr", "dsc_modificador_nosn", 
+                    "dsc_modificador") := NULL]
+    
+    # Handle missing values
+    cnefe_chunk[val_longitude == "", val_longitude := NA]
+    cnefe_chunk[val_latitude == "", val_latitude := NA]
+    cnefe_chunk[dsc_estabelecimento == "", dsc_estabelecimento := NA]
+    cnefe_chunk[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
+    
+    # Add municipality code
+    cnefe_chunk[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
+    
+    # Keep only essential columns early
+    essential_cols <- c("id_munic_7", "setor_code", "especie", "street", "address",
+                        "dsc_localidade", "dsc_estabelecimento", "val_longitude", "val_latitude")
+    cnefe_chunk <- cnefe_chunk[, ..essential_cols]
+    
+    gc(verbose = FALSE)
+    return(cnefe_chunk)
+  }
   
-  # Call the original clean_cnefe10 function
-  return(temp_env$clean_cnefe10(cnefe_file, muni_ids, tract_centroids, extract_schools))
+  # Read and process CNEFE data
+  if (is.character(cnefe_file)) {
+    if (file.size(cnefe_file) > 1e9) {  # Use chunks for files > 1GB
+      cnefe <- read_cnefe_chunked(cnefe_file, chunk_size = 5e6, process_fn = process_chunk)
+    } else {
+      cnefe <- fread(cnefe_file, sep = ";", encoding = "UTF-8")
+      cnefe <- process_chunk(cnefe)
+    }
+  } else {
+    cnefe <- process_chunk(copy(cnefe_file))
+  }
+  
+  # Continue with rest of processing
+  message("Merging municipality identifiers...")
+  cnefe <- muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)][
+    cnefe, on = "id_munic_7"
+  ]
+  
+  gc(verbose = FALSE)
+  
+  # Merge especie labels
+  message("Adding especie labels...")
+  especie_labs <- data.table(
+    especie = 1:7,
+    especie_lab = c(
+      "domicílio particular", "domicílio coletivo",
+      "estabeleciemento agropecuário", "estabelecimento de ensino",
+      "estabelecimento de saúde", "estabeleciemento de outras finalidades",
+      "edificação em construção"
+    )
+  )
+  cnefe <- especie_labs[cnefe, on = "especie"]
+  
+  # Create final dataset with renamed columns
+  message("Creating final dataset...")
+  addr <- cnefe[, .(
+    id_munic_7, id_TSE, municipio, setor_code, especie_lab,
+    street, address,
+    bairro = dsc_localidade,
+    desc = dsc_estabelecimento,
+    cnefe_long = as.numeric(val_longitude),
+    cnefe_lat = as.numeric(val_latitude)
+  )]
+  
+  # Convert coordinates
+  message("Converting coordinates...")
+  addr[!is.na(cnefe_long) & !is.na(cnefe_lat), 
+       `:=`(cnefe_long = convert_coord(cnefe_long), 
+            cnefe_lat = convert_coord(cnefe_lat))]
+  
+  # Merge tract centroids
+  message("Merging tract centroids...")
+  addr <- tract_centroids[addr, on = .(setor_code)]
+  
+  # Replace NA coordinates with tract centroids
+  addr[is.na(cnefe_long), cnefe_long := tract_centroid_long]
+  addr[is.na(cnefe_lat), cnefe_lat := tract_centroid_lat]
+  
+  # Remove tract centroid columns
+  addr[, c("tract_centroid_long", "tract_centroid_lat") := NULL]
+  
+  # Normalize addresses
+  message("Normalizing addresses...")
+  addr[, norm_address := normalize_address(address)]
+  addr[, norm_bairro := normalize_address(bairro)]
+  addr[, norm_street := normalize_address(street)]
+  
+  gc(verbose = FALSE)
+  
+  # Extract schools if requested
+  if (extract_schools) {
+    message("Extracting schools...")
+    schools <- addr[especie_lab == "estabelecimento de ensino"]
+    
+    if (nrow(schools) > 0) {
+      # Normalize school descriptions
+      schools[, norm_desc := normalize_school(desc)]
+      message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
+    } else {
+      message("No schools found in this dataset")
+    }
+    
+    gc(verbose = FALSE)
+    message("CNEFE processing complete")
+    
+    # Return both datasets as a list
+    return(list(
+      data = addr,
+      schools = schools
+    ))
+  }
+  
+  # Monitor memory after processing
+  mem_after <- gc()[2, 2]
+  message(sprintf("Memory after CNEFE processing: %.1f GB", mem_after / 1024))
+  message("CNEFE processing complete")
+  
+  return(addr)
 }
 
-# ===== GEOCODEBR CLEANING FUNCTIONS (from geocodebr_matching.R) =====
 
 clean_text_for_geocodebr <- function(text) {
   # Clean text for geocodebr matching

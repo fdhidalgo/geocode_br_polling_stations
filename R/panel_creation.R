@@ -185,76 +185,6 @@ create_panel_dataset <- function(final_pairs_list, years) {
   return(panel_clean)
 }
 
-#' Create and select best pairs for panel matching
-#' 
-#' @param data Data table with polling station data
-#' @param years Vector of years to process
-#' @param blocking_column Column to use for blocking
-#' @param scoring_columns Columns to use for scoring
-#' @return List of best pairs for each year transition
-#' @export
-create_and_select_best_pairs <- function(data, years, blocking_column, scoring_columns) {
-  pairs_list <- list()
-  
-  # Standardize column names in input data
-  standardize_column_names(data, inplace = TRUE)
-  
-  # Sort years to ensure correct order
-  years <- sort(years)
-  
-  for (i in seq_along(years)[-length(years)]) {
-    year1 <- years[i]
-    year2 <- years[i + 1]
-    cat("Processing year pair:", year1, "->", year2, "\n")
-    
-    # Subset the data for the two consecutive years
-    linkexample1 <- data[ano == year1]
-    linkexample2 <- data[ano == year2]
-    
-    if (nrow(linkexample1) == 0 || nrow(linkexample2) == 0) {
-      cat("  Skipping - no data for one or both years\n")
-      next
-    }
-    
-    # Create pairs using pair_blocking
-    pairs <- pair_blocking(linkexample1, linkexample2, blocking_column)
-    
-    # Compare pairs using standardized scoring columns
-    pairs <- compare_pairs(pairs,
-      on = scoring_columns,
-      default_comparator = cmp_jarowinkler(0.9), 
-      inplace = TRUE
-    )
-    
-    # Rename variables
-    match_scoring_columns <- paste0("match_", scoring_columns)
-    setnames(pairs, scoring_columns, match_scoring_columns)
-    
-    # Compute the Machine Learning Fellegi and Sunter Weights
-    formula <- as.formula(paste("~", paste(match_scoring_columns, collapse = " + ")))
-    m <- problink_em(formula, data = pairs)
-    pairs <- predict(m, pairs, add = TRUE)
-    
-    # Add local_id to the pairs
-    pairs[, `:=`(
-      x_local_id = linkexample1$local_id[.x],
-      y_local_id = linkexample2$local_id[.y]
-    )]
-    
-    # Select the best match for each observation
-    best_pairs <- select_n_to_m(pairs, threshold = 0, score = "weights", var = "match", n = 1, m = 1)
-    
-    # Keep only the pairs where match is TRUE
-    best_pairs <- best_pairs[match == TRUE]
-    
-    # Store the final matched pairs in the list
-    pairs_list[[paste0(year1, "_", year2)]] <- best_pairs
-    
-    cat("  Found", nrow(best_pairs), "matches\n")
-  }
-  
-  return(pairs_list)
-}
 
 #' Process panel IDs for one block
 #' 
@@ -271,12 +201,8 @@ make_panel_1block <- function(block, years, blocking_column, scoring_columns, us
   
   cat("Processing block with", nrow(block), "rows\n")
   
-  # Use optimized version if available, otherwise use original
-  if (exists("create_and_select_best_pairs_optimized")) {
-    pairs_list <- create_and_select_best_pairs_optimized(block, years, blocking_column, scoring_columns, use_word_blocking)
-  } else {
-    pairs_list <- create_and_select_best_pairs(block, years, blocking_column, scoring_columns)
-  }
+  # Use optimized version
+  pairs_list <- create_and_select_best_pairs_optimized(block, years, blocking_column, scoring_columns, use_word_blocking)
   
   if (length(pairs_list) == 0) {
     cat("  No pairs found for this block\n")
@@ -290,15 +216,6 @@ make_panel_1block <- function(block, years, blocking_column, scoring_columns, us
   return(panel)
 }
 
-#' Export panel IDs to file
-#' 
-#' @param panel_ids Panel ID data to export
-#' @return Path to exported file
-#' @export
-export_panel_ids <- function(panel_ids) {
-  fwrite(panel_ids, "./output/panel_ids.csv.gz")
-  "./output/panel_ids.csv.gz"
-}
 
 #' Combine panel IDs from multiple states
 #' 
@@ -717,97 +634,6 @@ extract_significant_words <- function(text, min_word_length = 3) {
   })
 }
 
-#' Create blocking keys from significant words
-#' 
-#' Generates blocking keys by combining significant words from name and address fields
-#' 
-#' @param name_words List of significant words from normalized names
-#' @param addr_words List of significant words from normalized addresses
-#' @param max_combinations Maximum number of word combinations to generate (default: 10)
-#' @return Character vector of blocking keys
-#' @export
-create_word_blocking_keys <- function(name_words, addr_words, max_combinations = 10) {
-  n <- length(name_words)
-  if (n == 0) return(character(0))
-  
-  blocking_keys <- character(n)
-  
-  for (i in seq_len(n)) {
-    # Combine words from both name and address
-    all_words <- unique(c(name_words[[i]], addr_words[[i]]))
-    
-    if (length(all_words) == 0) {
-      blocking_keys[i] <- ""
-      next
-    }
-    
-    # For efficiency, limit the number of words used
-    if (length(all_words) > 5) {
-      all_words <- all_words[1:5]
-    }
-    
-    # Create a single blocking key by concatenating sorted words
-    # This ensures "SANTOS DUMONT" and "DUMONT SANTOS" get the same key
-    blocking_keys[i] <- paste(sort(all_words), collapse = "_")
-  }
-  
-  blocking_keys
-}
-
-#' Find records that share at least one significant word
-#' 
-#' Efficient function to find pairs of records that share at least one significant word
-#' 
-#' @param words1 List of word vectors for first dataset
-#' @param words2 List of word vectors for second dataset
-#' @param min_shared_words Minimum number of shared words (default: 1)
-#' @return Data.table with columns x (index in words1) and y (index in words2)
-#' @export
-find_shared_word_pairs <- function(words1, words2, min_shared_words = 1) {
-  # Create word-to-index mappings for efficient lookup
-  # For dataset 1
-  word_to_idx1 <- data.table()
-  for (i in seq_along(words1)) {
-    if (length(words1[[i]]) > 0) {
-      word_to_idx1 <- rbind(word_to_idx1, 
-                            data.table(word = words1[[i]], idx = i))
-    }
-  }
-  
-  # For dataset 2
-  word_to_idx2 <- data.table()
-  for (i in seq_along(words2)) {
-    if (length(words2[[i]]) > 0) {
-      word_to_idx2 <- rbind(word_to_idx2, 
-                            data.table(word = words2[[i]], idx = i))
-    }
-  }
-  
-  # If either dataset has no words, return empty pairs
-  if (nrow(word_to_idx1) == 0 || nrow(word_to_idx2) == 0) {
-    return(data.table(x = integer(0), y = integer(0)))
-  }
-  
-  # Find shared words
-  setkey(word_to_idx1, word)
-  setkey(word_to_idx2, word)
-  
-  # Inner join on words to find potential pairs
-  shared <- word_to_idx1[word_to_idx2, on = "word", allow.cartesian = TRUE]
-  setnames(shared, c("idx", "i.idx"), c("x", "y"))
-  
-  if (min_shared_words == 1) {
-    # Remove duplicates and return
-    pairs <- unique(shared[, .(x, y)])
-  } else {
-    # Count shared words per pair
-    pair_counts <- shared[, .N, by = .(x, y)]
-    pairs <- pair_counts[N >= min_shared_words, .(x, y)]
-  }
-  
-  pairs
-}
-
 #' Apply two-level blocking for panel ID matching
 #' 
 #' Uses municipality as primary blocking and shared words as secondary blocking
@@ -905,116 +731,7 @@ create_two_level_blocked_pairs <- function(data1, data2,
   filtered_pairs
 }
 
-#' Generate blocking statistics for monitoring
-#' 
-#' Provides statistics about the effectiveness of two-level blocking
-#' 
-#' @param original_pairs Number of pairs without word blocking
-#' @param blocked_pairs Number of pairs after word blocking
-#' @param municipality_code Municipality code for logging
-#' @return List with blocking statistics
-#' @export
-calculate_blocking_stats <- function(original_pairs, blocked_pairs, municipality_code = NULL) {
-  reduction_pct <- round(100 * (1 - blocked_pairs / original_pairs), 1)
-  
-  stats <- list(
-    municipality = municipality_code,
-    original_pairs = original_pairs,
-    blocked_pairs = blocked_pairs,
-    reduction_pct = reduction_pct,
-    speedup_factor = round(original_pairs / blocked_pairs, 1)
-  )
-  
-  if (!is.null(municipality_code)) {
-    cat("Municipality", municipality_code, ": ", 
-        format(original_pairs, big.mark = ","), " -> ", 
-        format(blocked_pairs, big.mark = ","), 
-        " pairs (", reduction_pct, "% reduction, ", 
-        stats$speedup_factor, "x speedup)\n", sep = "")
-  }
-  
-  stats
-}
-
 # ============================================================================
 # Conservative Blocking Functions (from panel_id_blocking_conservative.R)
 # ============================================================================
 
-#' Extract word fragments for conservative matching
-#' 
-#' Extracts both full words and word fragments to catch variations
-#' 
-#' @param text Character vector of text to process
-#' @param min_fragment_length Minimum fragment length (default: 4)
-#' @return List of character vectors with words and fragments
-#' @export
-extract_words_and_fragments <- function(text, min_fragment_length = 4) {
-  # Handle NA and empty strings
-  if (length(text) == 0) return(list())
-  
-  # Convert to uppercase for consistent matching
-  text <- toupper(as.character(text))
-  text[is.na(text)] <- ""
-  
-  # Extract significant words
-  words <- extract_significant_words(text)
-  
-  # For each text, also extract word fragments
-  fragments_list <- lapply(seq_along(text), function(i) {
-    if (length(words[[i]]) == 0) return(character(0))
-    
-    # Get fragments from each word
-    fragments <- unlist(lapply(words[[i]], function(word) {
-      if (nchar(word) <= min_fragment_length) return(word)
-      
-      # Extract beginning and end fragments
-      frags <- c(
-        substr(word, 1, min_fragment_length),  # First N chars
-        substr(word, nchar(word) - min_fragment_length + 1, nchar(word))  # Last N chars
-      )
-      unique(frags)
-    }))
-    
-    # Combine full words and fragments
-    unique(c(words[[i]], fragments))
-  })
-  
-  fragments_list
-}
-
-# ============================================================================
-# Helper function (from data_table_utils.R) - included to avoid circular deps
-# ============================================================================
-
-#' Standardize column names in a data.table
-#' 
-#' @param dt Data.table to standardize
-#' @param inplace Whether to modify in place (default: FALSE)
-#' @return Data.table with standardized column names
-standardize_column_names <- function(dt, inplace = FALSE) {
-  if (!is.data.table(dt)) {
-    return(dt)
-  }
-  
-  # Get current names
-  old_names <- names(dt)
-  
-  # Create new standardized names
-  new_names <- tolower(old_names)
-  new_names <- gsub("[.-]", "_", new_names)
-  new_names <- gsub(" ", "_", new_names)
-  new_names <- gsub("_+", "_", new_names)
-  new_names <- gsub("^_|_$", "", new_names)
-  
-  # Only update if names actually changed
-  if (!identical(old_names, new_names)) {
-    if (inplace) {
-      setnames(dt, old_names, new_names)
-    } else {
-      dt <- copy(dt)
-      setnames(dt, old_names, new_names)
-    }
-  }
-  
-  return(dt)
-}

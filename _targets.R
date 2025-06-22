@@ -38,8 +38,7 @@ if (Sys.getenv("QUARTO_PATH") == "") {
   }
 }
 
-# Define the null coalescing operator
-`%||%` <- function(x, y) if (is.null(x)) y else x
+# Null coalescing operator is defined in R/utilities.R
 
 ## Setup parallel processing with crew/mirai
 

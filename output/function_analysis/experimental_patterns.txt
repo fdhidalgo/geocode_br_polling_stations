@@ -1,3 +1,0 @@
-=== Files with _v2, _old, _new, _test patterns ===
-
-=== Functions with these patterns ===

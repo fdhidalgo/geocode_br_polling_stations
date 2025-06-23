@@ -13,7 +13,7 @@
 
 # ===== CONFIGURATION =====
 # Development mode flag - set to TRUE for faster iteration with subset of states
-DEV_MODE <- TRUE # Process only AC, RR states when TRUE
+# DEV_MODE is now a target - see dev_mode_flag target below
 
 # ===== SETUP =====
 # Load packages required to define the pipeline:
@@ -52,7 +52,22 @@ options(
 )
 
 # Create controller group using configuration function
-controller_group <- get_crew_controllers(dev_mode = DEV_MODE)
+# Read dev_mode from the dev_mode_flag target if it exists
+dev_mode_for_controllers <- if (file.exists("_targets/objects/dev_mode_flag")) {
+  tryCatch({
+    qs::qread("_targets/objects/dev_mode_flag")
+  }, error = function(e) {
+    # If reading fails, default to TRUE (dev mode) for safety
+    TRUE
+  })
+} else {
+  # Default to TRUE (dev mode) for safety on first run
+  TRUE
+}
+controller_group <- get_crew_controllers(dev_mode = dev_mode_for_controllers)
+message("Crew controllers configured for ", 
+        ifelse(dev_mode_for_controllers, "DEVELOPMENT", "PRODUCTION"), 
+        " mode")
 
 # Only start controllers when tar_make() is running
 # This prevents orphaned workers when sourcing _targets.R interactively
@@ -73,33 +88,44 @@ if (targets::tar_active()) {
 # Set target options using configuration function
 configure_targets_options(controller_group)
 
-
-# Get pipeline configuration based on development mode
-pipeline_config <- get_pipeline_config(DEV_MODE)
-
-# Enable two-level blocking for panel IDs (municipality + shared words)
-# This can significantly speed up panel ID processing (60-80% reduction in comparisons)
-USE_WORD_BLOCKING <- TRUE  # Set to TRUE to enable
-if (USE_WORD_BLOCKING) {
-  options(geocode_br.use_word_blocking = TRUE)
-  message("Two-level blocking for panel IDs is ENABLED")
-}
-
-
-# Print configuration info
-if (pipeline_config$dev_mode) {
-  message("Running in DEVELOPMENT MODE")
-  message(
-    "Processing states: ",
-    paste(pipeline_config$dev_states, collapse = ", ")
-  )
-} else {
-  message("Running in PRODUCTION MODE")
-  message("Processing all Brazilian states")
-}
+# Two-level blocking for panel IDs is now configured in the pipeline_config target
+# This ensures proper dependency tracking when the setting changes
 
 # ===== TARGETS PIPELINE =====
 list(
+  # ========================================
+  # CONFIGURATION TARGETS
+  # ========================================
+  
+  # Development mode flag - controls whether to process all states or just AC/RR
+  tar_target(
+    name = dev_mode_flag,
+    command = FALSE  # Set to FALSE for production mode (all states)
+  ),
+  
+  # Pipeline configuration based on development mode
+  tar_target(
+    name = pipeline_config,
+    command = {
+      config <- get_pipeline_config(dev_mode_flag)
+      # Add word blocking setting to config
+      config$use_word_blocking <- TRUE  # Set to TRUE to enable two-level blocking
+      
+      # Log configuration
+      if (config$dev_mode) {
+        message("Running in DEVELOPMENT MODE")
+        message("Processing states: ", paste(config$dev_states, collapse = ", "))
+      } else {
+        message("Running in PRODUCTION MODE")
+        message("Processing all Brazilian states")
+      }
+      message("Two-level blocking for panel IDs is ", 
+              ifelse(config$use_word_blocking, "ENABLED", "DISABLED"))
+      
+      config
+    }
+  ),
+  
   # ========================================
   # DATA IMPORT TARGETS
   # ========================================
@@ -139,14 +165,17 @@ list(
   ),
   tar_target(
     name = tract_shp,
-    command = if (pipeline_config$dev_mode) {
-      dev_state_codes <- substr(as.character(muni_ids$id_munic_7), 1, 2)
-      tract_filtered <- tract_shp_all[
-        substr(tract_shp_all$code_tract, 1, 2) %in% unique(dev_state_codes),
-      ]
-      sf::st_as_sf(tract_filtered)
-    } else {
-      tract_shp_all
+    command = {
+      # Explicitly depend on pipeline_config
+      if (pipeline_config$dev_mode) {
+        dev_state_codes <- substr(as.character(muni_ids$id_munic_7), 1, 2)
+        tract_filtered <- tract_shp_all[
+          substr(tract_shp_all$code_tract, 1, 2) %in% unique(dev_state_codes),
+        ]
+        sf::st_as_sf(tract_filtered)
+      } else {
+        tract_shp_all
+      }
     }
   ),
   tar_target(
@@ -160,12 +189,15 @@ list(
   ),
   tar_target(
     name = muni_shp,
-    command = if (pipeline_config$dev_mode) {
-      dev_muni_codes <- muni_ids$id_munic_7
-      muni_filtered <- muni_shp_all[muni_shp_all$code_muni %in% dev_muni_codes, ]
-      sf::st_as_sf(muni_filtered)
-    } else {
-      muni_shp_all
+    command = {
+      # Explicitly depend on pipeline_config
+      if (pipeline_config$dev_mode) {
+        dev_muni_codes <- muni_ids$id_munic_7
+        muni_filtered <- muni_shp_all[muni_shp_all$code_muni %in% dev_muni_codes, ]
+        sf::st_as_sf(muni_filtered)
+      } else {
+        muni_shp_all
+      }
     }
   ),
   ## import municipal demographic data
@@ -180,10 +212,13 @@ list(
   ),
   tar_target(
     name = muni_demo,
-    command = if (pipeline_config$dev_mode) {
-      muni_demo_all[Codmun7 %in% muni_ids$id_munic_7]
-    } else {
-      muni_demo_all
+    command = {
+      # Explicitly depend on pipeline_config
+      if (pipeline_config$dev_mode) {
+        muni_demo_all[Codmun7 %in% muni_ids$id_munic_7]
+      } else {
+        muni_demo_all
+      }
     }
   ),
 
@@ -492,10 +527,13 @@ list(
   ## Create municipality batches for panel ID processing
   tar_target(
     name = panel_municipality_batches,
-    command = create_panel_municipality_batches(
-      locais_data = locais_filtered,
-      target_batch_size = ifelse(pipeline_config$dev_mode, 2000, 5000)
-    )
+    command = {
+      # Explicitly depend on pipeline_config
+      create_panel_municipality_batches(
+        locais_data = locais_filtered,
+        target_batch_size = ifelse(pipeline_config$dev_mode, 2000, 5000)
+      )
+    }
   ),
 
   ## Extract unique batch IDs for dynamic branching
@@ -520,7 +558,7 @@ list(
         years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
         blocking_column = "cod_localidade_ibge",
         scoring_columns = c("normalized_name", "normalized_addr"),
-        use_word_blocking = getOption("geocode_br.use_word_blocking", FALSE)
+        use_word_blocking = pipeline_config$use_word_blocking
       )
     },
     pattern = map(panel_batch_ids),
@@ -574,11 +612,14 @@ list(
   # Create municipality batch assignments for flattened parallel processing
   tar_target(
     name = municipality_batch_assignments,
-    command = create_municipality_batch_assignments(
-      municipalities_for_matching,
-      batch_size = ifelse(pipeline_config$dev_mode, 5, 15),
-      muni_sizes = municipality_sizes
-    )
+    command = {
+      # Explicitly depend on pipeline_config
+      create_municipality_batch_assignments(
+        municipalities_for_matching,
+        batch_size = ifelse(pipeline_config$dev_mode, 5, 15),
+        muni_sizes = municipality_sizes
+      )
+    }
   ),
 
   # Extract unique batch IDs for dynamic branching
@@ -928,17 +969,23 @@ list(
   },
   ## Methodology and Evaluation
   # Only render in production mode
-  if (!pipeline_config$dev_mode) {
-    tar_render(
-      name = geocode_writeup,
-      path = "./doc/geocoding_procedure.Rmd",
-      cue = tar_cue(mode = "thorough")
-    )
-  } else {
-    # Skip in dev mode - return dummy target
-    tar_target(
-      name = geocode_writeup,
-      command = "./doc/geocoding_procedure.html"
-    )
-  }
+  tar_target(
+    name = geocode_writeup,
+    command = {
+      # Explicitly depend on pipeline_config
+      if (!pipeline_config$dev_mode) {
+        # Render the document in production mode
+        rmarkdown::render(
+          input = "./doc/geocoding_procedure.Rmd",
+          output_file = "geocoding_procedure.html"
+        )
+        "./doc/geocoding_procedure.html"
+      } else {
+        # Skip in dev mode - just return the expected output path
+        message("Skipping geocode_writeup in development mode")
+        "./doc/geocoding_procedure.html"
+      }
+    },
+    format = "file"
+  )
 )

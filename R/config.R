@@ -167,13 +167,15 @@ get_expected_municipality_range <- function(state_abbrev, tolerance = 0.05) {
 
 # ===== CREW CONTROLLER CONFIGURATION =====
 
-get_crew_controllers <- function(dev_mode = FALSE) {
+get_crew_controllers <- function() {
   # Create crew controller group for parallel processing
+  # Uses same configuration for both dev and production modes
+  # Crew will only spawn workers as needed, so this is efficient
   
   # Standard controller for most tasks - optimized for 32-core machine
   controller_standard <- crew::crew_controller_local(
     name = "standard",
-    workers = if (dev_mode) 8 else 28,
+    workers = 28,  # Max workers - crew only spawns as needed
     seconds_idle = 30,
     seconds_wall = 3600,
     seconds_timeout = 300,
@@ -186,7 +188,7 @@ get_crew_controllers <- function(dev_mode = FALSE) {
   # Fewer workers but more memory per worker
   controller_memory <- crew::crew_controller_local(
     name = "memory_limited",
-    workers = if (dev_mode) 4 else 8,
+    workers = 8,  # Max workers for memory-intensive tasks
     seconds_idle = 60,
     seconds_wall = 7200,  # 2 hours for memory-intensive tasks
     seconds_timeout = 600,  # 10 minutes timeout

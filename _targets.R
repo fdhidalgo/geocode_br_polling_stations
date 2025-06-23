@@ -52,22 +52,9 @@ options(
 )
 
 # Create controller group using configuration function
-# Read dev_mode from the dev_mode_flag target if it exists
-dev_mode_for_controllers <- if (file.exists("_targets/objects/dev_mode_flag")) {
-  tryCatch({
-    qs::qread("_targets/objects/dev_mode_flag")
-  }, error = function(e) {
-    # If reading fails, default to TRUE (dev mode) for safety
-    TRUE
-  })
-} else {
-  # Default to TRUE (dev mode) for safety on first run
-  TRUE
-}
-controller_group <- get_crew_controllers(dev_mode = dev_mode_for_controllers)
-message("Crew controllers configured for ", 
-        ifelse(dev_mode_for_controllers, "DEVELOPMENT", "PRODUCTION"), 
-        " mode")
+# Now uses the same controller configuration for both dev and production modes
+# Crew only spawns workers as needed, so this is efficient
+controller_group <- get_crew_controllers()
 
 # Only start controllers when tar_make() is running
 # This prevents orphaned workers when sourcing _targets.R interactively
@@ -951,41 +938,30 @@ list(
   ),
   ## Sanity Check Report
   # Sanity check report - generate if quarto file exists
-  if (file.exists("reports/polling_station_sanity_check.qmd")) {
     tar_render(
       name = sanity_check_report,
       path = "reports/polling_station_sanity_check.qmd",
       output_dir = "reports"
     )
-  } else {
-    # Fallback: simple validation report
-    tar_target(
-      name = sanity_check_report,
-      command = render_sanity_check_report(
-        geocoded_data = geocoded_locais,
-        output_file = "reports/sanity_check_report.html"
-      )
-    )
-  },
+    #,
   ## Methodology and Evaluation
   # Only render in production mode
-  tar_target(
-    name = geocode_writeup,
-    command = {
+  #tar_target(
+  #  name = geocode_writeup,
+  #  command = {
       # Explicitly depend on pipeline_config
-      if (!pipeline_config$dev_mode) {
+  #    if (!pipeline_config$dev_mode) {
         # Render the document in production mode
-        rmarkdown::render(
-          input = "./doc/geocoding_procedure.Rmd",
-          output_file = "geocoding_procedure.html"
-        )
-        "./doc/geocoding_procedure.html"
-      } else {
+   #     rmarkdown::render(
+    #      input = "./doc/geocoding_procedure.Rmd",
+     ##  )
+       # "./doc/geocoding_procedure.html"
+     # } else {
         # Skip in dev mode - just return the expected output path
-        message("Skipping geocode_writeup in development mode")
-        "./doc/geocoding_procedure.html"
-      }
-    },
-    format = "file"
-  )
+      #  message("Skipping geocode_writeup in development mode")
+      #  "./doc/geocoding_procedure.html"
+      #}
+    #},
+   # format = "file"
+  #)
 )

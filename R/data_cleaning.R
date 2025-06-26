@@ -798,9 +798,10 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
     # Pad administrative codes
     cnefe_chunk[, cod_municipio := str_pad(cod_municipio, width = 5, side = "left", pad = "0")]
     cnefe_chunk[, cod_distrito := str_pad(cod_distrito, width = 2, side = "left", pad = "0")]
-    cnefe_chunk[, cod_setor := str_pad(cod_setor, width = 6, side = "left", pad = "0")]
-    cnefe_chunk[, setor_code := paste0(cod_uf, cod_municipio, cod_distrito, cod_setor)]
-    cnefe_chunk[, c("cod_distrito", "cod_setor") := NULL]
+    cnefe_chunk[, cod_subdistrito := str_pad(cod_subdistrito, width = 2, side = "left", pad = "0")]
+    cnefe_chunk[, cod_setor := str_pad(cod_setor, width = 4, side = "left", pad = "0")]
+    cnefe_chunk[, setor_code := paste0(cod_uf, cod_municipio, cod_distrito, cod_subdistrito, cod_setor)]
+    cnefe_chunk[, c("cod_distrito", "cod_subdistrito", "cod_setor") := NULL]
     
     # Create address variables efficiently
     cnefe_chunk[, num_endereco_char := fifelse(num_endereco == 0, dsc_modificador, as.character(num_endereco))]

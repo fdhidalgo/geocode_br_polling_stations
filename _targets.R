@@ -790,6 +790,37 @@ list(
   ),
 
   # ========================================
+  # STRING MATCH DIAGNOSTICS
+  # ========================================
+  
+  # Calculate NA coordinate percentages and match quality metrics
+  tar_target(
+    name = string_match_diagnostics,
+    command = aggregate_string_match_diagnostics(
+      inep_string_match = inep_string_match,
+      cnefe10_stbairro_match = cnefe10_stbairro_match,
+      cnefe22_stbairro_match = cnefe22_stbairro_match,
+      schools_cnefe10_match = schools_cnefe10_match,
+      schools_cnefe22_match = schools_cnefe22_match,
+      agrocnefe_stbairro_match = agrocnefe_stbairro_match
+    ),
+    deployment = "main"
+  ),
+  
+  # Save diagnostics report
+  tar_target(
+    name = string_match_diagnostics_report,
+    command = {
+      report_text <- format_string_match_diagnostics(string_match_diagnostics)
+      cat(report_text)
+      dir.create("output", showWarnings = FALSE)
+      writeLines(report_text, "output/string_match_diagnostics.txt")
+      "output/string_match_diagnostics.txt"
+    },
+    format = "file"
+  ),
+
+  # ========================================
   # MODEL TRAINING AND PREDICTION
   # ========================================
 

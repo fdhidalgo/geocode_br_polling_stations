@@ -319,7 +319,7 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
   
   # Log training configuration
   if (dev_mode) {
-    message("Training model in DEV MODE: using 2 CV folds and grid_n = ", grid_n)
+    message("Training model in DEV MODE: using 4 CV folds and grid_n = ", grid_n)
   } else {
     message("Training model in PRODUCTION MODE: using 10 CV folds and grid_n = ", grid_n)
   }
@@ -357,7 +357,8 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
 
   ## Create a cross-validation plan
   # Use fewer folds in dev mode for faster training
-  n_folds <- ifelse(dev_mode, 2, 10)
+  # Note: tune_race_anova requires at least 4 folds (more than 3 burn-in resamples)
+  n_folds <- ifelse(dev_mode, 4, 10)
   vfolds <- rsample::group_vfold_cv(
     model_data,
     group = cod_localidade_ibge,

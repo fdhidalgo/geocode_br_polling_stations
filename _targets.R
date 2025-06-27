@@ -87,7 +87,7 @@ list(
   # Development mode flag - controls whether to process all states or just AC/RR
   tar_target(
     name = dev_mode_flag,
-    command = FALSE  # Set to FALSE for production mode (all states)
+    command = TRUE  # Set to TRUE for development mode (AC/RR states only)
   ),
   
   # Pipeline configuration based on development mode
@@ -857,7 +857,11 @@ list(
   ## Train model and make predictions
   tar_target(
     name = trained_model,
-    command = train_model(model_data, grid_n = 50),
+    command = train_model(
+      model_data, 
+      grid_n = ifelse(pipeline_config$dev_mode, 5, 50),
+      dev_mode = pipeline_config$dev_mode
+    ),
   ),
   tar_target(
     name = model_predictions,

@@ -83,36 +83,41 @@ list(
   # ========================================
   # CONFIGURATION TARGETS
   # ========================================
-  
+
   # Development mode flag - controls whether to process all states or just AC/RR
   tar_target(
     name = dev_mode_flag,
-    command = TRUE  # Set to TRUE for development mode (AC/RR states only)
+    command = FALSE # Set to TRUE for development mode (AC/RR states only)
   ),
-  
+
   # Pipeline configuration based on development mode
   tar_target(
     name = pipeline_config,
     command = {
       config <- get_pipeline_config(dev_mode_flag)
       # Add word blocking setting to config
-      config$use_word_blocking <- TRUE  # Set to TRUE to enable two-level blocking
-      
+      config$use_word_blocking <- TRUE # Set to TRUE to enable two-level blocking
+
       # Log configuration
       if (config$dev_mode) {
         message("Running in DEVELOPMENT MODE")
-        message("Processing states: ", paste(config$dev_states, collapse = ", "))
+        message(
+          "Processing states: ",
+          paste(config$dev_states, collapse = ", ")
+        )
       } else {
         message("Running in PRODUCTION MODE")
         message("Processing all Brazilian states")
       }
-      message("Two-level blocking for panel IDs is ", 
-              ifelse(config$use_word_blocking, "ENABLED", "DISABLED"))
-      
+      message(
+        "Two-level blocking for panel IDs is ",
+        ifelse(config$use_word_blocking, "ENABLED", "DISABLED")
+      )
+
       config
     }
   ),
-  
+
   # ========================================
   # DATA IMPORT TARGETS
   # ========================================
@@ -129,7 +134,11 @@ list(
   ),
   tar_target(
     name = muni_ids,
-    command = filter_by_dev_mode(muni_ids_all, pipeline_config$dev_states, id_column = "estado_abrev")
+    command = filter_by_dev_mode(
+      muni_ids_all,
+      pipeline_config$dev_states,
+      id_column = "estado_abrev"
+    )
   ),
   tar_target(
     name = inep_codes_file,
@@ -180,7 +189,9 @@ list(
       # Explicitly depend on pipeline_config
       if (pipeline_config$dev_mode) {
         dev_muni_codes <- muni_ids$id_munic_7
-        muni_filtered <- muni_shp_all[muni_shp_all$code_muni %in% dev_muni_codes, ]
+        muni_filtered <- muni_shp_all[
+          muni_shp_all$code_muni %in% dev_muni_codes,
+        ]
         sf::st_as_sf(muni_filtered)
       } else {
         muni_shp_all
@@ -451,7 +462,12 @@ list(
   # INEP data filtered by development mode
   tar_target(
     name = inep_data,
-    command = apply_dev_mode_filters(inep_data_all, pipeline_config, filter_type = "municipality", muni_col = "id_munic_7")
+    command = apply_dev_mode_filters(
+      inep_data_all,
+      pipeline_config,
+      filter_type = "municipality",
+      muni_col = "id_munic_7"
+    )
   ),
 
   # ========================================
@@ -475,7 +491,12 @@ list(
   # Locais data filtered by development mode
   tar_target(
     name = locais,
-    command = apply_dev_mode_filters(locais_all, pipeline_config, filter_type = "state", state_col = "sg_uf")
+    command = apply_dev_mode_filters(
+      locais_all,
+      pipeline_config,
+      filter_type = "state",
+      state_col = "sg_uf"
+    )
   ),
   # Filter Brasília from municipal election years - using helper function
   tar_target(
@@ -536,7 +557,9 @@ list(
       # Get municipalities for this batch
       # In dynamic branching, panel_batch_ids represents the current batch ID value
       current_batch_id <- panel_batch_ids
-      batch_municipalities <- panel_municipality_batches[batch_id == current_batch_id]
+      batch_municipalities <- panel_municipality_batches[
+        batch_id == current_batch_id
+      ]
 
       # Process panel IDs for this batch
       process_panel_ids_municipality_batch(
@@ -576,6 +599,44 @@ list(
       # Pass empty data.table for df_panels since all states are now combined
       make_panel_ids(data.table(), panel_ids_combined, tsegeocoded_locais)
     }
+  ),
+
+  # ========================================
+  # SECTION-LOCATION MAPPING
+  # ========================================
+
+  ## Import section-to-location mapping
+  tar_target(
+    name = secc_loc_map_file,
+    command = "./output/secc_loc_map/secc_loc_map_2006_24.csv.gz",
+    format = "file"
+  ),
+  tar_target(
+    name = secc_loc_map_all,
+    command = fread(secc_loc_map_file)
+  ),
+  # Filter section mapping by development mode
+  tar_target(
+    name = secc_loc_map,
+    command = apply_dev_mode_filters(
+      secc_loc_map_all,
+      pipeline_config,
+      filter_type = "state",
+      state_col = "sg_uf"
+    )
+  ),
+
+  ## Create section-to-panel mapping for easy user joins
+  tar_target(
+    name = section_panel_mapping,
+    command = create_section_panel_mapping(
+      secc_loc_map = secc_loc_map,
+      geocoded_locais = geocoded_locais,
+      panel_ids = panel_ids
+    ),
+    format = "qs",
+    storage = "worker",
+    retrieval = "worker"
   ),
 
   # ========================================
@@ -792,7 +853,7 @@ list(
   # ========================================
   # STRING MATCH DIAGNOSTICS
   # ========================================
-  
+
   # Calculate NA coordinate percentages and match quality metrics
   tar_target(
     name = string_match_diagnostics,
@@ -806,7 +867,7 @@ list(
     ),
     deployment = "main"
   ),
-  
+
   # Save diagnostics report
   tar_target(
     name = string_match_diagnostics_report,
@@ -858,7 +919,7 @@ list(
   tar_target(
     name = trained_model,
     command = train_model(
-      model_data, 
+      model_data,
       grid_n = ifelse(pipeline_config$dev_mode, 5, 50),
       dev_mode = pipeline_config$dev_mode
     ),
@@ -897,8 +958,14 @@ list(
       output_data = geocoded_locais,
       stage_name = "geocoded_locais",
       required_cols = c(
-        "local_id", "final_lat", "final_long", "ano",
-        "nr_zona", "nr_locvot", "nm_locvot", "nm_localidade"
+        "local_id",
+        "final_lat",
+        "final_long",
+        "ano",
+        "nr_zona",
+        "nr_locvot",
+        "nm_locvot",
+        "nm_localidade"
       ),
       unique_keys = c("local_id", "ano", "nr_zona", "nr_locvot"),
       stop_on_failure = TRUE
@@ -930,12 +997,24 @@ list(
 
   tar_target(
     name = geocoded_export,
-    command = export_geocoded_with_validation(geocoded_locais, validation_report),
+    command = export_geocoded_with_validation(
+      geocoded_locais,
+      validation_report
+    ),
     format = "file"
   ),
   tar_target(
     name = panelid_export,
     command = export_panel_ids_with_validation(panel_ids, validation_report),
+    format = "file"
+  ),
+  tar_target(
+    name = section_panel_export,
+    command = {
+      dir.create("output", showWarnings = FALSE)
+      fwrite(section_panel_mapping, "output/section_panel_mapping.csv.gz")
+      "output/section_panel_mapping.csv.gz"
+    },
     format = "file"
   ),
   ## Data Quality Monitoring
@@ -973,30 +1052,30 @@ list(
   ),
   ## Sanity Check Report
   # Sanity check report - generate if quarto file exists
-    tar_render(
-      name = sanity_check_report,
-      path = "reports/polling_station_sanity_check.qmd",
-      output_dir = "reports"
-    )
-    #,
+  tar_render(
+    name = sanity_check_report,
+    path = "reports/polling_station_sanity_check.qmd",
+    output_dir = "reports"
+  )
+  #,
   ## Methodology and Evaluation
   # Only render in production mode
   #tar_target(
   #  name = geocode_writeup,
   #  command = {
-      # Explicitly depend on pipeline_config
+  # Explicitly depend on pipeline_config
   #    if (!pipeline_config$dev_mode) {
-        # Render the document in production mode
-   #     rmarkdown::render(
-    #      input = "./doc/geocoding_procedure.Rmd",
-     ##  )
-       # "./doc/geocoding_procedure.html"
-     # } else {
-        # Skip in dev mode - just return the expected output path
-      #  message("Skipping geocode_writeup in development mode")
-      #  "./doc/geocoding_procedure.html"
-      #}
-    #},
-   # format = "file"
+  # Render the document in production mode
+  #     rmarkdown::render(
+  #      input = "./doc/geocoding_procedure.Rmd",
+  ##  )
+  # "./doc/geocoding_procedure.html"
+  # } else {
+  # Skip in dev mode - just return the expected output path
+  #  message("Skipping geocode_writeup in development mode")
+  #  "./doc/geocoding_procedure.html"
+  #}
+  #},
+  # format = "file"
   #)
 )

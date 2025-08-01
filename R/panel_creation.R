@@ -739,6 +739,154 @@ create_two_level_blocked_pairs <- function(data1, data2,
 }
 
 # ============================================================================
+# Section-Panel Mapping Functions
+# ============================================================================
+
+#' Create section-to-panel mapping for easy user joins
+#'
+#' Creates a comprehensive mapping from election sections to panel IDs,
+#' enabling users to directly join section-level election data with panel
+#' identifiers without complex multi-file operations.
+#'
+#' @param secc_loc_map Section-to-location mapping data (from secc_loc_map files)
+#' @param geocoded_locais Geocoded polling station data with local_id
+#' @param panel_ids Panel IDs data with panel_id and local_id
+#' @return Data table with columns: nr_secao, nr_zona, nr_local_votacao, ano, estado_abrev, nm_localidade, panel_id
+#' @export
+create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_ids) {
+
+  cat("Creating section-to-panel mapping...\n")
+
+  # Validate inputs
+  if (nrow(secc_loc_map) == 0) {
+    cat("Warning: Empty section-location mapping\n")
+    return(data.table())
+  }
+
+  if (nrow(geocoded_locais) == 0) {
+    cat("Warning: Empty geocoded locations\n")
+    return(data.table())
+  }
+
+  if (nrow(panel_ids) == 0) {
+    cat("Warning: Empty panel IDs\n")
+    return(data.table())
+  }
+
+  # Standardize column names
+  standardize_column_names(secc_loc_map, inplace = TRUE)
+  standardize_column_names(geocoded_locais, inplace = TRUE)
+  standardize_column_names(panel_ids, inplace = TRUE)
+
+  cat("Input data sizes:\n")
+  cat("  Sections:", format(nrow(secc_loc_map), big.mark = ","), "\n")
+  cat("  Geocoded locations:", format(nrow(geocoded_locais), big.mark = ","), "\n")
+  cat("  Panel IDs:", format(nrow(panel_ids), big.mark = ","), "\n")
+
+  # Step 1: Get unique location identifiers from geocoded data
+  # Using the correct join keys: (nr_zona, nr_local_votacao, ano, cd_localidade_tse)
+  # Note: Adding cd_localidade_tse to prevent cross-municipality contamination
+  # This is critical because nr_locvot values are reused across different municipalities
+  geocoded_locations <- unique(geocoded_locais[, .(nr_zona, nr_local_votacao, ano, cd_localidade_tse, local_id)])
+
+  cat("  Unique geocoded locations:", format(nrow(geocoded_locations), big.mark = ","), "\n")
+
+  # Step 2: Join sections with geocoded locations to get local_id
+  cat("Joining sections with geocoded locations...\n")
+
+  # Use merge() to maintain proper 1:1 relationship (avoid cartesian explosion from data.table join syntax)
+  sections_with_local_id <- merge(
+    secc_loc_map, 
+    geocoded_locations,
+    by = c("nr_zona", "nr_local_votacao", "ano", "cd_localidade_tse"),
+    all.x = TRUE
+  )
+
+  # Check join success rate
+  success_count <- sum(!is.na(sections_with_local_id$local_id))
+  success_rate <- success_count / nrow(secc_loc_map)
+
+  cat("  Join success rate:", round(success_rate * 100, 1), "%\n")
+  cat("  Sections with local_id:", format(success_count, big.mark = ","), "\n")
+
+  if (success_rate < 0.8) {
+    cat("Warning: Low join success rate (<80%). Check data quality.\n")
+  }
+
+  # Step 3: Join with panel IDs to get panel_id
+  cat("Joining with panel IDs...\n")
+
+  sections_with_local_id_clean <- sections_with_local_id[!is.na(local_id)]
+
+  # Use merge() to maintain proper 1:1 relationship
+  final_mapping <- merge(
+    sections_with_local_id_clean,
+    panel_ids,
+    by = "local_id",
+    all.x = TRUE
+  )
+
+  # Check final join success rate
+  final_success_count <- sum(!is.na(final_mapping$panel_id))
+  final_success_rate <- final_success_count / nrow(sections_with_local_id_clean)
+
+  cat("  Final join success rate:", round(final_success_rate * 100, 1), "%\n")
+  cat("  Final mapping records:", format(final_success_count, big.mark = ","), "\n")
+
+  if (final_success_rate < 0.9) {
+    cat("Warning: Low final join success rate (<90%). Check panel ID coverage.\n")
+  }
+
+  # Step 4: Clean and select final columns
+  final_clean <- final_mapping[!is.na(panel_id)]
+
+  # Select and order columns for user convenience
+  # Note: standardized column names after processing
+  output_columns <- c("nr_secao", "nr_zona", "nr_local_votacao", "ano", "estado_abrev", "nm_localidade", "panel_id")
+  available_columns <- intersect(output_columns, colnames(final_clean))
+
+  if (length(available_columns) < length(output_columns)) {
+    missing_cols <- setdiff(output_columns, available_columns)
+    cat("Warning: Missing columns in output:", paste(missing_cols, collapse = ", "), "\n")
+  }
+
+  result <- final_clean[, .SD, .SDcols = available_columns]
+
+  # Validate result
+  cat("Validating final mapping...\n")
+
+  # Check for duplicate section identifiers
+  duplicate_sections <- result[, .N, by = .(nr_secao, nr_zona, ano, estado_abrev)][N > 1]
+  if (nrow(duplicate_sections) > 0) {
+    cat("Warning:", nrow(duplicate_sections), "duplicate section identifiers found\n")
+  }
+
+  # Check panel ID distribution
+  panel_distribution <- result[, .N, by = panel_id][order(-N)]
+  max_sections_per_panel <- max(panel_distribution$N)
+  cat("  Max sections per panel:", max_sections_per_panel, "\n")
+
+  if (max_sections_per_panel > 500) {
+    cat("Warning: Some panels have >500 sections. This may indicate data quality issues.\n")
+  }
+
+  # Summary statistics
+  cat("\nFinal mapping summary:\n")
+  cat("  Total records:", format(nrow(result), big.mark = ","), "\n")
+  cat("  Unique sections:", format(nrow(result[, .(nr_secao, nr_zona, ano, estado_abrev)]), big.mark = ","), "\n")
+  cat("  Unique panels:", format(length(unique(result$panel_id)), big.mark = ","), "\n")
+  cat("  Years covered:", paste(sort(unique(result$ano)), collapse = ", "), "\n")
+  cat("  States covered:", length(unique(result$estado_abrev)), "\n")
+
+  # Sort for user convenience
+  setorder(result, ano, estado_abrev, nr_zona, nr_local_votacao, nr_secao)
+
+  cat("Section-to-panel mapping created successfully!\n\n")
+
+  result
+}
+
+# ============================================================================
 # Conservative Blocking Functions
 # ============================================================================
 

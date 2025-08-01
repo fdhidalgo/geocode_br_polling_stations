@@ -79,6 +79,9 @@ output/*.csv.gz
 output/*.rds
 output/*.html
 
+# Large data mapping files
+data/secao_local_2006_*_mapping.csv.gz
+
 # Generated reports
 reports/*.html
 reports/*_files/

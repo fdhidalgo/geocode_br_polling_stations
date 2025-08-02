@@ -75,6 +75,31 @@ if (targets::tar_active()) {
 # Set target options using configuration function
 configure_targets_options(controller_group)
 
+# Configure AWS S3 cloud storage for production mode only
+# DEV_MODE targets remain local for faster iteration
+# Check dev_mode_flag directly from the target definition below
+dev_mode_flag_value <- FALSE # This should match the dev_mode_flag target value
+
+if (!dev_mode_flag_value) {
+  # Only configure S3 in production mode
+  # Need to preserve existing crew resources and add AWS resources
+  existing_resources <- tar_option_get("resources")
+  tar_option_set(
+    repository = "aws",
+    repository_meta = "aws",
+    resources = tar_resources(
+      aws = tar_resources_aws(
+        bucket = "geocode-br-polling-stations",
+        prefix = "production"
+      ),
+      crew = existing_resources$crew  # Preserve crew configuration
+    )
+  )
+  message("AWS S3 storage configured for production mode")
+} else {
+  message("Using local storage (development mode)")
+}
+
 # Two-level blocking for panel IDs is now configured in the pipeline_config target
 # This ensures proper dependency tracking when the setting changes
 
@@ -126,7 +151,8 @@ list(
   tar_target(
     name = muni_ids_file,
     command = "./data/muni_identifiers.csv",
-    format = "file"
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = muni_ids_all,
@@ -143,7 +169,8 @@ list(
   tar_target(
     name = inep_codes_file,
     command = "./data/inep_codes.csv",
-    format = "file"
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = inep_codes,
@@ -153,7 +180,8 @@ list(
   tar_target(
     name = tract_shp_file,
     command = "./data/census_tracts2010_shp.rds",
-    format = "file"
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = tract_shp_all,
@@ -177,7 +205,8 @@ list(
   tar_target(
     name = muni_shp_file,
     command = "./data/muni_shp.rds",
-    format = "file"
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = muni_shp_all,
@@ -202,7 +231,8 @@ list(
   tar_target(
     name = muni_demo_file,
     command = "./data/atlas_brasil_census_data.csv.gz",
-    format = "file"
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = muni_demo_all,
@@ -450,7 +480,8 @@ list(
   tar_target(
     name = inep_file,
     command = "./data/inep_catalogo_das_escolas.csv.gz",
-    format = "file"
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = inep_data_all,
@@ -477,7 +508,8 @@ list(
   tar_target(
     name = locais_file,
     command = "./data/polling_stations_2006_2024.csv.gz",
-    format = "file"
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = locais_all,
@@ -521,7 +553,8 @@ list(
       "./data/eleitorado_local_votacao_2020.csv.gz",
       "./data/eleitorado_local_votacao_2022.csv.gz"
     ),
-    format = "file"
+    format = "file",
+    repository = "local"  # Force local storage for file targets to avoid S3 issues
   ),
   tar_target(
     name = tsegeocoded_locais,
@@ -609,7 +642,8 @@ list(
   tar_target(
     name = secc_loc_map_file,
     command = "./output/secc_loc_map/secc_loc_map_2006_24.csv.gz",
-    format = "file"
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = secc_loc_map_all,
@@ -877,8 +911,8 @@ list(
       dir.create("output", showWarnings = FALSE)
       writeLines(report_text, "output/string_match_diagnostics.txt")
       "output/string_match_diagnostics.txt"
-    },
-    format = "file"
+    }
+    # Now a data target that returns the file path (stored in S3)
   ),
 
   # ========================================
@@ -1000,13 +1034,13 @@ list(
     command = export_geocoded_with_validation(
       geocoded_locais,
       validation_report
-    ),
-    format = "file"
+    )
+    # Now a data target that returns the file path (stored in S3)
   ),
   tar_target(
     name = panelid_export,
-    command = export_panel_ids_with_validation(panel_ids, validation_report),
-    format = "file"
+    command = export_panel_ids_with_validation(panel_ids, validation_report)
+    # Now a data target that returns the file path (stored in S3)
   ),
   tar_target(
     name = section_panel_export,
@@ -1014,8 +1048,8 @@ list(
       dir.create("output", showWarnings = FALSE)
       fwrite(section_panel_mapping, "output/section_panel_mapping.csv.gz")
       "output/section_panel_mapping.csv.gz"
-    },
-    format = "file"
+    }
+    # Now a data target that returns the file path (stored in S3)
   ),
   ## Data Quality Monitoring
   tar_target(

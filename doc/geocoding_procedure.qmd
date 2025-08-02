@@ -29,8 +29,6 @@ library(gt)
 library(sf)
 sf::sf_use_s2(FALSE)
 
-conflicts_prefer(dplyr::first)
-conflicts_prefer(dplyr::filter)
 ```
 
 This document outlines an approach to geocoding Brazilian polling station that heavily relies on administrative datasets. In addition to detailing our approach, we also provide some evidence on the error of our method and how it compares to the [Google Maps Geocoding API](https://developers.google.com/maps/documentation/geocoding/overview).
@@ -116,36 +114,23 @@ For each polling station, we choose the candidate coordinate with the smallest p
 #| label: load-data
 # When run via tar_render(), targets should be available without store argument
 # When run manually, we need to specify the store location
-tryCatch({
-  tar_load(
+
+tar_load(
     c(
       inep_string_match, cnefe10_stbairro_match, cnefe22_stbairro_match,
       schools_cnefe10_match, schools_cnefe22_match,
       agrocnefe_stbairro_match, locais, model_predictions,
       tsegeocoded_locais, panel_ids
-    )
-  )
-}, error = function(e) {
-  # Fallback for manual execution
-  project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
-  tar_load(
-    c(
-      inep_string_match, cnefe10_stbairro_match, cnefe22_stbairro_match,
-      schools_cnefe10_match, schools_cnefe22_match,
-      agrocnefe_stbairro_match, locais, model_predictions,
-      tsegeocoded_locais, panel_ids
-    ),
-    store = file.path(project_root, "_targets")
-  )
-})
+    ))
+
 
 best_prediction <- model_predictions |>
-  #  filter(!is.na(dist)) |>
+  filter(!is.na(dist)) |>
   group_by(local_id) |>
   arrange(local_id, pred_dist, dist) |>
   slice(1)
 
-geocoded_locais <- left_join(locais, best_prediction) |>
+geocoded_locais <- inner_join(locais, best_prediction) |>
   rename("pred_long" = "long", "pred_lat" = "lat") |>
   left_join(select(tsegeocoded_locais, local_id, tse_lat, tse_long)) |>
   ## if we have ground truth distance from TSE, then assign ground truth
@@ -175,8 +160,7 @@ The last column labeled "Error (km)" is the difference between the known geocode
 
 ```{r}
 #| label: string-match-example
-# example_id <- sample(geocoded_locais$local_id[is.na(geocoded_locais$tse_lat) == FALSE], 1)
-example_id <- 72922
+example_id <- sample(geocoded_locais$local_id[is.na(geocoded_locais$tse_lat) == FALSE], 1)
 
 # Convert data.table objects to work with dplyr if needed
 # Filter data.tables and convert to data.frames

@@ -156,7 +156,8 @@ list(
   ),
   tar_target(
     name = muni_ids_all,
-    command = fread(muni_ids_file)
+    command = fread(muni_ids_file),
+    format = "qs"
   ),
   tar_target(
     name = muni_ids,
@@ -164,7 +165,8 @@ list(
       muni_ids_all,
       pipeline_config$dev_states,
       id_column = "estado_abrev"
-    )
+    ),
+    format = "qs"
   ),
   tar_target(
     name = inep_codes_file,
@@ -517,6 +519,7 @@ list(
       locais_file = locais_file,
       muni_ids = muni_ids
     ),
+    format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
@@ -528,12 +531,14 @@ list(
       pipeline_config,
       filter_type = "state",
       state_col = "sg_uf"
-    )
+    ),
+    format = "qs"
   ),
   # Filter Brasília from municipal election years - using helper function
   tar_target(
     name = locais_filtered,
-    command = apply_brasilia_filters(locais)
+    command = apply_brasilia_filters(locais),
+    format = "qs"
   ),
   # Consolidated input validation - checks dataset sizes
   tar_target(
@@ -562,7 +567,8 @@ list(
       tse_files = tse_files,
       muni_ids = muni_ids,
       locais = locais_filtered
-    )
+    ),
+    format = "qs"
   ),
   ## Create panel ids to track polling stations across time
   ## Create municipality batches for panel ID processing
@@ -631,7 +637,8 @@ list(
       # Just need to add coordinates using the existing function
       # Pass empty data.table for df_panels since all states are now combined
       make_panel_ids(data.table(), panel_ids_combined, tsegeocoded_locais)
-    }
+    },
+    format = "qs"
   ),
 
   # ========================================

@@ -99,12 +99,6 @@ For setting up this project on a new computer with AWS S3 integration, see [AWS_
 - **IMPORTANT**: Always explain major function changes and get user approval before proceeding
 - Run validation after changes: `R -e "targets::tar_make()"`, unless pipeline will take too long. In that case, ask user to run the pipeline and report results.
 
-### Git Commit Guidelines
-- **Format**: Imperative mood, <50 chars, reference issues (e.g., "Fix duplicate rows. Closes #3")
-- There are two types of commits:
-  - **Perfect commits**: Implementation + tests + docs + issue reference. Use these after a major change.
-  - **Minor commits**: While working on a feature, commit often. Use these for smaller changes.
-- Use GitHub issues for context and decision documentation
 
 ### Refactoring Guidelines
 **CRITICAL**: Never do partial refactoring - it breaks pipelines. Key steps:

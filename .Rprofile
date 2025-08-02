@@ -1,7 +1,9 @@
 source("renv/activate.R")
 
 options(Ncpus = parallel::detectCores())
-##rspm should only be activated on linux
+#Prefer binary packages to avoid compilation issues
+options(pkgType = "binary")
+options(renv.config.pak.enabled = TRUE)
 
 # Only enable rspm on Linux systems
 if (Sys.info()[["sysname"]] == "Linux") {
@@ -11,7 +13,7 @@ if (Sys.info()[["sysname"]] == "Linux") {
 if (interactive()) {
   if (requireNamespace("mcptools", quietly = TRUE)) {
     tryCatch(
-      {cl
+      {
         mcptools::mcp_session()
         message("mcptools: MCP session registered")
       },

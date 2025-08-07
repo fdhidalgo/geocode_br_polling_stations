@@ -648,13 +648,14 @@ list(
   ## Import section-to-location mapping
   tar_target(
     name = secc_loc_map_file,
-    command = "./output/secc_loc_map/secc_loc_map_2006_24.csv.gz",
+    command = "./data/secc_loc_map/secc_loc_map_2006_24.csv.gz",
     format = "file",
     repository = "local"
   ),
   tar_target(
     name = secc_loc_map_all,
-    command = fread(secc_loc_map_file)
+    command = fread(secc_loc_map_file),
+    format = "qs"
   ),
   # Filter section mapping by development mode
   tar_target(
@@ -664,7 +665,8 @@ list(
       pipeline_config,
       filter_type = "state",
       state_col = "sg_uf"
-    )
+    ),
+    format = "qs"
   ),
 
   ## Create section-to-panel mapping for easy user joins

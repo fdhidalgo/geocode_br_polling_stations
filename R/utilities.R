@@ -148,7 +148,7 @@ apply_dev_mode_filters <- function(data, config, filter_type = NULL, state_col =
   return(data)
 }
 
-apply_brasilia_filters <- function(data, state_col = "sg_uf", remove_brasilia = TRUE) {
+apply_brasilia_filters <- function(data, remove_brasilia = TRUE, state_col = "sg_uf") {
   # Apply special filtering for Brasília (DF), which had municipal elections in
   # years that differ from other states.
   if (!remove_brasilia) {

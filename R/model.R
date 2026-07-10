@@ -360,7 +360,7 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
   # Note: tune_race_anova requires at least 4 folds (more than 3 burn-in resamples)
   n_folds <- ifelse(dev_mode, 4, 10)
   vfolds <- rsample::group_vfold_cv(
-    model_data,
+    training_set,
     group = cod_localidade_ibge,
     v = n_folds
   )

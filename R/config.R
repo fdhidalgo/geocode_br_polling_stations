@@ -212,12 +212,24 @@ configure_targets_options <- function(controller_group) {
   tar_option_set(
     packages = c(
       "data.table",
+      # R.utils is required by data.table::fread() to read the project's .csv.gz
+      # inputs; fread loads it by string, so it must be named explicitly here (both
+      # so workers can read gzipped data and so renv discovers/locks it).
+      "R.utils",
       "stringr",
       "stringdist",
       "validate",
       "sf",
       "reclin2",
       "bonsai",
+      # lightgbm is the bonsai engine dispatched to during model training; it is
+      # referenced only as the string "lightgbm" in set_engine(), so it must be
+      # named explicitly here (both to load it on workers and so renv discovers it).
+      "lightgbm",
+      # qs2 backs format = "qs"; with retrieval = "worker" the workers deserialize
+      # qs2-formatted targets, so it is a genuine worker dependency (and, being a
+      # targets Suggests invoked by string config, is otherwise undiscoverable).
+      "qs2",
       "geosphere",
       "rsample",
       "recipes",
@@ -225,6 +237,10 @@ configure_targets_options <- function(controller_group) {
       "workflows",
       "yardstick",
       "finetune",
+      # lme4 is required by finetune::tune_race_anova(): the racing procedure fits a
+      # mixed-effects ANOVA model (via lme4) to eliminate hyperparameter candidates.
+      # finetune loads it by string, so it must be named explicitly for renv.
+      "lme4",
       "tune"
     ),
     format = "qs",

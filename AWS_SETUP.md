@@ -102,9 +102,9 @@ if ('geocoded_locais' %in% targets::tar_manifest()$name) {
 # Production mode (uses S3 automatically)
 R -e "targets::tar_make()"
 
-# Development mode (local storage)
-# Change dev_mode_flag to TRUE in _targets.R first
-R -e "targets::tar_make()"
+# Development mode (local storage, AC/RR subset, never touches S3)
+# Selected by the TAR_PROJECT env var — no file edits needed
+TAR_PROJECT=dev R -e "targets::tar_make()"
 
 # Read targets from S3 (production data)
 R -e "data <- targets::tar_read(geocoded_locais)"

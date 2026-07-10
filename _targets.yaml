@@ -1,0 +1,12 @@
+# targets project profiles (selected by the TAR_PROJECT environment variable).
+#
+#   main (default): production - full Brazil, AWS S3 storage, store in _targets/.
+#   dev (TAR_PROJECT=dev): AC/RR subset, fully local, store in _targets_dev/.
+#
+# _targets.R derives DEV_MODE <- identical(Sys.getenv("TAR_PROJECT"), "dev") from
+# this selection, so a dev run writes only under _targets_dev/ and never touches S3,
+# and toggling dev/prod no longer mass-invalidates the shared production store.
+main:
+  store: _targets
+dev:
+  store: _targets_dev

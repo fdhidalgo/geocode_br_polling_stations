@@ -361,6 +361,10 @@ repair_mixed_utf8 <- function(x) {
   # UTF-8 validation have their raw bytes reinterpreted as Latin-1; valid UTF-8 is
   # left untouched. Downstream string ops (stringi::stri_trans_general in
   # clean_text_for_geocodebr) require valid UTF-8 and error loudly on invalid input.
+  # Edge case: a Latin-1 string whose bytes happen to form valid UTF-8 is left as
+  # is (the per-string heuristic can't detect it); this is inherent to repairing a
+  # mixed-encoding column without per-row source metadata, and does not arise for
+  # the observed lone-high-byte case (e.g. 0xBA "Nº").
   bad <- !stringi::stri_enc_isutf8(x)
   x[bad] <- iconv(x[bad], from = "latin1", to = "UTF-8")
   enc2utf8(x)

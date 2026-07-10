@@ -4,10 +4,16 @@
 ## genuine UTF-8 untouched, so downstream stringi ops don't error on invalid
 ## input (the "input string N is invalid" failure surfaced by the fail-loud sweep).
 
+# "Nº" as Latin-1 bytes (0x4e, 0xBA) tagged UTF-8 — the lone high byte 0xBA is
+# invalid UTF-8, exactly as fread(encoding="UTF-8") leaves it on a Latin-1 file.
+make_mislabeled_no_sign <- function() {
+  bad <- rawToChar(as.raw(c(0x4e, 0xba)))
+  Encoding(bad) <- "UTF-8"
+  bad
+}
+
 test_that("repair_mixed_utf8 fixes a Latin-1 byte mislabeled as UTF-8", {
-  # 0xBA is the Latin-1 masculine-ordinal 'º'; as a lone byte it is invalid UTF-8.
-  bad <- rawToChar(as.raw(c(0x4e, 0xba)))  # "Nº" in Latin-1 bytes
-  Encoding(bad) <- "UTF-8"                 # mislabeled, as fread(encoding="UTF-8") leaves it
+  bad <- make_mislabeled_no_sign()
   expect_false(stringi::stri_enc_isutf8(bad))
 
   fixed <- repair_mixed_utf8(bad)
@@ -22,9 +28,7 @@ test_that("repair_mixed_utf8 leaves genuine UTF-8 unchanged", {
 })
 
 test_that("repair_mixed_utf8 repairs a mixed vector element-wise", {
-  bad <- rawToChar(as.raw(c(0x4e, 0xba)))
-  Encoding(bad) <- "UTF-8"
-  x <- c("ASCII ONLY", enc2utf8("SÃO PAULO"), bad)
+  x <- c("ASCII ONLY", enc2utf8("SÃO PAULO"), make_mislabeled_no_sign())
 
   fixed <- repair_mixed_utf8(x)
   expect_true(all(stringi::stri_enc_isutf8(fixed)))

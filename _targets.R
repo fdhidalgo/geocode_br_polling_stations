@@ -621,7 +621,8 @@ list(
         years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
         blocking_column = "cod_localidade_ibge",
         scoring_columns = c("normalized_name", "normalized_addr"),
-        use_word_blocking = pipeline_config$use_word_blocking
+        use_word_blocking = pipeline_config$use_word_blocking,
+        panel_weight_threshold = pipeline_config$panel_weight_threshold
       )
     },
     pattern = map(panel_batch_ids),
@@ -1153,8 +1154,10 @@ list(
         panelid_export = panelid_export,
         geocoded_locais = geocoded_locais,
         panel_ids = panel_ids,
-        # Thresholds from former config file
-        expected_municipality_count = 5570,
+        # Thresholds from former config file. The expected municipality count is
+        # derived from the states this run processes so a dev-filtered (AC/RR)
+        # output does not trip the CRITICAL municipality-count check.
+        expected_municipality_count = get_expected_municipality_count_for_config(pipeline_config),
         muni_count_tolerance = 50,
         extreme_change_threshold = 30,
         duplicate_coord_threshold = 10,

@@ -317,20 +317,24 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   # Validate all input datasets by checking their sizes against expected ranges
   # Size validation helps catch data loading issues early in the pipeline
   
-  # Define expected sizes based on mode
+  # Define expected sizes based on mode, for the datasets that dev mode filters.
   expected_sizes <- if (pipeline_config$dev_mode) {
     list(
       muni_ids = list(min = 30, max = 100, name = "municipalities"),
-      inep_codes = list(min = 1000, max = 50000, name = "INEP schools"),
       locais = list(min = 1000, max = 20000, name = "polling stations")
     )
   } else {
     list(
       muni_ids = list(min = 5000, max = 6000, name = "municipalities"),
-      inep_codes = list(min = 100000, max = 300000, name = "INEP schools"), 
       locais = list(min = 100000, max = 1000000, name = "polling stations")
     )
   }
+  # inep_codes is the national INEP codes table in both modes (it is never
+  # filtered by dev mode), so its expected range is always the national one. The
+  # former dev range (1000-50000) mis-assumed a filtered input, so dev validation
+  # silently failed every run; now that the validator stops, that range must be
+  # correct (cleanup phase 3, finding H4 wiring; Codex triage).
+  expected_sizes$inep_codes <- list(min = 100000, max = 300000, name = "INEP schools")
   
   # Collect validation results
   checks <- list()
@@ -401,11 +405,18 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   )
   
   class(validation_output) <- "validation_result"
-  
+
+  # Fail loud on any failed size check (cleanup phase 3, finding H4): a warning
+  # here let the pipeline continue on inputs that failed validation.
   if (!all_passed) {
-    warning("Input data validation failed - check dataset sizes")
+    failed <- names(checks)[!unlist(checks)]
+    stop(sprintf(
+      "Input data validation failed for: %s.\n%s",
+      paste(failed, collapse = ", "),
+      paste(unlist(messages), collapse = "\n")
+    ))
   }
-  
+
   return(validation_output)
 }
 
@@ -787,6 +798,15 @@ create_data_quality_monitor <- function(geocoded_export, panelid_export,
   if (length(alerts) > 0) {
     cat("  Alerts:", length(alerts), "\n")
   }
-  
+
+  # Fail loud on a CRITICAL data-quality state (cleanup phase 3, finding H4):
+  # the monitor previously accumulated the status string but finished green.
+  if (identical(results$status, "CRITICAL")) {
+    stop(sprintf(
+      "Data quality monitoring reported CRITICAL status. Alerts:\n%s",
+      paste(unlist(alerts), collapse = "\n")
+    ))
+  }
+
   return(results)
 }

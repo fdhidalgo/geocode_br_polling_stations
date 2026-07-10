@@ -15,72 +15,95 @@ library(data.table)
 # Define the null coalescing operator
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+# Run fn(item) for each item under the collect-and-stop convention (cleanup
+# phase 3): a per-item error is recorded and the batch continues; at batch end,
+# if any items failed, stop() with a single message naming every failure. A NULL
+# result is a legitimate empty item (not a failure) and is dropped from the
+# returned list. `task_label` and the unit noun shape the error message.
+collect_batch_or_stop <- function(items, fn, task_label,
+                                  unit_singular = "municipality",
+                                  unit_plural = "municipalities") {
+  results <- lapply(items, function(item) {
+    tryCatch(
+      fn(item),
+      error = function(e) {
+        structure(
+          list(item = item, message = conditionMessage(e)),
+          class = "batch_item_failure"
+        )
+      }
+    )
+  })
+
+  failures <- Filter(function(x) inherits(x, "batch_item_failure"), results)
+  if (length(failures) > 0) {
+    n <- length(failures)
+    msgs <- vapply(
+      failures,
+      function(f) sprintf("  %s: %s", f$item, f$message),
+      character(1)
+    )
+    stop(sprintf(
+      "%s failed for %d %s:\n%s",
+      task_label, n, ngettext(n, unit_singular, unit_plural),
+      paste(msgs, collapse = "\n")
+    ))
+  }
+
+  Filter(Negate(is.null), results)
+}
+
 filter_by_dev_mode <- function(data, dev_states, id_column = "estado_abrev") {
-  # Filter data by development mode states
-  # If dev_states is NULL or empty, return all data
-  
+  # Filter data by development mode states.
+  # If dev_states is NULL or empty (production), return all data.
   if (is.null(dev_states) || length(dev_states) == 0) {
     return(data)
   }
-  
-  # Filter by state abbreviation
-  if (id_column %in% names(data)) {
-    filtered <- data[get(id_column) %in% dev_states]
-  } else {
-    warning(paste("Column", id_column, "not found in data. Returning unfiltered data."))
-    filtered <- data
+
+  # Fail loud when the filter column is absent (cleanup phase 3, finding H2):
+  # silently returning unfiltered data would run the full pipeline in dev mode.
+  if (!id_column %in% names(data)) {
+    stop(sprintf("filter_by_dev_mode(): column '%s' not found in data.", id_column))
   }
-  
-  return(filtered)
+
+  data[get(id_column) %in% dev_states]
 }
 
 filter_data_by_state <- function(data, states, state_col = "estado_abrev") {
-  # Generic function to filter any data by state
-  # Works with data.table or data.frame
-  
+  # Generic function to filter any data by state (data.table or data.frame).
   if (is.null(states) || length(states) == 0) {
     return(data)
   }
-  
+
+  # Fail loud when the state column is absent (cleanup phase 3, finding H2).
   if (!state_col %in% names(data)) {
-    warning(paste("State column", state_col, "not found. Returning unfiltered data."))
-    return(data)
+    stop(sprintf("filter_data_by_state(): state column '%s' not found in data.", state_col))
   }
-  
+
   if (is.data.table(data)) {
-    return(data[get(state_col) %in% states])
+    data[get(state_col) %in% states]
   } else {
-    return(data[data[[state_col]] %in% states, ])
+    data[data[[state_col]] %in% states, ]
   }
 }
 
 filter_data_by_municipalities <- function(data, muni_codes, muni_col = "id_munic_7") {
-  # Filter data by municipality codes
-  
+  # Filter data by municipality codes.
   if (is.null(muni_codes) || length(muni_codes) == 0) {
     return(data)
   }
-  
+
+  # Fail loud when the named column is absent (cleanup phase 3, finding H2). The
+  # former four-way probing of alternative ID columns could filter on the wrong
+  # ID system; the caller must name the column it means.
   if (!muni_col %in% names(data)) {
-    # Try alternative column names
-    alt_cols <- c("cod_localidade_ibge", "id_TSE", "cd_municipio")
-    for (col in alt_cols) {
-      if (col %in% names(data)) {
-        muni_col <- col
-        break
-      }
-    }
-    
-    if (!muni_col %in% names(data)) {
-      warning("No municipality column found. Returning unfiltered data.")
-      return(data)
-    }
+    stop(sprintf("filter_data_by_municipalities(): municipality column '%s' not found in data.", muni_col))
   }
-  
+
   if (is.data.table(data)) {
-    return(data[get(muni_col) %in% muni_codes])
+    data[get(muni_col) %in% muni_codes]
   } else {
-    return(data[data[[muni_col]] %in% muni_codes, ])
+    data[data[[muni_col]] %in% muni_codes, ]
   }
 }
 
@@ -125,55 +148,25 @@ apply_dev_mode_filters <- function(data, config, filter_type = NULL, state_col =
   return(data)
 }
 
-apply_brasilia_filters <- function(data, remove_brasilia = TRUE) {
-  # Apply special filtering for Brasília (DF)
-  # Brasília has unique characteristics that can affect analysis
-  
+apply_brasilia_filters <- function(data, remove_brasilia = TRUE, state_col = "sg_uf") {
+  # Apply special filtering for Brasília (DF), which had municipal elections in
+  # years that differ from other states.
   if (!remove_brasilia) {
     return(data)
   }
-  
-  # Identify columns that might contain state information
-  state_cols <- c("estado_abrev", "sg_uf", "uf", "sigla_uf")
-  state_col <- NULL
-  
-  for (col in state_cols) {
-    if (col %in% names(data)) {
-      state_col <- col
-      break
-    }
+
+  # Fail loud when the named state column is absent (cleanup phase 3, finding
+  # H2). The former stacked fallbacks (four state-column names, then three
+  # municipality-code columns filtering on a "^53" prefix, then a warn-and-pass)
+  # could silently skip the filter or use the wrong column; the caller names it.
+  if (!state_col %in% names(data)) {
+    stop(sprintf("apply_brasilia_filters(): state column '%s' not found in data.", state_col))
   }
-  
-  if (is.null(state_col)) {
-    # Try municipality code approach
-    muni_cols <- c("id_munic_7", "cod_localidade_ibge", "cd_municipio")
-    muni_col <- NULL
-    
-    for (col in muni_cols) {
-      if (col %in% names(data)) {
-        muni_col <- col
-        break
-      }
-    }
-    
-    if (!is.null(muni_col)) {
-      # Brasília municipality codes start with 53
-      if (is.data.table(data)) {
-        return(data[!grepl("^53", get(muni_col))])
-      } else {
-        return(data[!grepl("^53", data[[muni_col]]), ])
-      }
-    }
-    
-    warning("No state or municipality column found. Cannot filter Brasília.")
-    return(data)
-  }
-  
-  # Filter out DF
+
   if (is.data.table(data)) {
-    return(data[get(state_col) != "DF"])
+    data[get(state_col) != "DF"]
   } else {
-    return(data[data[[state_col]] != "DF", ])
+    data[data[[state_col]] != "DF", ]
   }
 }
 
@@ -461,18 +454,22 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments,
     batch_id == batch_ids
   ]$cod_localidade_ibge
 
-  # Process all municipalities in this batch
-  batch_results <- lapply(batch_munis, function(muni_code) {
-    match_geocodebr_muni(
-      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
-      muni_ids = muni_ids[id_munic_7 == muni_code]
-    )
-  })
+  # Collect-and-stop (cleanup phase 3, finding C5): a NULL result (no polling
+  # stations or no geocoding hits) is a legitimate empty case and is filtered;
+  # a municipality that errors is surfaced at batch end, never silently dropped.
+  results <- collect_batch_or_stop(
+    batch_munis,
+    function(muni_code) {
+      match_geocodebr_muni(
+        locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
+        muni_ids = muni_ids[id_munic_7 == muni_code]
+      )
+    },
+    task_label = "geocodebr matching"
+  )
 
-  # Remove NULL results and combine
-  batch_results <- batch_results[!sapply(batch_results, is.null)]
-  if (length(batch_results) > 0) {
-    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+  if (length(results) > 0) {
+    rbindlist(results, use.names = TRUE, fill = TRUE)
   } else {
     data.table()
   }
@@ -681,7 +678,18 @@ create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, m
         size = muni_sizes[as.character(muni_codes)]
       )
     }
-    muni_df[is.na(size), size := median(muni_df$size, na.rm = TRUE)]
+    # Fail loud on a municipality with no size entry (cleanup phase 3, Medium):
+    # median-imputing a missing size masks a municipality-code key mismatch
+    # between muni_codes and muni_sizes.
+    missing_size <- muni_df[is.na(size), cod_localidade_ibge]
+    if (length(missing_size) > 0) {
+      stop(sprintf(
+        "Municipality sizes missing for %d %s (key mismatch): %s",
+        length(missing_size),
+        ngettext(length(missing_size), "municipality", "municipalities"),
+        paste(utils::head(missing_size, 10), collapse = ", ")
+      ))
+    }
     data.table::setorder(muni_df, -size)
     
     # Assign to batches using round-robin for load balancing

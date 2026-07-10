@@ -45,6 +45,52 @@ R -e "targets::tar_destroy()"
 R -e "targets::tar_make()"
 ```
 
+### Testing
+
+The test layer has two tiers plus a commit-time lint gate (see
+[docs/specs/2026-07-testing-spec.md](docs/specs/2026-07-testing-spec.md)).
+
+```bash
+# Fast unit tests over pure functions (seconds, no data/network/store).
+# tests/testthat/setup.R loads functions via tar_source("R"), the same loader
+# _targets.R uses, so tests exercise the definitions tar_make() runs.
+Rscript tests/testthat.R
+
+# Slow dev-mode (AC/RR) end-to-end check: builds the pipeline fresh in dev mode
+# and asserts structural properties of the two final outputs (minutes, needs the
+# CNEFE/TSE inputs and real memory). NOTE: it writes the shared output/*.csv.gz
+# paths, overwriting any production outputs with AC/RR data.
+Rscript tests/integration/dev_pipeline_check.R
+```
+
+Tests are hand-authored **spec** tests (asserting intended input→output contracts,
+not snapshots of current output) so they never pin behavior the code-cleanup work
+is about to change. Coverage is the first tranche of ~13 pure functions (string
+transforms, matching core, panel identity); the rest are deferred to later
+tranches. Behavior-changing fail-loud tests land alongside their fixes in the
+cleanup work, not here.
+
+#### Lint gate (staged-files ratchet)
+
+Linting gates at commit time via a committed git hook, as a ratchet: only the
+`.R` files **staged** for a commit must lint clean (using the repo `.lintr`), so
+the legacy backlog never blocks work and is paid down as files are edited.
+
+```bash
+# Activate the hook once per clone:
+git config core.hooksPath .githooks
+
+# The hook needs lintr (a lint-only dev tool; it skips with a message if absent):
+R -e 'renv::install("lintr")'
+
+# One-time informational baseline over R/ (2026-07): 632 lint violations.
+# This gates nothing; it sizes a possible future "pay down lint debt" cleanup.
+Rscript -e 'length(lintr::lint_dir("R"))'
+```
+
+Lint style is never a `testthat` failure — the correctness suite stays
+style-agnostic; style is gated separately at commit time.
+
 ## Architecture
 
 ### Data Pipeline (`_targets.R`)

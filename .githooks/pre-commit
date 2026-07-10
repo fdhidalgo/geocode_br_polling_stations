@@ -1,0 +1,53 @@
+#!/bin/sh
+# Staged-files lint ratchet.
+#
+# Runs lintr against only the .R files staged for this commit, using the repo's
+# .lintr config. A file you touch must lint clean before it commits; the untouched
+# legacy backlog is never blocked and gets paid down as files are edited.
+#
+# Activate per-clone (once):   git config core.hooksPath .githooks
+# Bypass for one commit:       git commit --no-verify
+# Needs lintr:                 R -e 'renv::install("lintr")'  (hook skips if absent)
+#
+# See docs/specs/2026-07-testing-spec.md §7.
+
+set -e
+
+# Staged R files that were added/copied/modified (not deleted).
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.[Rr]$' || true)
+[ -z "$staged" ] && exit 0
+
+# Drop paths excluded from linting (kept in sync with .lintr `exclusions`).
+files=""
+for f in $staged; do
+  case "$f" in
+    _targets.R | renv/* | R/dev/*) continue ;;
+  esac
+  [ -f "$f" ] && files="$files $f"
+done
+[ -z "$files" ] && exit 0
+
+Rscript -e '
+  if (!requireNamespace("lintr", quietly = TRUE)) {
+    cat("pre-commit: lintr not installed; skipping lint gate.\n")
+    cat("           install it with: R -e '"'"'renv::install(\"lintr\")'"'"'\n")
+    quit(status = 0)
+  }
+  files <- commandArgs(trailingOnly = TRUE)
+  total <- 0L
+  for (f in files) {
+    l <- lintr::lint(f)
+    if (length(l) > 0) {
+      print(l)
+      total <- total + length(l)
+    }
+  }
+  if (total > 0) {
+    cat(sprintf(
+      "\npre-commit: %d lint(s) in staged files. Fix them, or bypass with `git commit --no-verify`.\n",
+      total
+    ))
+    quit(status = 1)
+  }
+  cat("pre-commit: staged R files lint clean.\n")
+' $files

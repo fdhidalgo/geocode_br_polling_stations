@@ -77,11 +77,11 @@ cat(sprintf(
 ```{r}
 #| label: acc-table
 acc_display <- copy(acc)
-num_cols <- c("match_rate", "median_km", "p50", "p90", "p95", "p99",
+num_cols <- c("match_rate", "median_km", "p90", "p95", "p99",
               "within_100m", "within_500m", "within_1km")
 acc_display |>
   gt(groupname_col = "stratum", rowname_col = "level") |>
-  fmt_number(columns = c("median_km", "p50", "p90", "p95", "p99"), decimals = 3) |>
+  fmt_number(columns = c("median_km", "p90", "p95", "p99"), decimals = 3) |>
   fmt_number(columns = c("match_rate", "within_100m", "within_500m", "within_1km"),
              decimals = 1) |>
   fmt_integer(columns = c("n_total", "n_geocoded")) |>
@@ -95,7 +95,7 @@ acc_display |>
     title = "Positional accuracy on the TSE-covered set (out-of-fold)",
     subtitle = "Suppressed strata (below held-out N floor) show counts only."
   ) |>
-  tab_source_note("Error in kilometres. Percentiles p50/p90/p95/p99.")
+  tab_source_note("Error in kilometres. Median is the 50th percentile; p90/p95/p99 shown.")
 ```
 
 ## TSE coverage density (by year × state)

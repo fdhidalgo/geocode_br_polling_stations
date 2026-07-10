@@ -8,6 +8,13 @@
 library(data.table)
 library(stringr)
 
+# Offset added inside the outcome log-transform so log(distance) is defined at
+# distance 0. The same constant must undo the transform on every prediction path,
+# so it is defined once here and reused by build_gbm_workflow() (forward), and by
+# get_predictions() / compute_oof_predictions() (inverse). Changing it in one
+# place without the others would silently corrupt pred_dist.
+GBM_LOG_OFFSET <- 1e-4
+
 make_model_data <- function(
   cnefe10_stbairro_match,
   cnefe22_stbairro_match,
@@ -328,7 +335,7 @@ build_gbm_workflow <- function(data) {
     recipes::update_role(local_id, new_role = "id variable") |>
     recipes::step_impute_median(logpop, pct_rural, area) |>
     ## Log transform the outcome variable to deal w ith outliers
-    recipes::step_log(recipes::all_outcomes(), offset = .0001, skip = TRUE)
+    recipes::step_log(recipes::all_outcomes(), offset = GBM_LOG_OFFSET, skip = TRUE)
 
   ## Define the model specification
   gbm_spec <-
@@ -439,7 +446,7 @@ get_predictions <- function(trained_model, model_data) {
   ## Make predictions
   model_data$pred_logdist <- predict(fitted, new_data = model_data)$.pred
   ## Transform back to original scale
-  model_data$pred_dist <- exp(model_data$pred_logdist) - .0001
+  model_data$pred_dist <- exp(model_data$pred_logdist) - GBM_LOG_OFFSET
 
   model_data[
     order(local_id, pred_dist),

@@ -23,7 +23,7 @@ EVAL_FOLD_SEED <- 20260710L
 ## Metric-ladder columns produced by accuracy_metrics(), suppressed together when
 ## a stratum falls below the held-out N floor.
 EVAL_METRIC_COLS <- c(
-  "median_km", "p50", "p90", "p95", "p99",
+  "median_km", "p90", "p95", "p99",
   "within_100m", "within_500m", "within_1km"
 )
 
@@ -114,7 +114,7 @@ compute_oof_predictions <- function(
   model_data,
   trained_model,
   fold_assignment,
-  offset = 1e-4
+  offset = GBM_LOG_OFFSET
 ) {
   # Produce honest out-of-fold pred_dist for every covered candidate row. For
   # each fold, refit the LightGBM workflow on the other k-1 folds and predict the
@@ -177,14 +177,12 @@ select_oof_matches <- function(
   # missing error (needed for honest per-stratum match rates). Attaches the four
   # stratification axes: vintage, region, match source, urban/rural.
 
-  # Selected (geocoded) match per station. The chosen row's `dist` is the
-  # realized haversine error to TSE, in km.
-  selected <- oof_predictions[
-    order(local_id, pred_dist),
-    .SD[1],
-    by = local_id
-  ]
-  selected <- selected[, .(
+  # Selected (geocoded) match per station. oof_predictions arrives sorted by
+  # (local_id, pred_dist) from compute_oof_predictions(), so the first row per
+  # station is its best (smallest predicted-error) candidate; unique(by=...)
+  # takes it without a re-sort or per-group .SD allocation. The chosen row's
+  # `dist` is the realized haversine error to TSE, in km.
+  selected <- unique(oof_predictions, by = "local_id")[, .(
     local_id,
     match_source = match_type,
     error_km = dist,
@@ -255,15 +253,13 @@ accuracy_metrics <- function(error_km) {
   e <- error_km[!is.na(error_km)]
   if (length(e) == 0) {
     return(list(
-      median_km = NA_real_, p50 = NA_real_, p90 = NA_real_,
-      p95 = NA_real_, p99 = NA_real_,
+      median_km = NA_real_, p90 = NA_real_, p95 = NA_real_, p99 = NA_real_,
       within_100m = NA_real_, within_500m = NA_real_, within_1km = NA_real_
     ))
   }
   qs <- stats::quantile(e, probs = c(.5, .9, .95, .99), names = FALSE)
   list(
-    median_km = qs[1],
-    p50 = qs[1],
+    median_km = qs[1],  # the 50th percentile / median
     p90 = qs[2],
     p95 = qs[3],
     p99 = qs[4],
@@ -273,18 +269,21 @@ accuracy_metrics <- function(error_km) {
   )
 }
 
-.accuracy_by <- function(dt, by_cols, stratum, min_cell_n) {
+.accuracy_by <- function(dt, by_cols, min_cell_n) {
   # Compute the metric ladder + match rate for one grouping of the covered
   # universe. `by_cols` is a character vector of grouping columns (empty for the
-  # overall row). Accuracy is measured on geocoded stations; match rate is the
-  # share of covered stations in the stratum that were geocoded at all
-  # (accuracy and match rate always reported jointly, per the spec).
-  work <- copy(dt)
-  if (length(by_cols) == 0) {
-    work[, .all := "all"]
+  # overall row); the stratum label is derived from it. Accuracy is measured on
+  # geocoded stations; match rate is the share of covered stations in the stratum
+  # that were geocoded at all (accuracy and match rate always reported jointly,
+  # per the spec).
+  stratum <- if (length(by_cols) == 0L) "overall" else paste(by_cols, collapse = ":")
+  # Copy only when adding the synthetic grouping column for the overall case;
+  # the per-axis calls group by existing columns and need no copy.
+  if (length(by_cols) == 0L) {
+    dt <- copy(dt)[, .all := "all"]
     by_cols <- ".all"
   }
-  res <- work[, {
+  res <- dt[, {
     ng <- sum(geocoded)
     c(
       list(
@@ -315,26 +314,17 @@ compute_accuracy_tables <- function(
   # (urban/rural, region, vintage, match source), and the two urban/rural
   # crosses. Returned as one tidy long data.table keyed by (stratum, level).
   tabs <- list(
-    .accuracy_by(selected_matches, character(0), "overall", min_cell_n),
-    .accuracy_by(selected_matches, "urban_rural", "urban_rural", min_cell_n),
-    .accuracy_by(selected_matches, "region", "region", min_cell_n),
-    .accuracy_by(selected_matches, "vintage", "vintage", min_cell_n),
-    .accuracy_by(
-      selected_matches, c("urban_rural", "vintage"),
-      "urban_rural:vintage", min_cell_n
-    ),
-    .accuracy_by(
-      selected_matches, c("urban_rural", "region"),
-      "urban_rural:region", min_cell_n
-    )
+    .accuracy_by(selected_matches, character(0), min_cell_n),
+    .accuracy_by(selected_matches, "urban_rural", min_cell_n),
+    .accuracy_by(selected_matches, "region", min_cell_n),
+    .accuracy_by(selected_matches, "vintage", min_cell_n),
+    .accuracy_by(selected_matches, c("urban_rural", "vintage"), min_cell_n),
+    .accuracy_by(selected_matches, c("urban_rural", "region"), min_cell_n)
   )
 
   # Match source is only defined for geocoded stations, so its match rate is not
   # meaningful (denominator would be geocoded-only). Report accuracy + N only.
-  ms <- .accuracy_by(
-    selected_matches[geocoded == TRUE], "match_source",
-    "match_source", min_cell_n
-  )
+  ms <- .accuracy_by(selected_matches[geocoded == TRUE], "match_source", min_cell_n)
   ms[, match_rate := NA_real_]
   tabs[[length(tabs) + 1L]] <- ms
 

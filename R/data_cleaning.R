@@ -229,11 +229,11 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
 }
 
 clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
-  # tse_files lists the TSE geocoded ground-truth files (2018, 2020, 2022). The
-  # 2024 file is added only by the 2024 release work (#22/#23); until then,
-  # assert the expected count so a missing file fails loud here rather than
-  # being silently dropped by an existence guard (cleanup phase 3, finding H1).
-  expected_tse_files <- 3L
+  # tse_files lists the TSE geocoded ground-truth files (2018, 2020, 2022, 2024).
+  # The 2024 file was re-wired in for the 2006-2024 re-release (#48); assert the
+  # expected count so a missing file fails loud here rather than being silently
+  # dropped by an existence guard (cleanup phase 3, finding H1).
+  expected_tse_files <- 4L
   if (length(tse_files) != expected_tse_files) {
     stop(sprintf(
       "Expected %d TSE geocoded files, got %d: %s",
@@ -437,7 +437,27 @@ import_locais <- function(locais_file, muni_ids) {
   # Remove polling stations abroad
   locais_data <- locais_data[sg_uf != "ZZ"]
 
-  # Filter and add local_id
+  # Deterministic local_id (H6, #36/#48). Order the rows by the natural
+  # station-year key and assign local_id from that ordering, so the id no longer
+  # depends on the input file's row order (the former `local_id := .I` was
+  # run-order-dependent, breaking reproducibility). The key
+  # (ano, cod_localidade_ibge, nr_zona, nr_locvot) is verified unique across the
+  # full 2006-2024 input; the stop() below makes that a permanent invariant. As a
+  # consequence local_id values are reproducible within a release but are NOT
+  # comparable across releases (documented in the v0.15 release notes).
+  id_keys <- c("ano", "cod_localidade_ibge", "nr_zona", "nr_locvot")
+  n_dup <- sum(duplicated(locais_data, by = id_keys))
+  if (n_dup > 0L) {
+    stop(sprintf(
+      paste0(
+        "local_id key not unique: %d duplicate rows on ",
+        "(ano, cod_localidade_ibge, nr_zona, nr_locvot) in the polling-station ",
+        "input. A deterministic local_id requires this key to be unique."
+      ),
+      n_dup
+    ))
+  }
+  setorderv(locais_data, id_keys, na.last = TRUE)
   locais_data[, local_id := .I]
 
   return(locais_data)

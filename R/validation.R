@@ -716,3 +716,178 @@ create_data_quality_monitor <- function(geocoded_export, panelid_export,
 
   return(results)
 }
+
+# ===== RELEASE GATES (2006-2024 re-release, #48) =====
+# Structural, fail-loud tripwires on the production rebuild, extending the
+# testing spec's dev-mode checks to the full run (release spec §Validation
+# gates). Any failed gate stop()s so a broken build is never shipped.
+
+# The exact exported column set (schema §decision 7: no column added or removed).
+# This is the full geocoded_locais schema written to
+# geocoded_polling_stations.csv.gz, in the order finalize_coords() produces it.
+# The gate asserts set equality, so an accidentally dropped OR added column trips
+# it; a deliberate schema change must update this list (which is the point).
+# Provenance is derivable (tse_lat/tse_long non-NA, or pred_dist == 0), so no
+# coord_source column is added.
+RELEASE_EXPORT_COLS <- c(
+  "cd_localidade_tse", "ano", "nr_zona", "nr_locvot", "nr_cep", "sg_uf",
+  "nm_localidade", "nm_locvot", "ds_endereco", "ds_bairro",
+  "cod_localidade_ibge", "local_id",
+  "pred_long", "pred_lat", "pred_dist",
+  "tse_lat", "tse_long", "final_long", "final_lat"
+)
+
+# All election years the pipeline geocodes.
+RELEASE_EXPECTED_YEARS <- seq(2006L, 2024L, by = 2L)
+
+# Sane-scale bounds for the 2024 partition (address count 93,337; station count
+# ~93,339). A generous band: the gate catches a collapsed/exploded year, not a
+# few-hundred-station drift.
+RELEASE_N_2024_MIN <- 85000L
+RELEASE_N_2024_MAX <- 100000L
+
+# Plausible national band for any single election year. Brazilian polling-station
+# counts sit around 90-96k per year, so this catches both a collapse and an
+# explosion (e.g. a many-to-many merge doubling a year to ~180k).
+RELEASE_N_YEAR_MIN <- 50000L
+RELEASE_N_YEAR_MAX <- 120000L
+
+# Landed 2024 TSE-coverage hard gate (decision 2).
+RELEASE_TSE_COVERAGE_GATE <- 92
+
+# Per-year TSE-coverage regression floor for the TSE-bearing vintages (2018+).
+# Raw TSE availability is ~90-94% and the identity join is near-lossless, so a
+# vintage landing below this floor signals a merge regression (decision 2). This
+# run's per-year coverage becomes the frozen baseline future runs compare against.
+RELEASE_TSE_VINTAGE_FLOOR <- 85
+
+validate_release_gates <- function(geocoded_locais,
+                                   tse_coverage,
+                                   export_paths,
+                                   dev_mode) {
+  # Read-only, so avoid a defensive deep copy of the ~945k-row national table
+  # when it already arrives as a data.table (it does, from finalize_coords()).
+  dt <- if (is.data.table(geocoded_locais)) {
+    geocoded_locais
+  } else {
+    as.data.table(geocoded_locais)
+  }
+  failures <- character(0)
+  add_fail <- function(...) failures <<- c(failures, sprintf(...))
+
+  # Gate 1: all election years present, with a non-empty 2024 partition.
+  present_years <- sort(unique(dt$ano))
+  missing_years <- setdiff(RELEASE_EXPECTED_YEARS, present_years)
+  if (length(missing_years) > 0) {
+    add_fail("Gate 1 (all years): missing election years: %s",
+             paste(missing_years, collapse = ", "))
+  }
+  n_2024 <- dt[ano == 2024L, .N]
+  if (n_2024 == 0L) {
+    add_fail("Gate 1 (all years): 2024 partition is empty")
+  }
+
+  # Gate 2: exported schema exactly unchanged - no column removed or added.
+  missing_cols <- setdiff(RELEASE_EXPORT_COLS, names(dt))
+  extra_cols <- setdiff(names(dt), RELEASE_EXPORT_COLS)
+  if (length(missing_cols) > 0) {
+    add_fail("Gate 2 (schema): missing columns: %s",
+             paste(missing_cols, collapse = ", "))
+  }
+  if (length(extra_cols) > 0) {
+    add_fail("Gate 2 (schema): unexpected extra columns: %s",
+             paste(extra_cols, collapse = ", "))
+  }
+
+  # Gate 3: coordinates not all-NA in any year.
+  coord_by_year <- dt[, .(
+    n = .N,
+    n_coord = sum(!is.na(final_lat) & !is.na(final_long))
+  ), by = ano][order(ano)]
+  zero_coord_years <- coord_by_year[n_coord == 0L, ano]
+  if (length(zero_coord_years) > 0) {
+    add_fail("Gate 3 (coords): years with zero non-NA coordinates: %s",
+             paste(zero_coord_years, collapse = ", "))
+  }
+
+  # Gate 4: output files exist on disk.
+  for (p in export_paths) {
+    if (!file.exists(p)) {
+      add_fail("Gate 4 (files): output file missing: %s", p)
+    }
+  }
+
+  # Gate 5: sane per-year row counts. Absolute national scale, production only
+  # (dev mode processes AC/RR, so national counts do not apply).
+  if (!isTRUE(dev_mode)) {
+    # 2024 has a tight expected band (address count 93,337).
+    if (n_2024 < RELEASE_N_2024_MIN || n_2024 > RELEASE_N_2024_MAX) {
+      add_fail("Gate 5 (counts): 2024 station count %d outside sane range [%d, %d]",
+               n_2024, RELEASE_N_2024_MIN, RELEASE_N_2024_MAX)
+    }
+    # Every other year must sit within the plausible national band, catching both
+    # a collapse (too few) and an explosion (a merge doubling the year).
+    off <- coord_by_year[
+      ano != 2024L & (n < RELEASE_N_YEAR_MIN | n > RELEASE_N_YEAR_MAX)
+    ]
+    if (nrow(off) > 0) {
+      add_fail("Gate 5 (counts): years outside plausible national range [%d, %d]: %s",
+               RELEASE_N_YEAR_MIN, RELEASE_N_YEAR_MAX,
+               paste(sprintf("%d=%d", off$ano, off$n), collapse = ", "))
+    }
+  }
+
+  # Gates 6 & 7: landed TSE coverage, aggregated from the per-year x state
+  # tse_coverage target to per-year landed coverage.
+  cov <- as.data.table(tse_coverage)
+  cov_year <- cov[, .(
+    n_total = sum(n_total),
+    n_covered = sum(n_covered)
+  ), by = ano]
+  cov_year[, coverage_pct := 100 * n_covered / n_total]
+  setorder(cov_year, ano)
+
+  # Gate 6: landed 2024 TSE coverage >= 92% (hard gate).
+  cov_2024 <- cov_year[ano == 2024L, coverage_pct]
+  if (length(cov_2024) == 0) {
+    add_fail("Gate 6 (2024 coverage): no 2024 rows in tse_coverage")
+  } else if (cov_2024 < RELEASE_TSE_COVERAGE_GATE) {
+    add_fail("Gate 6 (2024 coverage): landed 2024 TSE coverage %.2f%% < %d%% gate",
+             cov_2024, RELEASE_TSE_COVERAGE_GATE)
+  }
+
+  # Gate 7: per-year TSE-coverage regression tripwire. TSE coordinates begin with
+  # the 2018 vintage; each TSE-bearing vintage must clear the floor so the
+  # merge-gap fix / deterministic local_id did not silently drop earlier-year
+  # coverage.
+  tse_vintages <- intersect(c(2018L, 2020L, 2022L, 2024L), cov_year$ano)
+  low <- cov_year[ano %in% tse_vintages & coverage_pct < RELEASE_TSE_VINTAGE_FLOOR]
+  if (nrow(low) > 0) {
+    add_fail("Gate 7 (coverage regression): TSE vintages below %d%% floor: %s",
+             RELEASE_TSE_VINTAGE_FLOOR,
+             paste(sprintf("%d=%.1f%%", low$ano, low$coverage_pct), collapse = ", "))
+  }
+
+  summary <- list(
+    passed = length(failures) == 0,
+    failures = failures,
+    dev_mode = isTRUE(dev_mode),
+    years_present = present_years,
+    n_2024 = n_2024,
+    coverage_by_year = cov_year[],
+    coord_by_year = coord_by_year[]
+  )
+
+  if (length(failures) > 0) {
+    stop(sprintf(
+      "Release gates FAILED (release spec Validation gates) - do not ship:\n  - %s",
+      paste(failures, collapse = "\n  - ")
+    ))
+  }
+  message(sprintf(
+    "Release gates PASSED: %d years present (%s); 2024 n=%d; 2024 landed TSE coverage=%.2f%%",
+    length(present_years), paste(present_years, collapse = ","),
+    n_2024, cov_2024
+  ))
+  summary
+}

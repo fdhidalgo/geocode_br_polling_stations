@@ -54,6 +54,13 @@ refit on other municipalities' folds, never on its own (spec section 3). Error i
 the haversine distance (km) from the model-selected coordinate to the
 field-collected TSE coordinate. Accuracy and match rate are always reported
 jointly (they trade off). Strata below the held-out N floor are suppressed.
+
+*One caveat on "leakage-controlled": the per-fold refits are leak-free, but the
+model hyperparameters were tuned once on the production split and reused across
+folds rather than re-tuned per fold. This leaves a weak residual
+hyperparameter-selection channel — a deliberately accepted simplification over
+nested per-fold tuning, so these numbers may be marginally optimistic relative to
+a fully nested estimate.*
 :::::
 
 ```{r}

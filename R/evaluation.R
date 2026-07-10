@@ -118,9 +118,17 @@ compute_oof_predictions <- function(
 ) {
   # Produce honest out-of-fold pred_dist for every covered candidate row. For
   # each fold, refit the LightGBM workflow on the other k-1 folds and predict the
-  # held-out fold, reusing the production model's already-tuned (leak-controlled,
-  # cleanup phase 2 / #33) hyperparameters. Hyperparameters are fixed upstream of
-  # this cross-fit, so tuning never sees a fold as both train and evaluation.
+  # held-out fold, reusing the production model's tuned hyperparameters. The
+  # refits themselves are leak-free: no station's prediction is ever trained on
+  # that station's own fold (this is the primary leak the C4 fix / #33 controls).
+  #
+  # One residual, deliberately accepted channel remains: the hyperparameters were
+  # chosen by the production tuner's cross-validation, whose training split can
+  # include municipalities that later fall in an OOF evaluation fold. This is a
+  # weak, low-dimensional channel (six hyperparameters selected by aggregate CV
+  # score, not per-row TSE targets). Eliminating it fully would require nested
+  # per-fold tuning (k x the already hours-long tune), judged not worth it; it is
+  # documented here and in the reports rather than hidden.
   library(bonsai)  # registers the lightgbm engine on the worker
 
   covered <- model_data[!is.na(dist) & !is.na(mindist)]

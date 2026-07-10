@@ -310,7 +310,11 @@ uncovered subset is unmeasured, not silently folded into the headline.** These
 figures are produced by the evaluation harness targets (`accuracy_tables`,
 `calibration_check`, `tse_coverage`; see `R/evaluation.R` and
 `docs/specs/2026-07-evaluation-spec.md`) and are rebuilt with the pipeline so this
-document stays in lockstep with them.
+document stays in lockstep with them. (One caveat: the per-fold refits are
+leak-free, but the model hyperparameters were tuned once on the production split
+and reused across folds rather than re-tuned per fold, leaving a weak residual
+hyperparameter-selection channel — an accepted simplification over nested tuning,
+so these figures may be marginally optimistic.)
 
 ```{r}
 #| label: load-eval-targets

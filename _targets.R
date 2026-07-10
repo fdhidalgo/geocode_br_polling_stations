@@ -568,7 +568,8 @@ list(
     command = c(
       "./data/eleitorado_local_votacao_2018.csv.gz",
       "./data/eleitorado_local_votacao_2020.csv.gz",
-      "./data/eleitorado_local_votacao_2022.csv.gz"
+      "./data/eleitorado_local_votacao_2022.csv.gz",
+      "./data/eleitorado_local_votacao_2024.csv.gz"
     ),
     format = "file",
     repository = "local"  # Force local storage for file targets to avoid S3 issues
@@ -1140,6 +1141,19 @@ list(
       "output/section_panel_mapping.csv.gz"
     }
     # Now a data target that returns the file path (stored in S3)
+  ),
+  ## Release gates: fail-loud structural tripwires on the production rebuild
+  ## before it can be shipped as v0.15 (release spec, #48). Depends on the export
+  ## paths so gate 4 (output files exist) checks the written files.
+  tar_target(
+    name = release_gates,
+    command = validate_release_gates(
+      geocoded_locais = geocoded_locais,
+      tse_coverage = tse_coverage,
+      export_paths = c(geocoded_export, panelid_export),
+      dev_mode = pipeline_config$dev_mode
+    ),
+    cue = tar_cue(mode = "always")
   ),
   ## Data Quality Monitoring
   tar_target(

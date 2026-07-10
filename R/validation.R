@@ -716,3 +716,154 @@ create_data_quality_monitor <- function(geocoded_export, panelid_export,
 
   return(results)
 }
+
+# ===== RELEASE GATES (2006-2024 re-release, #48) =====
+# Structural, fail-loud tripwires on the production rebuild, extending the
+# testing spec's dev-mode checks to the full run (release spec §Validation
+# gates). Any failed gate stop()s so a broken build is never shipped.
+
+# The documented released column set (schema §decision 7: columns stay stable).
+# Provenance is derivable from these (tse_lat/tse_long non-NA, or pred_dist == 0),
+# so no coord_source column is added.
+RELEASE_SCHEMA_COLS <- c(
+  "local_id", "ano", "sg_uf", "cod_localidade_ibge",
+  "nr_zona", "nr_locvot", "nm_locvot", "nm_localidade",
+  "final_lat", "final_long", "tse_lat", "tse_long",
+  "pred_lat", "pred_long", "pred_dist"
+)
+
+# All election years the pipeline geocodes.
+RELEASE_EXPECTED_YEARS <- seq(2006L, 2024L, by = 2L)
+
+# Sane-scale bounds for the 2024 partition (address count 93,337; station count
+# ~93,339). A generous band: the gate catches a collapsed/exploded year, not a
+# few-hundred-station drift.
+RELEASE_N_2024_MIN <- 85000L
+RELEASE_N_2024_MAX <- 100000L
+
+# Floor below which any single year is implausibly small (national scale).
+RELEASE_N_YEAR_MIN <- 50000L
+
+# Landed 2024 TSE-coverage hard gate (decision 2).
+RELEASE_TSE_COVERAGE_GATE <- 92
+
+# Per-year TSE-coverage regression floor for the TSE-bearing vintages (2018+).
+# Raw TSE availability is ~90-94% and the identity join is near-lossless, so a
+# vintage landing below this floor signals a merge regression (decision 2). This
+# run's per-year coverage becomes the frozen baseline future runs compare against.
+RELEASE_TSE_VINTAGE_FLOOR <- 85
+
+validate_release_gates <- function(geocoded_locais,
+                                   tse_coverage,
+                                   export_paths,
+                                   dev_mode) {
+  dt <- as.data.table(geocoded_locais)
+  failures <- character(0)
+  add_fail <- function(...) failures <<- c(failures, sprintf(...))
+
+  # Gate 1: all election years present, with a non-empty 2024 partition.
+  present_years <- sort(unique(dt$ano))
+  missing_years <- setdiff(RELEASE_EXPECTED_YEARS, present_years)
+  if (length(missing_years) > 0) {
+    add_fail("Gate 1 (all years): missing election years: %s",
+             paste(missing_years, collapse = ", "))
+  }
+  n_2024 <- dt[ano == 2024L, .N]
+  if (n_2024 == 0L) {
+    add_fail("Gate 1 (all years): 2024 partition is empty")
+  }
+
+  # Gate 2: documented schema present.
+  missing_cols <- setdiff(RELEASE_SCHEMA_COLS, names(dt))
+  if (length(missing_cols) > 0) {
+    add_fail("Gate 2 (schema): missing columns: %s",
+             paste(missing_cols, collapse = ", "))
+  }
+
+  # Gate 3: coordinates not all-NA in any year.
+  coord_by_year <- dt[, .(
+    n = .N,
+    n_coord = sum(!is.na(final_lat) & !is.na(final_long))
+  ), by = ano][order(ano)]
+  zero_coord_years <- coord_by_year[n_coord == 0L, ano]
+  if (length(zero_coord_years) > 0) {
+    add_fail("Gate 3 (coords): years with zero non-NA coordinates: %s",
+             paste(zero_coord_years, collapse = ", "))
+  }
+
+  # Gate 4: output files exist on disk.
+  for (p in export_paths) {
+    if (!file.exists(p)) {
+      add_fail("Gate 4 (files): output file missing: %s", p)
+    }
+  }
+
+  # Gate 5: sane per-year row counts. Absolute national scale, production only
+  # (dev mode processes AC/RR, so national counts do not apply).
+  if (!isTRUE(dev_mode)) {
+    if (n_2024 < RELEASE_N_2024_MIN || n_2024 > RELEASE_N_2024_MAX) {
+      add_fail("Gate 5 (counts): 2024 station count %d outside sane range [%d, %d]",
+               n_2024, RELEASE_N_2024_MIN, RELEASE_N_2024_MAX)
+    }
+    tiny <- coord_by_year[ano != 2024L & n < RELEASE_N_YEAR_MIN]
+    if (nrow(tiny) > 0) {
+      add_fail("Gate 5 (counts): years with implausibly few rows (< %d): %s",
+               RELEASE_N_YEAR_MIN, paste(tiny$ano, collapse = ", "))
+    }
+  }
+
+  # Gates 6 & 7: landed TSE coverage, aggregated from the per-year x state
+  # tse_coverage target to per-year landed coverage.
+  cov <- as.data.table(tse_coverage)
+  cov_year <- cov[, .(
+    n_total = sum(n_total),
+    n_covered = sum(n_covered)
+  ), by = ano]
+  cov_year[, coverage_pct := 100 * n_covered / n_total]
+  setorder(cov_year, ano)
+
+  # Gate 6: landed 2024 TSE coverage >= 92% (hard gate).
+  cov_2024 <- cov_year[ano == 2024L, coverage_pct]
+  if (length(cov_2024) == 0) {
+    add_fail("Gate 6 (2024 coverage): no 2024 rows in tse_coverage")
+    cov_2024 <- NA_real_
+  } else if (cov_2024 < RELEASE_TSE_COVERAGE_GATE) {
+    add_fail("Gate 6 (2024 coverage): landed 2024 TSE coverage %.2f%% < %d%% gate",
+             cov_2024, RELEASE_TSE_COVERAGE_GATE)
+  }
+
+  # Gate 7: per-year TSE-coverage regression tripwire. TSE coordinates begin with
+  # the 2018 vintage; each TSE-bearing vintage must clear the floor so the
+  # merge-gap fix / deterministic local_id did not silently drop earlier-year
+  # coverage.
+  tse_vintages <- intersect(c(2018L, 2020L, 2022L, 2024L), cov_year$ano)
+  low <- cov_year[ano %in% tse_vintages & coverage_pct < RELEASE_TSE_VINTAGE_FLOOR]
+  if (nrow(low) > 0) {
+    add_fail("Gate 7 (coverage regression): TSE vintages below %d%% floor: %s",
+             RELEASE_TSE_VINTAGE_FLOOR,
+             paste(sprintf("%d=%.1f%%", low$ano, low$coverage_pct), collapse = ", "))
+  }
+
+  summary <- list(
+    passed = length(failures) == 0,
+    failures = failures,
+    dev_mode = isTRUE(dev_mode),
+    years_present = present_years,
+    n_2024 = n_2024,
+    coverage_by_year = cov_year[],
+    coord_by_year = coord_by_year[]
+  )
+
+  if (length(failures) > 0) {
+    stop(sprintf(
+      "Release gates FAILED (release spec Validation gates) - do not ship:\n  - %s",
+      paste(failures, collapse = "\n  - ")
+    ))
+  }
+  message(sprintf(
+    "Release gates PASSED: %d years present (%s); 2024 n=%d; 2024 landed TSE coverage=%.2f%%",
+    length(present_years), paste(present_years, collapse = ","),
+    n_2024, cov_2024
+  ))
+  summary
+}

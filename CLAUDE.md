@@ -13,24 +13,26 @@ This R project geocodes Brazilian polling stations (2006-2022) using administrat
 ### Development Mode (IMPORTANT)
 **Always use development mode when testing pipeline changes** - the full pipeline takes hours. Dev mode restricts processing to a small subset of data (AC and RR states, the two smallest, defined in `get_pipeline_config()` in `R/config.R`).
 
-To enable it, set **both** flags in `_targets.R` to `TRUE`:
-- the `dev_mode_flag` target's `command` (drives `pipeline_config` and all data filtering)
-- `dev_mode_flag_value` near the top of the file (gates AWS S3 — dev mode stays fully local)
-
-These are intentionally separate: `dev_mode_flag_value` runs before the pipeline is built, so it can't read the target. Keep the two in sync.
+Dev mode is a single switch: the `TAR_PROJECT` environment variable selects a
+`targets` project profile (defined in `_targets.yaml`). Setting `TAR_PROJECT=dev`
+selects the `dev` profile, which uses its own data store (`_targets_dev/`), processes
+only the AC/RR subset, and stays fully local (never touches S3). The default (`main`)
+profile is production. In `_targets.R`, `DEV_MODE <- identical(Sys.getenv("TAR_PROJECT"), "dev")`
+derives a single constant that drives both the S3 gate and the `dev_mode_flag` target,
+so the two can no longer disagree. There is nothing to edit — you just set the env var.
 
 ```bash
-# Check if dev mode is enabled
-grep "dev_mode_flag" _targets.R
+# Run pipeline in dev mode (fast - minutes instead of hours; store: _targets_dev/)
+TAR_PROJECT=dev R -e "targets::tar_make()"
 
-# Run pipeline in dev mode (fast - minutes instead of hours)
+# Run a specific target in dev mode
+TAR_PROJECT=dev R -e "targets::tar_make(names = 'target_name')"
+
+# Check pipeline status in dev mode
+TAR_PROJECT=dev R -e "targets::tar_visnetwork()"
+
+# Production runs use the default profile (store: _targets/, S3-backed) — omit TAR_PROJECT
 R -e "targets::tar_make()"
-
-# Run specific targets
-R -e "targets::tar_make(names = 'target_name')"
-
-# Check pipeline status
-R -e "targets::tar_visnetwork()"
 ```
 
 ### Full Pipeline Commands

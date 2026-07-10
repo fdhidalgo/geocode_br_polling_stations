@@ -5,8 +5,11 @@ options(Ncpus = parallel::detectCores())
 options(pkgType = "binary")
 options(renv.config.pak.enabled = TRUE)
 
-# Only enable rspm on Linux systems
-if (Sys.info()[["sysname"]] == "Linux") {
+# Only enable rspm on Linux systems.
+# Guard with requireNamespace() so a fresh clone (where rspm is not yet
+# installed) can still evaluate .Rprofile and run renv::restore() to bootstrap.
+if (Sys.info()[["sysname"]] == "Linux" &&
+  requireNamespace("rspm", quietly = TRUE)) {
   suppressMessages(rspm::enable())
 }
 

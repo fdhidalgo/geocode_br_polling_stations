@@ -12,8 +12,13 @@
 # Parallel processing is managed using the crew package for efficient computation.
 
 # ===== CONFIGURATION =====
-# Development mode flag - set to TRUE for faster iteration with subset of states
-# DEV_MODE is now a target - see dev_mode_flag target below
+# Development mode is selected by the TAR_PROJECT environment variable, using the
+# standard `targets` project-profile mechanism (see _targets.yaml): TAR_PROJECT=dev
+# runs against the `dev` profile (store _targets_dev, AC/RR subset, fully local),
+# while the default `main` profile is production (store _targets, full Brazil, S3).
+# DEV_MODE is the single derived constant; everything downstream reads from it, so
+# the S3 gate and the data filtering can never disagree.
+DEV_MODE <- identical(Sys.getenv("TAR_PROJECT"), "dev")
 
 # ===== SETUP =====
 # Load packages required to define the pipeline:
@@ -75,12 +80,20 @@ if (targets::tar_active()) {
 # Set target options using configuration function
 configure_targets_options(controller_group)
 
-# Configure AWS S3 cloud storage for production mode only
-# DEV_MODE targets remain local for faster iteration
-# Check dev_mode_flag directly from the target definition below
-dev_mode_flag_value <- FALSE # This should match the dev_mode_flag target value
-
-if (!dev_mode_flag_value) {
+# Configure AWS S3 cloud storage for production mode only; dev runs stay fully
+# local. Gated on the single DEV_MODE constant (defined above).
+if (!DEV_MODE) {
+  # Production uses the AWS S3 backend. targets loads paws.storage by string when
+  # repository = "aws", so it is otherwise invisible to renv's dependency scanner;
+  # naming it here both fails loud on a fresh machine that lacks it and keeps it in
+  # the lockfile across snapshots.
+  if (!requireNamespace("paws.storage", quietly = TRUE)) {
+    stop(
+      "Production mode requires the 'paws.storage' package for S3 storage. ",
+      "Install it (renv::install(\"paws.storage\")) or run in dev mode ",
+      "(TAR_PROJECT=dev)."
+    )
+  }
   # Only configure S3 in production mode
   # Need to preserve existing crew resources and add AWS resources
   existing_resources <- tar_option_get("resources")
@@ -109,10 +122,11 @@ list(
   # CONFIGURATION TARGETS
   # ========================================
 
-  # Development mode flag - controls whether to process all states or just AC/RR
+  # Development mode flag - controls whether to process all states or just AC/RR.
+  # Spliced from the single DEV_MODE constant (defined above).
   tar_target(
     name = dev_mode_flag,
-    command = FALSE # Set to TRUE for development mode (AC/RR states only)
+    command = !!DEV_MODE
   ),
 
   # Pipeline configuration based on development mode

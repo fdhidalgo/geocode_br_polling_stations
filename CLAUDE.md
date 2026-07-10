@@ -11,11 +11,17 @@ This R project geocodes Brazilian polling stations (2006-2022) using administrat
 ## Key Commands
 
 ### Development Mode (IMPORTANT)
-**Always use development mode when testing pipeline changes** - the full pipeline takes hours. Set `DEV_MODE = TRUE` in `_targets.R` to work with a small subset of data (AC and RR states only):
+**Always use development mode when testing pipeline changes** - the full pipeline takes hours. Dev mode restricts processing to a small subset of data (AC and RR states, the two smallest, defined in `get_pipeline_config()` in `R/config.R`).
+
+To enable it, set **both** flags in `_targets.R` to `TRUE`:
+- the `dev_mode_flag` target's `command` (drives `pipeline_config` and all data filtering)
+- `dev_mode_flag_value` near the top of the file (gates AWS S3 — dev mode stays fully local)
+
+These are intentionally separate: `dev_mode_flag_value` runs before the pipeline is built, so it can't read the target. Keep the two in sync.
 
 ```bash
 # Check if dev mode is enabled
-grep "DEV_MODE" _targets.R
+grep "dev_mode_flag" _targets.R
 
 # Run pipeline in dev mode (fast - minutes instead of hours)
 R -e "targets::tar_make()"
@@ -42,17 +48,19 @@ R -e "targets::tar_make()"
 ### Data Pipeline (`_targets.R`)
 The project uses `targets` package for pipeline management with these stages:
 1. **Data Import**: Municipal data, CNEFE census data, polling station addresses
-2. **Data Cleaning**: Normalize addresses using `R/data_cleaning_fns.R`
-3. **String Matching**: Fuzzy match polling stations to known coordinates using `R/string_matching_geocode_fns.R`
-4. **Model Training**: Train boosted trees (lightgbm) to select best matches
-5. **Panel Creation**: Create temporal identifiers using `R/panel_id_fns.R`
-6. **Validation**: Validate outputs using `R/functions_validate.R`
+2. **Data Cleaning**: Normalize addresses using `R/data_cleaning.R`
+3. **String Matching**: Fuzzy match polling stations to known coordinates using `R/string_matching.R`
+4. **Model Training**: Train boosted trees (lightgbm via `bonsai`/`parsnip`) to select best matches — `R/model.R`
+5. **Panel Creation**: Create temporal identifiers using `R/panel_creation.R`
+6. **Validation**: Validate outputs using `R/validation.R`
+
+Other source files: `R/config.R` (pipeline config + crew controllers), `R/utilities.R` (helpers, `%||%`), `R/string_match_diagnostics.R` (match-quality reporting). Inventory functions with `grep "<- function" R/*.R`.
 
 ### Key Functions
-- **String Matching**: `match_inep_muni()`, `match_schools_cnefe_muni()` - fuzzy matching with Levenshtein distance
-- **Panel IDs**: Fellegi-Sunter record linkage with Jaro-Winkler similarity
-- **Data Cleaning**: `normalize_address()`, `normalize_names()`, `clean_cnefe_*()`
-- **Parallel Processing**: Uses `future` package, configured in `_targets.R`
+- **String Matching**: `match_inep_muni()`, `match_schools_cnefe_muni()`, `match_stbairro_cnefe_muni()`, `match_geocodebr_muni()` - fuzzy matching with Levenshtein/string distance (`R/string_matching.R`)
+- **Panel IDs**: Fellegi-Sunter record linkage (`reclin2`) with Jaro-Winkler similarity (`R/panel_creation.R`)
+- **Data Cleaning**: `normalize_address()`, `normalize_school()`, `clean_inep()`, `clean_agro_cnefe()`, `clean_tsegeocoded_locais()` (`R/data_cleaning.R`)
+- **Parallel Processing**: Uses `crew` (mirai-backed) local controllers, not `future`. Two controllers are defined in `get_crew_controllers()` in `R/config.R`: `standard` (up to 28 workers) and `memory_limited` (up to 8 workers) for memory-heavy CNEFE/matching targets. Assign a target to one via `resources = tar_resources(crew = tar_resources_crew(controller = "memory_limited"))`.
 
 ## Data Sources & Outputs
 
@@ -69,7 +77,7 @@ The project uses `targets` package for pipeline management with these stages:
 - Bucket: `geocode-br-polling-stations`
 - **Hybrid storage strategy**:
   - **Input file targets**: Local storage (`repository = "local"`) for tracking data files
-  - **Data targets**: S3 storage for computed objects (models, processed data)  
+  - **Data targets**: S3 storage for computed objects (models, processed data)
   - **Output data targets**: S3 storage, return file paths as strings
 - Only production mode uses S3 (DEV_MODE remains fully local)
 - Versioning enabled for milestone tracking
@@ -83,10 +91,14 @@ For setting up this project on a new computer with AWS S3 integration, see [AWS_
 
 ### Core Stack
 - **Data**: `data.table` for all operations
-- **Pipeline**: `targets` package
-- **Validation**: `validate` package
-- **Testing**: `testthat`
-- **Parallelization**: `future` package
+- **Pipeline**: `targets` (+ `tarchetypes`)
+- **Modeling**: `tidymodels` stack (`parsnip`, `recipes`, `workflows`, `tune`, `finetune`, `rsample`, `yardstick`) with `bonsai` for lightgbm
+- **Record linkage**: `reclin2`; **spatial**: `sf`, `geosphere`, `geobr`; **string distance**: `stringdist`, `stringr`
+- **Validation**: `validate` package (see `R/validation.R`)
+- **Parallelization**: `crew` (mirai-backed local controllers)
+- **Dependencies**: pinned with `renv` (`renv.lock`); `.Rprofile` prefers binary installs / `pak`
+
+Note: there is no active `testthat` suite — the `test_*.R` files under `backup/` are historical scratch scripts, not a maintained test directory.
 
 ### Code Standards
 - Use snake_case naming
@@ -116,7 +128,7 @@ For setting up this project on a new computer with AWS S3 integration, see [AWS_
 When encountering pipeline errors:
 1. Check error messages carefully for missing packages or functions
 2. **Check git history early** if behavior has unexpectedly changed: `git log -p -- <file>`
-3. Verify all required packages are in `tar_option_set` in `target_helpers.R`
+3. Verify all required packages are in the `packages` vector of `configure_targets_options()` in `R/config.R`
 4. Test individual components outside the pipeline first
 5. Use `tar_invalidate()` to force re-run of cached targets
 

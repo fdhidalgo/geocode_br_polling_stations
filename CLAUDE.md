@@ -183,3 +183,17 @@ EOF
 - **Escape Character Issues**: `!`, `$`, `\` in bash heredocs cause failures
 - **Debug Difficulty**: Large failing scripts are hard to troubleshoot
 - **Reliability**: Write tool and simple -e commands eliminate bash interaction issues
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as GitHub issues, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage labels, used as-is (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root, created lazily. See `docs/agents/domain.md`.

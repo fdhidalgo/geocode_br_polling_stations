@@ -37,3 +37,12 @@ test_that("repair_mixed_utf8 repairs a mixed vector element-wise", {
   # stri_trans_general (used in clean_text_for_geocodebr) must no longer error.
   expect_no_error(stringi::stri_trans_general(fixed, "Latin-ASCII"))
 })
+
+test_that("repair_mixed_utf8 handles NA alongside an invalid byte", {
+  # stri_enc_isutf8(NA) is NA; a logical index with NA would abort the
+  # subassignment. A column with a missing value plus a bad byte must still repair.
+  x <- c(make_mislabeled_no_sign(), NA_character_)
+  fixed <- repair_mixed_utf8(x)
+  expect_true(stringi::stri_enc_isutf8(fixed[1]))
+  expect_true(is.na(fixed[2]))
+})

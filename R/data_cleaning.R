@@ -365,7 +365,10 @@ repair_mixed_utf8 <- function(x) {
   # is (the per-string heuristic can't detect it); this is inherent to repairing a
   # mixed-encoding column without per-row source metadata, and does not arise for
   # the observed lone-high-byte case (e.g. 0xBA "Nº").
-  bad <- !stringi::stri_enc_isutf8(x)
+  # which() drops NAs: stri_enc_isutf8(NA) is NA, and a logical index containing
+  # NA would error in the subassignment ("NAs are not allowed in subscripted
+  # assignments"). NA strings need no repair and pass through enc2utf8() unchanged.
+  bad <- which(!stringi::stri_enc_isutf8(x))
   x[bad] <- iconv(x[bad], from = "latin1", to = "UTF-8")
   enc2utf8(x)
 }

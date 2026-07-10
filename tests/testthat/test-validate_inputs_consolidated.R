@@ -19,9 +19,11 @@ test_that("validate_inputs_consolidated stops when a dataset size is out of rang
 })
 
 test_that("validate_inputs_consolidated returns a passing result for in-range inputs", {
-  # Dev-mode ranges: muni 30-100, inep 1000-50000, locais 1000-20000.
+  # Dev-mode ranges: muni 30-100, locais 1000-20000. inep_codes is the national
+  # codes table in both modes (never filtered), so its range stays national
+  # (100000-300000) even under dev_config.
   muni <- data.table::data.table(x = seq_len(50))
-  inep <- data.table::data.table(x = seq_len(2000))
+  inep <- data.table::data.table(x = seq_len(150000))
   locais <- data.table::data.table(x = seq_len(2000))
   out <- validate_inputs_consolidated(muni, inep, locais, dev_config)
   expect_true(out$passed)

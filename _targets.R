@@ -1154,8 +1154,10 @@ list(
         panelid_export = panelid_export,
         geocoded_locais = geocoded_locais,
         panel_ids = panel_ids,
-        # Thresholds from former config file
-        expected_municipality_count = 5570,
+        # Thresholds from former config file. The expected municipality count is
+        # derived from the states this run processes so a dev-filtered (AC/RR)
+        # output does not trip the CRITICAL municipality-count check.
+        expected_municipality_count = get_expected_municipality_count_for_config(pipeline_config),
         muni_count_tolerance = 50,
         extreme_change_threshold = 30,
         duplicate_coord_threshold = 10,

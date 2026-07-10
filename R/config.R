@@ -151,6 +151,19 @@ get_expected_municipality_count <- function(state_abbrev) {
   return(count)
 }
 
+get_expected_municipality_count_for_config <- function(pipeline_config) {
+  # Total expected municipality count for the states this run actually processes:
+  # the sum of per-state IBGE counts for the dev subset, or the national 5570 in
+  # production. Keeps the data-quality monitor's municipality-count check (and its
+  # CRITICAL-status stop) from firing on a legitimately dev-filtered output
+  # (cleanup phase 3, finding H4 wiring; Codex triage).
+  if (pipeline_config$dev_mode) {
+    sum(vapply(pipeline_config$dev_states, get_expected_municipality_count, numeric(1)))
+  } else {
+    5570
+  }
+}
+
 get_expected_municipality_range <- function(state_abbrev, tolerance = 0.05) {
   # Get expected range of municipalities allowing for some tolerance
   # Useful for validation as municipality counts can change slightly

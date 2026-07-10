@@ -13,3 +13,15 @@ test_that("get_expected_municipality_count stops on an unknown state", {
     "Unknown state abbreviation: ZZ"
   )
 })
+
+test_that("get_expected_municipality_count_for_config sums the dev states, else national", {
+  # Dev mode processes AC (22) + RR (15) = 37; production is the national 5570.
+  expect_equal(
+    get_expected_municipality_count_for_config(list(dev_mode = TRUE, dev_states = c("AC", "RR"))),
+    37
+  )
+  expect_equal(
+    get_expected_municipality_count_for_config(list(dev_mode = FALSE, dev_states = NULL)),
+    5570
+  )
+})

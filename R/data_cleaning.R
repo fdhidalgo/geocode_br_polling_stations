@@ -658,14 +658,11 @@ convert_coords_dms <- function(coord_strings) {
   #   - a 4th token containing S, W, or O        -> result negated
   # (CNEFE 2022 already has numeric coordinates and never calls this.)
   n <- length(coord_strings)
-  if (n == 0) {
-    return(numeric(0))
-  }
-
   tokens <- data.table::tstrsplit(coord_strings, " ", fixed = TRUE, fill = NA)
 
   # tstrsplit right-pads short rows with NA. With fewer than 4 columns overall,
-  # every row has < 4 tokens, so every value converts to NA.
+  # every row has < 4 tokens, so every value converts to NA (this also covers
+  # empty input: an empty list yields numeric(0)).
   if (length(tokens) < 4) {
     return(rep(NA_real_, n))
   }
@@ -673,16 +670,21 @@ convert_coords_dms <- function(coord_strings) {
   degrees <- suppressWarnings(as.numeric(tokens[[1]]))
   minutes <- suppressWarnings(as.numeric(tokens[[2]]))
   seconds <- suppressWarnings(as.numeric(tokens[[3]]))
-  # A non-NA 4th token means the row had at least 4 tokens; this is the vectorized
-  # form of the scalar code's `length(parts) < 4` guard.
-  has_four <- !is.na(tokens[[4]])
-  direction <- gsub("[^NSWO]", "", tokens[[4]])
-
   decimal <- degrees + (minutes / 60) + (seconds / 3600)
-  negate <- direction %in% c("S", "W", "O")
+
+  # Negate for southern/western hemispheres. The direction token is very
+  # low-cardinality, so clean the distinct values once and map back rather than
+  # running the regex over every one of ~80M rows.
+  direction <- tokens[[4]]
+  levels <- unique(direction)
+  negate_level <- gsub("[^NSWO]", "", levels) %in% c("S", "W", "O")
+  negate <- negate_level[match(direction, levels)]
   decimal[negate] <- -decimal[negate]
 
-  decimal[!has_four | is.na(degrees) | is.na(minutes) | is.na(seconds)] <- NA_real_
+  # A row with fewer than 4 tokens (NA 4th token) fails the scalar `length < 4`
+  # check even when D/M/S parsed, so force those to NA. Non-numeric D/M/S already
+  # propagated to NA through the arithmetic above.
+  decimal[is.na(direction)] <- NA_real_
   decimal
 }
 

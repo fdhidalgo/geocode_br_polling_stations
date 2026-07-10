@@ -722,14 +722,19 @@ create_data_quality_monitor <- function(geocoded_export, panelid_export,
 # testing spec's dev-mode checks to the full run (release spec §Validation
 # gates). Any failed gate stop()s so a broken build is never shipped.
 
-# The documented released column set (schema §decision 7: columns stay stable).
-# Provenance is derivable from these (tse_lat/tse_long non-NA, or pred_dist == 0),
-# so no coord_source column is added.
-RELEASE_SCHEMA_COLS <- c(
-  "local_id", "ano", "sg_uf", "cod_localidade_ibge",
-  "nr_zona", "nr_locvot", "nm_locvot", "nm_localidade",
-  "final_lat", "final_long", "tse_lat", "tse_long",
-  "pred_lat", "pred_long", "pred_dist"
+# The exact exported column set (schema §decision 7: no column added or removed).
+# This is the full geocoded_locais schema written to
+# geocoded_polling_stations.csv.gz, in the order finalize_coords() produces it.
+# The gate asserts set equality, so an accidentally dropped OR added column trips
+# it; a deliberate schema change must update this list (which is the point).
+# Provenance is derivable (tse_lat/tse_long non-NA, or pred_dist == 0), so no
+# coord_source column is added.
+RELEASE_EXPORT_COLS <- c(
+  "cd_localidade_tse", "ano", "nr_zona", "nr_locvot", "nr_cep", "sg_uf",
+  "nm_localidade", "nm_locvot", "ds_endereco", "ds_bairro",
+  "cod_localidade_ibge", "local_id",
+  "pred_long", "pred_lat", "pred_dist",
+  "tse_lat", "tse_long", "final_long", "final_lat"
 )
 
 # All election years the pipeline geocodes.
@@ -741,8 +746,11 @@ RELEASE_EXPECTED_YEARS <- seq(2006L, 2024L, by = 2L)
 RELEASE_N_2024_MIN <- 85000L
 RELEASE_N_2024_MAX <- 100000L
 
-# Floor below which any single year is implausibly small (national scale).
+# Plausible national band for any single election year. Brazilian polling-station
+# counts sit around 90-96k per year, so this catches both a collapse and an
+# explosion (e.g. a many-to-many merge doubling a year to ~180k).
 RELEASE_N_YEAR_MIN <- 50000L
+RELEASE_N_YEAR_MAX <- 120000L
 
 # Landed 2024 TSE-coverage hard gate (decision 2).
 RELEASE_TSE_COVERAGE_GATE <- 92
@@ -779,11 +787,16 @@ validate_release_gates <- function(geocoded_locais,
     add_fail("Gate 1 (all years): 2024 partition is empty")
   }
 
-  # Gate 2: documented schema present.
-  missing_cols <- setdiff(RELEASE_SCHEMA_COLS, names(dt))
+  # Gate 2: exported schema exactly unchanged - no column removed or added.
+  missing_cols <- setdiff(RELEASE_EXPORT_COLS, names(dt))
+  extra_cols <- setdiff(names(dt), RELEASE_EXPORT_COLS)
   if (length(missing_cols) > 0) {
     add_fail("Gate 2 (schema): missing columns: %s",
              paste(missing_cols, collapse = ", "))
+  }
+  if (length(extra_cols) > 0) {
+    add_fail("Gate 2 (schema): unexpected extra columns: %s",
+             paste(extra_cols, collapse = ", "))
   }
 
   # Gate 3: coordinates not all-NA in any year.
@@ -807,14 +820,20 @@ validate_release_gates <- function(geocoded_locais,
   # Gate 5: sane per-year row counts. Absolute national scale, production only
   # (dev mode processes AC/RR, so national counts do not apply).
   if (!isTRUE(dev_mode)) {
+    # 2024 has a tight expected band (address count 93,337).
     if (n_2024 < RELEASE_N_2024_MIN || n_2024 > RELEASE_N_2024_MAX) {
       add_fail("Gate 5 (counts): 2024 station count %d outside sane range [%d, %d]",
                n_2024, RELEASE_N_2024_MIN, RELEASE_N_2024_MAX)
     }
-    tiny <- coord_by_year[ano != 2024L & n < RELEASE_N_YEAR_MIN]
-    if (nrow(tiny) > 0) {
-      add_fail("Gate 5 (counts): years with implausibly few rows (< %d): %s",
-               RELEASE_N_YEAR_MIN, paste(tiny$ano, collapse = ", "))
+    # Every other year must sit within the plausible national band, catching both
+    # a collapse (too few) and an explosion (a merge doubling the year).
+    off <- coord_by_year[
+      ano != 2024L & (n < RELEASE_N_YEAR_MIN | n > RELEASE_N_YEAR_MAX)
+    ]
+    if (nrow(off) > 0) {
+      add_fail("Gate 5 (counts): years outside plausible national range [%d, %d]: %s",
+               RELEASE_N_YEAR_MIN, RELEASE_N_YEAR_MAX,
+               paste(sprintf("%d=%d", off$ano, off$n), collapse = ", "))
     }
   }
 

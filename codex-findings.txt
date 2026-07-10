@@ -1,0 +1,9 @@
+The new release gates miss schema changes and row-count explosions they are intended to block, so a broken production rebuild could still pass validation.
+
+Full review comments:
+
+- [P2] Catch pre-2024 row-count explosions — /home/dhidalgo/projects/geocode_br_polling_stations/R/validation.R:814-817
+  In production mode, Gate 5 only applies an upper bound to 2024; for 2006–2022 it only flags years with too few rows. If an upstream many-to-many merge or duplicated input explodes an earlier year, such as 2022 doubling to ~180k rows, this gate still passes even though the release spec says per-year counts should catch both collapses and explosions. Add upper bounds or per-year expected ranges for all years.
+
+- [P2] Enforce the full exported schema exactly — /home/dhidalgo/projects/geocode_br_polling_stations/R/validation.R:783-786
+  Gate 2 is supposed to enforce an unchanged release schema, but this only checks that the listed columns are present; removed exported columns outside `RELEASE_SCHEMA_COLS` or unexpected extras go unnoticed. The current export writes the full `geocoded_locais` table, including existing columns such as `cd_localidade_tse`, `nr_cep`, `ds_endereco`, and `ds_bairro`, so those could disappear while this gate still passes. Compare against the full expected exported column set exactly, or intentionally prune before export.

@@ -10,21 +10,25 @@ make_geocoded_fixture <- function() {
   years <- seq(2006L, 2024L, by = 2L)
   dt <- data.table::rbindlist(lapply(years, function(y) {
     data.table::data.table(
-      local_id = seq_len(3L),
+      cd_localidade_tse = 1120L,
       ano = y,
-      sg_uf = "AC",
-      cod_localidade_ibge = 1200013L,
       nr_zona = 1L,
       nr_locvot = seq_len(3L),
-      nm_locvot = "ESCOLA",
+      nr_cep = 69900000L,
+      sg_uf = "AC",
       nm_localidade = "RIO BRANCO",
-      final_lat = -9.97,
-      final_long = -67.8,
+      nm_locvot = "ESCOLA",
+      ds_endereco = "RUA X 100",
+      ds_bairro = "CENTRO",
+      cod_localidade_ibge = 1200013L,
+      local_id = seq_len(3L),
+      pred_long = -67.8,
+      pred_lat = -9.97,
+      pred_dist = 0.0,
       tse_lat = -9.97,
       tse_long = -67.8,
-      pred_lat = -9.97,
-      pred_long = -67.8,
-      pred_dist = 0.0
+      final_long = -67.8,
+      final_lat = -9.97
     )
   }))
   dt[, local_id := .I]
@@ -87,6 +91,15 @@ test_that("Gate 2 fails when a documented schema column is missing", {
   )
 })
 
+test_that("Gate 2 fails when an unexpected extra column appears", {
+  g <- make_geocoded_fixture()
+  g[, surprise_col := 1L]
+  expect_error(
+    validate_release_gates(g, make_coverage_fixture(), make_export_paths(), dev_mode = TRUE),
+    "Gate 2.*surprise_col"
+  )
+})
+
 test_that("Gate 3 fails when a year has zero non-NA coordinates", {
   g <- make_geocoded_fixture()
   g[ano == 2010L, c("final_lat", "final_long") := NA_real_]
@@ -136,5 +149,23 @@ test_that("Gate 5 (absolute counts) is enforced only in production mode", {
   expect_error(
     validate_release_gates(g, make_coverage_fixture(), make_export_paths(), dev_mode = FALSE),
     "Gate 5"
+  )
+})
+
+test_that("Gate 5 catches an exploded non-2024 year in production mode", {
+  # Build a fixture at plausible national scale so only the exploded year trips.
+  years <- seq(2006L, 2024L, by = 2L)
+  g <- data.table::rbindlist(lapply(years, function(y) {
+    n <- if (y == 2022L) 180000L else 90000L  # 2022 doubled by a bad merge
+    f <- make_geocoded_fixture()[ano == 2024L][1L]
+    dt <- f[rep(1L, n)]
+    dt[, ano := y]
+    dt[, local_id := .I]
+    dt[]
+  }))
+  g[, local_id := .I]
+  expect_error(
+    validate_release_gates(g, make_coverage_fixture(), make_export_paths(), dev_mode = FALSE),
+    "Gate 5.*2022"
   )
 })

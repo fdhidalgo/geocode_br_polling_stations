@@ -19,19 +19,25 @@ make_batch_locais <- function() {
   )
 }
 
-test_that("a per-municipality error is collected and stops the batch, naming the municipality", {
-  # make_panel_1block is resolved from the environment tar_source() loaded the
-  # pipeline functions into (globalenv when sourced directly, a dedicated env
-  # under test_dir); reassign the stub there so the batch function picks it up.
+# Swap make_panel_1block for `stub` for the duration of the calling test, so the
+# collect-and-stop path is exercised without depending on reclin2 internals. The
+# binding is resolved from the environment tar_source() loaded the pipeline into
+# (globalenv when sourced directly, a dedicated env under test_dir), so reassign
+# it there; withr::defer restores it when the test frame exits.
+local_stub_make_panel_1block <- function(stub, frame = parent.frame()) {
   fn_env <- environment(process_panel_ids_municipality_batch)
   original <- get("make_panel_1block", envir = fn_env)
-  on.exit(assign("make_panel_1block", original, envir = fn_env), add = TRUE)
-  assign("make_panel_1block", function(block, years, blocking_column,
-                                       scoring_columns, use_word_blocking = FALSE,
-                                       panel_weight_threshold = 0) {
+  withr::defer(assign("make_panel_1block", original, envir = fn_env), envir = frame)
+  assign("make_panel_1block", stub, envir = fn_env)
+}
+
+test_that("a per-municipality error is collected and stops the batch, naming the municipality", {
+  local_stub_make_panel_1block(function(block, years, blocking_column,
+                                        scoring_columns, use_word_blocking = FALSE,
+                                        panel_weight_threshold = 0) {
     if (unique(block$cod_localidade_ibge)[1] == 2L) stop("synthetic linkage failure")
     data.table::data.table(panel_id = 1L, local_id_2018 = 1L, local_id_2022 = 2L)
-  }, envir = fn_env)
+  })
 
   batch <- data.table::data.table(cod_localidade_ibge = c(1L, 2L))
   err <- expect_error(
@@ -45,19 +51,13 @@ test_that("a per-municipality error is collected and stops the batch, naming the
 })
 
 test_that("a NULL result is treated as legitimately empty, not a failure", {
-  # make_panel_1block is resolved from the environment tar_source() loaded the
-  # pipeline functions into (globalenv when sourced directly, a dedicated env
-  # under test_dir); reassign the stub there so the batch function picks it up.
-  fn_env <- environment(process_panel_ids_municipality_batch)
-  original <- get("make_panel_1block", envir = fn_env)
-  on.exit(assign("make_panel_1block", original, envir = fn_env), add = TRUE)
-  assign("make_panel_1block", function(block, years, blocking_column,
-                                       scoring_columns, use_word_blocking = FALSE,
-                                       panel_weight_threshold = 0) {
+  local_stub_make_panel_1block(function(block, years, blocking_column,
+                                        scoring_columns, use_word_blocking = FALSE,
+                                        panel_weight_threshold = 0) {
     # Municipality 2 has no cross-year pairs: make_panel_1block returns NULL.
     if (unique(block$cod_localidade_ibge)[1] == 2L) return(NULL)
     data.table::data.table(panel_id = 1L, local_id_2018 = 1L, local_id_2022 = 2L)
-  }, envir = fn_env)
+  })
 
   batch <- data.table::data.table(cod_localidade_ibge = c(1L, 2L))
   out <- process_panel_ids_municipality_batch(

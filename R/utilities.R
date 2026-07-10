@@ -15,6 +15,44 @@ library(data.table)
 # Define the null coalescing operator
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+# Run fn(item) for each item under the collect-and-stop convention (cleanup
+# phase 3): a per-item error is recorded and the batch continues; at batch end,
+# if any items failed, stop() with a single message naming every failure. A NULL
+# result is a legitimate empty item (not a failure) and is dropped from the
+# returned list. `task_label` and the unit noun shape the error message.
+collect_batch_or_stop <- function(items, fn, task_label,
+                                  unit_singular = "municipality",
+                                  unit_plural = "municipalities") {
+  results <- lapply(items, function(item) {
+    tryCatch(
+      fn(item),
+      error = function(e) {
+        structure(
+          list(item = item, message = conditionMessage(e)),
+          class = "batch_item_failure"
+        )
+      }
+    )
+  })
+
+  failures <- Filter(function(x) inherits(x, "batch_item_failure"), results)
+  if (length(failures) > 0) {
+    n <- length(failures)
+    msgs <- vapply(
+      failures,
+      function(f) sprintf("  %s: %s", f$item, f$message),
+      character(1)
+    )
+    stop(sprintf(
+      "%s failed for %d %s:\n%s",
+      task_label, n, ngettext(n, unit_singular, unit_plural),
+      paste(msgs, collapse = "\n")
+    ))
+  }
+
+  Filter(Negate(is.null), results)
+}
+
 filter_by_dev_mode <- function(data, dev_states, id_column = "estado_abrev") {
   # Filter data by development mode states.
   # If dev_states is NULL or empty (production), return all data.
@@ -416,44 +454,22 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments,
     batch_id == batch_ids
   ]$cod_localidade_ibge
 
-  # Collect-and-stop (cleanup phase 3, finding C5): a municipality that errors is
-  # recorded and the batch continues; at batch end any accumulated failures raise
-  # a single error naming every failing municipality, so no municipality is ever
-  # silently dropped from geocodebr coverage. A NULL result (no polling stations
-  # or no geocoding hits) is a legitimate empty case and is filtered, not failed.
-  results <- lapply(batch_munis, function(muni_code) {
-    tryCatch(
+  # Collect-and-stop (cleanup phase 3, finding C5): a NULL result (no polling
+  # stations or no geocoding hits) is a legitimate empty case and is filtered;
+  # a municipality that errors is surfaced at batch end, never silently dropped.
+  results <- collect_batch_or_stop(
+    batch_munis,
+    function(muni_code) {
       match_geocodebr_muni(
         locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
         muni_ids = muni_ids[id_munic_7 == muni_code]
-      ),
-      error = function(e) {
-        structure(
-          list(muni_code = muni_code, message = conditionMessage(e)),
-          class = "geocodebr_muni_failure"
-        )
-      }
-    )
-  })
+      )
+    },
+    task_label = "geocodebr matching"
+  )
 
-  failures <- Filter(function(x) inherits(x, "geocodebr_muni_failure"), results)
-  if (length(failures) > 0) {
-    msgs <- vapply(
-      failures,
-      function(f) sprintf("  %s: %s", f$muni_code, f$message),
-      character(1)
-    )
-    stop(sprintf(
-      "geocodebr matching failed for %d municipalit%s:\n%s",
-      length(failures),
-      if (length(failures) == 1L) "y" else "ies",
-      paste(msgs, collapse = "\n")
-    ))
-  }
-
-  batch_results <- Filter(Negate(is.null), results)
-  if (length(batch_results) > 0) {
-    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+  if (length(results) > 0) {
+    rbindlist(results, use.names = TRUE, fill = TRUE)
   } else {
     data.table()
   }
@@ -668,9 +684,9 @@ create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, m
     missing_size <- muni_df[is.na(size), cod_localidade_ibge]
     if (length(missing_size) > 0) {
       stop(sprintf(
-        "Municipality sizes missing for %d municipalit%s (key mismatch): %s",
+        "Municipality sizes missing for %d %s (key mismatch): %s",
         length(missing_size),
-        if (length(missing_size) == 1L) "y" else "ies",
+        ngettext(length(missing_size), "municipality", "municipalities"),
         paste(utils::head(missing_size, 10), collapse = ", ")
       ))
     }

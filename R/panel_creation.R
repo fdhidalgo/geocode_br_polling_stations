@@ -342,90 +342,65 @@ process_panel_ids_municipality_batch <- function(
     return(data.table())
   }
   
-  # Process each municipality separately to enable better memory management
-  # This approach prevents memory exhaustion when processing large states like SP or MG
-  # by keeping only one municipality's data in memory at a time
-  results_list <- lapply(muni_codes, function(muni_code) {
-    muni_data <- batch_data[cod_localidade_ibge == muni_code]
-    
-    if (nrow(muni_data) == 0) {
-      return(NULL)
-    }
-    
-    # Count unique stations properly
-    n_stations <- length(unique(muni_data$local_id))
-    
-    cat("Processing municipality:", muni_code, 
-        "- Stations:", n_stations,
-        "- Years:", length(unique(muni_data$ano)), "\n")
-    
-    # Check for DF special case
-    # Distrito Federal (Brasília) requires special handling because it had
-    # municipal elections in years that differ from other Brazilian states
-    state <- unique(muni_data$sg_uf)[1]
-    if (state == "DF") {
-      years_to_use <- c(2006, 2008, 2010, 2012, 2014, 2018, 2022, 2024)
-    } else {
-      years_to_use <- years
-    }
-    
-    # Filter years to those available in the data
-    available_years <- sort(unique(muni_data$ano))
-    years_to_use <- intersect(years_to_use, available_years)
-    
-    if (length(years_to_use) < 2) {
-      cat("  Insufficient years for panel creation\n")
-      return(NULL)
-    }
+  # Process each municipality separately to enable better memory management.
+  # This approach prevents memory exhaustion when processing large states like SP
+  # or MG by keeping only one municipality's data in memory at a time.
+  #
+  # Collect-and-stop (cleanup phase 3, finding H3): a genuine per-municipality
+  # error is surfaced at batch end, never swallowed to NULL and filtered out
+  # (which would silently exclude the municipality from published panel IDs). A
+  # NULL result (no polling stations, too few years, or no cross-year pairs) is a
+  # legitimate empty case, distinct from a failure.
+  valid_results <- collect_batch_or_stop(
+    muni_codes,
+    function(muni_code) {
+      muni_data <- batch_data[cod_localidade_ibge == muni_code]
 
-    # Collect-and-stop (cleanup phase 3, finding H3): a genuine per-municipality
-    # error is captured as a marker and surfaced at batch end, never swallowed to
-    # NULL and filtered out (which would silently exclude the municipality from
-    # published panel IDs). A NULL from make_panel_1block (no cross-year pairs)
-    # is a legitimate empty result, distinct from a failure.
-    result <- tryCatch(
-      make_panel_1block(
+      if (nrow(muni_data) == 0) {
+        return(NULL)
+      }
+
+      n_stations <- length(unique(muni_data$local_id))
+      cat("Processing municipality:", muni_code,
+          "- Stations:", n_stations,
+          "- Years:", length(unique(muni_data$ano)), "\n")
+
+      # Distrito Federal (Brasília) requires special handling because it had
+      # municipal elections in years that differ from other Brazilian states.
+      state <- unique(muni_data$sg_uf)[1]
+      if (state == "DF") {
+        years_to_use <- c(2006, 2008, 2010, 2012, 2014, 2018, 2022, 2024)
+      } else {
+        years_to_use <- years
+      }
+
+      # Filter years to those available in the data
+      available_years <- sort(unique(muni_data$ano))
+      years_to_use <- intersect(years_to_use, available_years)
+
+      if (length(years_to_use) < 2) {
+        cat("  Insufficient years for panel creation\n")
+        return(NULL)
+      }
+
+      result <- make_panel_1block(
         block = muni_data,
         years = years_to_use,
         blocking_column = blocking_column,
         scoring_columns = scoring_columns,
         use_word_blocking = use_word_blocking,
         panel_weight_threshold = panel_weight_threshold
-      ),
-      error = function(e) {
-        structure(
-          list(muni_code = muni_code, message = conditionMessage(e)),
-          class = "panel_muni_failure"
-        )
+      )
+
+      # Add municipality identifier for tracking
+      if (!is.null(result) && nrow(result) > 0) {
+        result[, cod_localidade_ibge := muni_code]
       }
-    )
 
-    # Add municipality identifier for tracking
-    if (!is.null(result) && !inherits(result, "panel_muni_failure") && nrow(result) > 0) {
-      result[, cod_localidade_ibge := muni_code]
-    }
-
-    return(result)
-  })
-
-  # Surface any collected failures before combining legitimate results.
-  failures <- Filter(function(x) inherits(x, "panel_muni_failure"), results_list)
-  if (length(failures) > 0) {
-    msgs <- vapply(
-      failures,
-      function(f) sprintf("  %s: %s", f$muni_code, f$message),
-      character(1)
-    )
-    stop(sprintf(
-      "Panel ID creation failed for %d municipalit%s:\n%s",
-      length(failures),
-      if (length(failures) == 1L) "y" else "ies",
-      paste(msgs, collapse = "\n")
-    ))
-  }
-
-  # Combine legitimate results (NULLs are municipalities with no cross-year pairs).
-  valid_results <- Filter(Negate(is.null), results_list)
+      result
+    },
+    task_label = "Panel ID creation"
+  )
 
   if (length(valid_results) == 0) {
     return(data.table())

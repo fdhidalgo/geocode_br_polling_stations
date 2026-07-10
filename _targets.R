@@ -999,6 +999,75 @@ list(
   ),
 
   # ========================================
+  # EVALUATION HARNESS
+  # ========================================
+  # Leakage-controlled evaluation (docs/specs/2026-07-evaluation-spec.md, #47):
+  # honest out-of-fold accuracy over the TSE-covered set, TSE coverage density,
+  # and the pred_dist calibration check. See R/evaluation.R.
+
+  ## TSE coverage by year x state (spec section 6) - ground-truth density.
+  tar_target(
+    name = tse_coverage,
+    command = compute_tse_coverage(locais_filtered, tsegeocoded_locais)
+  ),
+
+  ## Station-grouped fold assignment, created once upstream of any refit so a
+  ## fold never leaks its TSE target (spec section 3).
+  tar_target(
+    name = eval_fold_assignment,
+    command = assign_eval_folds(model_data)
+  ),
+
+  ## Out-of-fold pred_dist for every covered candidate. Memory-heavy (k LightGBM
+  ## refits over most of the covered data) -> memory_limited controller.
+  tar_target(
+    name = oof_predictions,
+    command = compute_oof_predictions(
+      model_data,
+      trained_model,
+      eval_fold_assignment
+    ),
+    format = "qs",
+    storage = "worker",
+    retrieval = "worker",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
+  ),
+
+  ## Per-station selected match from OOF scores, joined onto the covered-station
+  ## universe with stratification axes (spec sections 3-4).
+  tar_target(
+    name = oof_selected_matches,
+    command = select_oof_matches(
+      oof_predictions,
+      locais_filtered,
+      tsegeocoded_locais,
+      tract_shp
+    ),
+    format = "qs"
+  ),
+
+  ## Stratified accuracy tables, joint with match rate, small-cell suppressed.
+  tar_target(
+    name = accuracy_tables,
+    command = compute_accuracy_tables(oof_selected_matches)
+  ),
+
+  ## pred_dist calibration: rank-and-filter + reliability/ENCE (spec section 7).
+  tar_target(
+    name = calibration_check,
+    command = compute_calibration(oof_selected_matches)
+  ),
+
+  ## Thin Quarto report rendering the evaluation targets for human reading.
+  tar_render(
+    name = evaluation_report,
+    path = "reports/evaluation_report.qmd",
+    output_dir = "reports"
+  ),
+
+  # ========================================
   # FINAL GEOCODING
   # ========================================
 

@@ -1,0 +1,227 @@
+---
+title: "Geocoding Evaluation: Honest Held-Out Accuracy & Calibration"
+subtitle: "Leakage-controlled evaluation harness (spec 2026-07, issue #47)"
+author: "Pipeline Automated Report"
+date: "`r Sys.Date()`"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    code-fold: true
+    theme: cosmo
+    fig-width: 10
+    fig-height: 6
+    self-contained: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(data.table)
+library(ggplot2)
+library(gt)
+library(targets)
+
+theme_set(theme_minimal(base_size = 12))
+
+tar_load(c(
+  tse_coverage,
+  accuracy_tables,
+  calibration_check
+))
+
+acc <- as.data.table(accuracy_tables)
+cov <- as.data.table(tse_coverage)
+```
+
+## What this report measures {.unnumbered}
+
+::::: {.callout-important}
+**The stations the model actually determines are not measured here.** Wherever the
+TSE has a coordinate, the pipeline's output *is* that TSE coordinate; the
+model-selected coordinate only reaches the output for TSE-**uncovered** stations.
+So every accuracy number below is measured on the TSE-**covered** subset and is an
+**extrapolation** to the uncovered subset. The uncovered subset is reported as
+explicitly unmeasured, not folded silently into any headline.
+
+Accuracy is measured **out-of-fold**: each covered station is scored by a model
+refit on other municipalities' folds, never on its own (spec section 3). Error is
+the haversine distance (km) from the model-selected coordinate to the
+field-collected TSE coordinate. Accuracy and match rate are always reported
+jointly (they trade off). Strata below the held-out N floor are suppressed.
+
+*One caveat on "leakage-controlled": the per-fold refits are leak-free, but the
+model hyperparameters were tuned once on the production split and reused across
+folds rather than re-tuned per fold. This leaves a weak residual
+hyperparameter-selection channel — a deliberately accepted simplification over
+nested per-fold tuning, so these numbers may be marginally optimistic relative to
+a fully nested estimate.*
+:::::
+
+```{r}
+#| label: headline
+#| output: asis
+overall <- acc[stratum == "overall"]
+cat(sprintf(
+  paste0(
+    "**Headline (covered set):** median error **%.3f km**, ",
+    "**%.1f%% within 500 m**, match rate **%.1f%%** ",
+    "over **%s** covered stations (**%s** geocoded)."
+  ),
+  overall$median_km, overall$within_500m, overall$match_rate,
+  format(overall$n_total, big.mark = ","),
+  format(overall$n_geocoded, big.mark = ",")
+))
+```
+
+## Accuracy by stratum
+
+```{r}
+#| label: acc-table
+acc_display <- copy(acc)
+num_cols <- c("match_rate", "median_km", "p90", "p95", "p99",
+              "within_100m", "within_500m", "within_1km")
+acc_display |>
+  gt(groupname_col = "stratum", rowname_col = "level") |>
+  fmt_number(columns = c("median_km", "p90", "p95", "p99"), decimals = 3) |>
+  fmt_number(columns = c("match_rate", "within_100m", "within_500m", "within_1km"),
+             decimals = 1) |>
+  fmt_integer(columns = c("n_total", "n_geocoded")) |>
+  sub_missing(columns = num_cols, missing_text = "—") |>
+  cols_label(
+    n_total = "N covered", n_geocoded = "N geocoded", match_rate = "Match %",
+    median_km = "Median km", within_100m = "<100m %", within_500m = "<500m %",
+    within_1km = "<1km %"
+  ) |>
+  tab_header(
+    title = "Positional accuracy on the TSE-covered set (out-of-fold)",
+    subtitle = "Suppressed strata (below held-out N floor) show counts only."
+  ) |>
+  tab_source_note("Error in kilometres. Median is the 50th percentile; p90/p95/p99 shown.")
+```
+
+## TSE coverage density (by year × state)
+
+Each accuracy number should be read against how much ground truth its stratum has.
+TSE coordinates begin with the 2018 vintage; pre-2018 station-years have no TSE
+reference and are unmeasurable.
+
+```{r}
+#| label: coverage
+cov_wide <- dcast(cov, sg_uf ~ ano, value.var = "coverage_pct")
+cov_wide |>
+  gt(rowname_col = "sg_uf") |>
+  fmt_number(columns = where(is.numeric), decimals = 1) |>
+  sub_missing(missing_text = "—") |>
+  tab_header(title = "TSE coverage (% of covered stations)") |>
+  tab_source_note("Share of polling stations with a non-missing TSE coordinate.")
+```
+
+## `pred_dist` calibration
+
+### Rank-and-filter
+
+Sorting covered stations by predicted error and dropping the worst-predicted tail
+should monotonically lower realized median error and raise %-within-500 m. This
+demonstrates the ranking carries information even where it is not calibrated in
+absolute metres.
+
+```{r}
+#| label: rank-filter
+rf <- as.data.table(calibration_check$rank_filter)
+rf |>
+  gt() |>
+  fmt_number(columns = c("retained_frac"), decimals = 2) |>
+  fmt_number(columns = c("median_km"), decimals = 3) |>
+  fmt_number(columns = c("within_500m"), decimals = 1) |>
+  fmt_integer(columns = "n_retained") |>
+  cols_label(
+    drop_frac = "Worst-predicted dropped", retained_frac = "Retained frac",
+    n_retained = "N retained", median_km = "Median km", within_500m = "<500m %"
+  ) |>
+  tab_header(title = "Rank-and-filter on predicted error")
+
+ggplot(rf, aes(x = drop_frac)) +
+  geom_line(aes(y = median_km), color = "#007bff") +
+  geom_point(aes(y = median_km), color = "#007bff") +
+  labs(x = "Fraction of worst-predicted stations dropped",
+       y = "Realized median error (km)",
+       title = "Dropping the worst-predicted tail lowers realized error")
+```
+
+### Reliability & ENCE
+
+```{r}
+#| label: reliability
+rel <- as.data.table(calibration_check$reliability)
+ence <- calibration_check$ence
+```
+
+Expected Normalized Calibration Error (ENCE): **`r sprintf("%.3f", ence)`**
+(0 = perfectly calibrated point estimate).
+
+```{r}
+#| label: reliability-plot
+lim <- range(c(rel$mean_pred, rel$mean_realized), na.rm = TRUE)
+ggplot(rel, aes(x = mean_pred, y = mean_realized)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(aes(size = n), color = "#007bff") +
+  coord_equal(xlim = lim, ylim = lim) +
+  labs(x = "Mean predicted error (km)", y = "Mean realized error (km)",
+       size = "N", title = "Reliability: predicted vs realized error by bin")
+```
+
+## Google reference-validation (spec section 8)
+
+Quantifies Google's own error budget relative to field-GPS TSE, on a covered-only
+sample, *before* trusting Google for the uncovered subset. This is a
+reference-validation, **not** a release gate and **not** a pipeline accuracy
+number. The Google results are a frozen artifact (`data/google_geocoded.csv`);
+regenerate it once with `scripts/generate_google_reference.R` (needs a Google
+Geocoding API key).
+
+```{r}
+#| label: google
+#| output: asis
+google_file <- "../data/google_geocoded.csv"
+if (!file.exists(google_file)) google_file <- "data/google_geocoded.csv"
+
+if (file.exists(google_file)) {
+  g <- fread(google_file)
+  cat(sprintf(
+    "Frozen Google artifact found: **%s** points. See table below.\n\n",
+    format(nrow(g), big.mark = ",")
+  ))
+} else {
+  cat(paste0(
+    "_No frozen Google artifact found. This section is skipped until ",
+    "`scripts/generate_google_reference.R` is run once to produce ",
+    "`data/google_geocoded.csv`._\n"
+  ))
+}
+```
+
+```{r}
+#| label: google-table
+if (file.exists(google_file) && "google_long" %in% names(g) &&
+    all(c("tse_long", "tse_lat") %in% names(g))) {
+  g[, google_dist := geosphere::distHaversine(
+    cbind(tse_long, tse_lat), cbind(google_long, google_lat)
+  ) / 1000]
+  by_col <- if ("urban_rural" %in% names(g)) "urban_rural" else NULL
+  g_summary <- g[, .(
+    n = .N,
+    median_km = median(google_dist, na.rm = TRUE),
+    within_500m = 100 * mean(google_dist <= 0.5, na.rm = TRUE)
+  ), by = by_col]
+  gt(g_summary) |>
+    fmt_number(columns = "median_km", decimals = 3) |>
+    fmt_number(columns = "within_500m", decimals = 1) |>
+    tab_header(title = "Google-vs-TSE agreement (reference validation)")
+}
+```

@@ -757,7 +757,13 @@ validate_release_gates <- function(geocoded_locais,
                                    tse_coverage,
                                    export_paths,
                                    dev_mode) {
-  dt <- as.data.table(geocoded_locais)
+  # Read-only, so avoid a defensive deep copy of the ~945k-row national table
+  # when it already arrives as a data.table (it does, from finalize_coords()).
+  dt <- if (is.data.table(geocoded_locais)) {
+    geocoded_locais
+  } else {
+    as.data.table(geocoded_locais)
+  }
   failures <- character(0)
   add_fail <- function(...) failures <<- c(failures, sprintf(...))
 
@@ -826,7 +832,6 @@ validate_release_gates <- function(geocoded_locais,
   cov_2024 <- cov_year[ano == 2024L, coverage_pct]
   if (length(cov_2024) == 0) {
     add_fail("Gate 6 (2024 coverage): no 2024 rows in tse_coverage")
-    cov_2024 <- NA_real_
   } else if (cov_2024 < RELEASE_TSE_COVERAGE_GATE) {
     add_fail("Gate 6 (2024 coverage): landed 2024 TSE coverage %.2f%% < %d%% gate",
              cov_2024, RELEASE_TSE_COVERAGE_GATE)

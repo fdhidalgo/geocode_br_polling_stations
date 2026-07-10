@@ -1,0 +1,57 @@
+#!/bin/sh
+# Staged-files lint ratchet.
+#
+# Runs lintr against only the .R files staged for this commit, using the repo's
+# .lintr config. A file you touch must lint clean before it commits; the untouched
+# legacy backlog is never blocked and gets paid down as files are edited.
+#
+# Activate per-clone (once):   git config core.hooksPath .githooks
+# Bypass for one commit:       git commit --no-verify
+# Needs lintr:                 R -e 'renv::install("lintr")'  (hook skips if absent)
+#
+# Scope note: this lints the WORKTREE version of each staged file (the plain
+# `lintr::lint(path)` the spec §7 describes), not the staged blob. That call
+# honors .lintr's `exclusions` (so routine _targets.R / R/dev edits are never
+# blocked). For a partially staged file the worktree and index can differ;
+# in that uncommon case re-stage before committing, or use --no-verify. Linting
+# the staged blob instead would need lint(text=), which bypasses .lintr
+# exclusions and would block every _targets.R commit -- a worse failure.
+#
+# See docs/specs/2026-07-testing-spec.md §7.
+
+set -e
+
+# Staged R files that were added/copied/modified (not deleted). lintr applies the
+# .lintr `exclusions` itself, so the hook does not re-list excluded paths -- it
+# only filters to files still present on disk.
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.[Rr]$' || true)
+files=""
+for f in $staged; do
+  [ -f "$f" ] && files="$files $f"
+done
+[ -z "$files" ] && exit 0
+
+Rscript -e '
+  if (!requireNamespace("lintr", quietly = TRUE)) {
+    cat("pre-commit: lintr not installed; skipping lint gate.\n")
+    cat("           install it with: R -e '"'"'renv::install(\"lintr\")'"'"'\n")
+    quit(status = 0)
+  }
+  files <- commandArgs(trailingOnly = TRUE)
+  total <- 0L
+  for (f in files) {
+    l <- lintr::lint(f)
+    if (length(l) > 0) {
+      print(l)
+      total <- total + length(l)
+    }
+  }
+  if (total > 0) {
+    cat(sprintf(
+      "\npre-commit: %d lint(s) in staged files. Fix them, or bypass with `git commit --no-verify`.\n",
+      total
+    ))
+    quit(status = 1)
+  }
+  cat("pre-commit: staged R files lint clean.\n")
+' $files

@@ -17,7 +17,6 @@ data/eleitorado_local_votacao_2018.csv.gz
 /lucas
 .DS_Store
 .env
-.lintr
 Icon
 scratch.R
 .projectile

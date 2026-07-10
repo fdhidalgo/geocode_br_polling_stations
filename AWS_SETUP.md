@@ -49,6 +49,11 @@ R -e "renv::restore()"
 
 # Install AWS integration package
 R -e "install.packages('paws.storage')"
+
+# Activate the commit-time lint hook (staged-files ratchet; see CLAUDE.md).
+# The hook needs lintr, a lint-only dev tool; it skips with a message if absent.
+git config core.hooksPath .githooks
+R -e 'renv::install("lintr")'
 ```
 
 ### 3.5. Handle Input Data Files

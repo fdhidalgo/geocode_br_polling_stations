@@ -157,10 +157,15 @@ get_adaptive_chunk_size <- function(n_items, available_memory_gb = 4) {
   
   # Chunk size is sqrt of max comparisons (for square distance matrix)
   chunk_size <- floor(sqrt(max_comparisons))
-  
+
   # Apply reasonable bounds
   chunk_size <- max(100, min(chunk_size, 10000))
-  
+
+  # Never chunk larger than the number of query items: chunking beyond n_items
+  # yields a single chunk of n_items anyway, so cap here for an honest chunk
+  # size. This cap wins over the lower bound when n_items < 100.
+  chunk_size <- min(chunk_size, n_items)
+
   return(chunk_size)
 }
 

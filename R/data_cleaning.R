@@ -351,22 +351,31 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
   return(agro_cnefe)
 }
 
+repair_mixed_utf8 <- function(x) {
+  # Repair a character vector that mixes valid UTF-8 and Latin-1 bytes to
+  # uniformly valid UTF-8. The consolidated polling-station export concatenates
+  # source years with inconsistent encodings, so a single declared encoding on
+  # read mislabels some strings (e.g. the "Nº" ordinal as the lone Latin-1 byte
+  # 0xBA, invalid UTF-8). Reinterpreting the whole column as Latin-1 would instead
+  # corrupt the genuinely-UTF-8 rows, so repair per string: only strings that fail
+  # UTF-8 validation have their raw bytes reinterpreted as Latin-1; valid UTF-8 is
+  # left untouched. Downstream string ops (stringi::stri_trans_general in
+  # clean_text_for_geocodebr) require valid UTF-8 and error loudly on invalid input.
+  bad <- !stringi::stri_enc_isutf8(x)
+  x[bad] <- iconv(x[bad], from = "latin1", to = "UTF-8")
+  enc2utf8(x)
+}
+
 import_locais <- function(locais_file, muni_ids) {
-  # Try to detect encoding by checking if it's a TSE file
-  is_tse_file <- grepl("eleitorado_local_votacao", locais_file)
-  
-  if (is_tse_file) {
-    # TSE files are Latin-1 encoded
-    locais_data <- fread(locais_file, encoding = "Latin-1")
-    
-    # Convert all character columns to UTF-8
-    char_cols <- names(locais_data)[sapply(locais_data, is.character)]
-    for (col in char_cols) {
-      locais_data[, (col) := iconv(get(col), from = "latin1", to = "UTF-8", sub = "")]
-    }
-  } else {
-    # Other files should be UTF-8
-    locais_data <- fread(locais_file, encoding = "UTF-8")
+  # Read raw bytes (encoding = "unknown"), then repair per-string. The file mixes
+  # UTF-8 and Latin-1 across source years, so neither a blanket "UTF-8" nor a
+  # blanket "Latin-1" fread is correct; repair_mixed_utf8() fixes each string by
+  # its own byte validity. This replaces a fragile filename-based encoding guess.
+  locais_data <- fread(locais_file, encoding = "unknown")
+
+  char_cols <- names(locais_data)[vapply(locais_data, is.character, logical(1))]
+  for (col in char_cols) {
+    set(locais_data, j = col, value = repair_mixed_utf8(locais_data[[col]]))
   }
 
   # Clean column names

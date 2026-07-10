@@ -28,7 +28,7 @@ suppressPackageStartupMessages({
 
 # --- Build the two final outputs fresh (pulls all upstream targets) ------------
 message("Building dev-mode pipeline outputs (this takes minutes)...")
-tar_make(names = tidyselect::any_of(c("geocoded_export", "panelid_export")))
+tar_make(names = tidyselect::all_of(c("geocoded_export", "panelid_export")))
 
 geocoded_path <- tar_read(geocoded_export)
 panel_path <- tar_read(panelid_export)

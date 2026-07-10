@@ -13,16 +13,12 @@
 
 set -e
 
-# Staged R files that were added/copied/modified (not deleted).
+# Staged R files that were added/copied/modified (not deleted). lintr applies the
+# .lintr `exclusions` itself, so the hook does not re-list excluded paths -- it
+# only filters to files still present on disk.
 staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.[Rr]$' || true)
-[ -z "$staged" ] && exit 0
-
-# Drop paths excluded from linting (kept in sync with .lintr `exclusions`).
 files=""
 for f in $staged; do
-  case "$f" in
-    _targets.R | renv/* | R/dev/*) continue ;;
-  esac
   [ -f "$f" ] && files="$files $f"
 done
 [ -z "$files" ] && exit 0

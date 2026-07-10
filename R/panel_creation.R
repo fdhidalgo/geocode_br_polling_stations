@@ -28,9 +28,23 @@ process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
     return(panel)
   }
   
+  # Each transition must extend the panel into a year it does not yet hold. If
+  # the target column already exists, this transition is being processed twice:
+  # the join below would silently emit a duplicate i.local_id_<year_to> column
+  # that then inflates panel_id and the melt (the #53 duplicate-row bug). Fail
+  # loud rather than corrupt the panel.
+  year_to_col <- paste0("local_id_", year_to)
+  if (year_to_col %in% names(panel)) {
+    stop(
+      "process_year_pairs: panel already has column '", year_to_col,
+      "'; transition ", year_from, " -> ", year_to,
+      " is being processed more than once."
+    )
+  }
+
   # Standardize column names in best_pairs
   standardize_column_names(best_pairs, inplace = TRUE)
-  
+
   # Rename the columns in best_pairs to match the years
   clean_pairs <- best_pairs[, .(local_id_from = x_local_id, local_id_to = y_local_id)]
   setnames(
@@ -116,54 +130,38 @@ make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
 create_panel_dataset <- function(final_pairs_list, years) {
   # Ensure the years are sorted
   years <- sort(years)
-  
-  # Extract the best pairs for the first two years
-  first_year <- years[1]
-  second_year <- years[2]
-  best_pairs_first <- final_pairs_list[[paste0(first_year, "_", second_year)]]
-  
-  # Check if first pair is NULL or empty
-  if (is.null(best_pairs_first) || nrow(best_pairs_first) == 0) {
-    # Try to find the first non-empty pair
-    found_start <- FALSE
-    for (i in seq_along(years)[-length(years)]) {
-      year_from <- years[i]
-      year_to <- years[i + 1]
-      test_pairs <- final_pairs_list[[paste0(year_from, "_", year_to)]]
-      if (!is.null(test_pairs) && nrow(test_pairs) > 0) {
-        best_pairs_first <- test_pairs
-        first_year <- year_from
-        second_year <- year_to
-        found_start <- TRUE
-        break
-      }
+
+  # Walk the year-transitions once. Transition i links years[i] -> years[i + 1],
+  # for i in 1..(length(years) - 1). The first transition that has pairs seeds
+  # the panel; every later transition with pairs extends it by one year. Each
+  # transition is visited exactly once, so a two-year block never reprocesses
+  # its only pair (the source of the duplicate-row bug this replaced).
+  panel <- NULL
+  for (i in seq_len(length(years) - 1L)) {
+    best_pairs <- final_pairs_list[[paste0(years[i], "_", years[i + 1L])]]
+    if (is.null(best_pairs) || nrow(best_pairs) == 0) {
+      next
     }
-    
-    if (!found_start) {
-      # No valid pairs found at all
-      return(data.table())
+
+    if (is.null(panel)) {
+      # Seed the panel from the first non-empty transition.
+      standardize_column_names(best_pairs, inplace = TRUE)
+      panel <- best_pairs[, .(
+        local_id_first = x_local_id,
+        local_id_second = y_local_id
+      )]
+      setnames(
+        panel, c("local_id_first", "local_id_second"),
+        c(paste0("local_id_", years[i]), paste0("local_id_", years[i + 1L]))
+      )
+    } else {
+      panel <- process_year_pairs(panel, best_pairs, years[i], years[i + 1L])
     }
   }
-  
-  # Standardize column names
-  standardize_column_names(best_pairs_first, inplace = TRUE)
-  
-  # Create the initial panel dataset with standardized column names
-  panel <- best_pairs_first[, .(
-    local_id_first = x_local_id,
-    local_id_second = y_local_id
-  )]
-  setnames(
-    panel, c("local_id_first", "local_id_second"),
-    c(paste0("local_id_", first_year), paste0("local_id_", second_year))
-  )
-  
-  # Process each subsequent pair of years
-  for (i in seq(2, length(years) - 1)) {
-    year_from <- years[i]
-    year_to <- years[i + 1]
-    best_pairs <- final_pairs_list[[paste0(year_from, "_", year_to)]]
-    panel <- process_year_pairs(panel, best_pairs, year_from, year_to)
+
+  if (is.null(panel)) {
+    # No valid pairs found at all
+    return(data.table())
   }
   
   # Add panel_id

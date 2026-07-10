@@ -107,45 +107,15 @@ filter_data_by_municipalities <- function(data, muni_codes, muni_col = "id_munic
   }
 }
 
-apply_dev_mode_filters <- function(data, config, filter_type = NULL, state_col = NULL, muni_col = NULL) {
-  # Apply development mode filters based on configuration
-  # Supports both old and new call signatures for backward compatibility
-  
-  # Handle old-style calls with named parameters
-  if (!is.null(filter_type)) {
-    if (filter_type == "state" && !is.null(state_col)) {
-      # Old-style state filtering
-      if (!is.null(config$dev_states)) {
-        return(filter_data_by_state(data, config$dev_states, state_col))
-      } else {
-        return(data)
-      }
-    } else if (filter_type == "municipality" && !is.null(muni_col)) {
-      # Municipality-based filtering for development mode
-      # Filter by municipalities from development states only
-      if (config$dev_mode && !is.null(config$dev_states)) {
-        # For municipality filtering in dev mode, we need to filter by state
-        # since we don't have a predefined list of municipalities
-        if ("estado_abrev" %in% names(data)) {
-          return(filter_data_by_state(data, config$dev_states, "estado_abrev"))
-        } else if ("sg_uf" %in% names(data)) {
-          return(filter_data_by_state(data, config$dev_states, "sg_uf"))
-        }
-      }
-      return(data)
-    }
-  }
-  
-  # Apply filtering based on configuration
-  if (!is.null(config$dev_states)) {
-    data <- filter_data_by_state(data, config$dev_states)
-  }
-  
-  if (!is.null(config$dev_municipalities)) {
-    data <- filter_data_by_municipalities(data, config$dev_municipalities)
-  }
-  
-  return(data)
+apply_dev_mode_filters <- function(data, config, state_col) {
+  # Single named seam for "what dev mode restricts data to", so the pipeline file
+  # reads intent and there is one place to re-expand if dev filtering ever regains
+  # a second dimension (it previously also filtered by municipality). In dev mode
+  # it keeps only the configured development states (config$dev_states) on the
+  # named state column; in production dev_states is NULL and the data passes
+  # through unchanged. The caller must name the state column (cleanup phase 4; H2
+  # convention).
+  filter_data_by_state(data, config$dev_states, state_col)
 }
 
 apply_brasilia_filters <- function(data, remove_brasilia = TRUE, state_col = "sg_uf") {
@@ -171,143 +141,6 @@ apply_brasilia_filters <- function(data, remove_brasilia = TRUE, state_col = "sg
 }
 
 # ===== PIPELINE HELPERS =====
-
-#' Process string match batch
-#'
-#' Generic function to process string matching in batches
-#' @param batch_ids Current batch ID being processed
-#' @param batch_assignments Municipality batch assignments table
-#' @param locais_data Filtered polling stations data
-#' @param match_data Data to match against (e.g., INEP, CNEFE)
-#' @param match_fn Matching function to use
-#' @param id_col Column name for municipality ID (default: "id_munic_7")
-#' @return Combined match results for the batch
-#' @export
-process_string_match_batch <- function(batch_ids, batch_assignments, locais_data,
-                                       match_data, match_fn, id_col = "id_munic_7") {
-  # Get municipalities for this batch
-  batch_info <- batch_assignments[batch_id == batch_ids]
-  batch_munis <- batch_info$muni_code
-
-  # Log batch start
-  message(sprintf(
-    "[%s] Processing string match batch %s: %d municipalities",
-    format(Sys.time(), "%H:%M:%S"),
-    batch_ids,
-    length(batch_munis)
-  ))
-
-  # Process all municipalities in this batch
-  batch_results <- lapply(seq_along(batch_munis), function(i) {
-    muni_code <- batch_munis[i]
-
-    # Log progress for large batches
-    if (length(batch_munis) > 5 && i %% 5 == 0) {
-      message(sprintf(
-        "  - Batch %s progress: %d/%d municipalities",
-        batch_ids,
-        i,
-        length(batch_munis)
-      ))
-    }
-    # Special handling for different matching functions
-    if (deparse(substitute(match_fn)) == "match_inep_muni") {
-      match_fn(
-        locais_muni = locais_data[cod_localidade_ibge == muni_code],
-        inep_muni = match_data[get(id_col) == muni_code]
-      )
-    } else if (deparse(substitute(match_fn)) == "match_schools_cnefe_muni") {
-      match_fn(
-        locais_muni = locais_data[cod_localidade_ibge == muni_code],
-        schools_cnefe_muni = match_data[get(id_col) == muni_code]
-      )
-    } else if (deparse(substitute(match_fn)) == "match_geocodebr_muni") {
-      match_fn(
-        locais_muni = locais_data[cod_localidade_ibge == muni_code],
-        muni_ids = match_data[get(id_col) == muni_code]
-      )
-    } else {
-      # Generic case - assumes standard interface
-      match_fn(
-        locais_muni = locais_data[cod_localidade_ibge == muni_code],
-        match_muni = match_data[get(id_col) == muni_code]
-      )
-    }
-  })
-
-  # Remove NULL results and combine
-  batch_results <- batch_results[!sapply(batch_results, is.null)]
-  if (length(batch_results) > 0) {
-    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
-  } else {
-    data.table()
-  }
-}
-
-#' Process street/neighborhood match batch
-#'
-#' Specialized function for street and neighborhood matching
-#' @param batch_ids Current batch ID
-#' @param batch_assignments Municipality batch assignments
-#' @param locais_data Filtered polling stations
-#' @param st_data Street-level data
-#' @param bairro_data Neighborhood-level data
-#' @param match_fn Matching function (e.g., match_stbairro_cnefe_muni)
-#' @return Combined match results
-#' @export
-process_stbairro_match_batch <- function(batch_ids, batch_assignments, locais_data,
-                                         st_data, bairro_data, match_fn) {
-  # Get municipalities for this batch
-  batch_info <- batch_assignments[batch_id == batch_ids]
-  batch_munis <- batch_info$muni_code
-
-  # Log batch start with size info
-  total_size <- sum(batch_info$muni_size)
-  message(sprintf(
-    "[%s] Processing stbairro match batch %s: %d municipalities, %s total items",
-    format(Sys.time(), "%H:%M:%S"),
-    batch_ids,
-    length(batch_munis),
-    format(total_size, big.mark = ",")
-  ))
-
-  # Process all municipalities in this batch
-  batch_results <- lapply(seq_along(batch_munis), function(i) {
-    muni_code <- batch_munis[i]
-
-    # Log progress
-    if (i %% 2 == 0 || i == length(batch_munis)) {
-      message(sprintf(
-        "  - Batch %s: processing municipality %d/%d (code: %s)",
-        batch_ids,
-        i,
-        length(batch_munis),
-        muni_code
-      ))
-    }
-    if (deparse(substitute(match_fn)) == "match_stbairro_agrocnefe_muni") {
-      match_fn(
-        locais_muni = locais_data[cod_localidade_ibge == muni_code],
-        agrocnefe_st_muni = st_data[id_munic_7 == muni_code],
-        agrocnefe_bairro_muni = bairro_data[id_munic_7 == muni_code]
-      )
-    } else {
-      match_fn(
-        locais_muni = locais_data[cod_localidade_ibge == muni_code],
-        cnefe_st_muni = st_data[id_munic_7 == muni_code],
-        cnefe_bairro_muni = bairro_data[id_munic_7 == muni_code]
-      )
-    }
-  })
-
-  # Remove NULL results and combine
-  batch_results <- batch_results[!sapply(batch_results, is.null)]
-  if (length(batch_results) > 0) {
-    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
-  } else {
-    data.table()
-  }
-}
 
 #' Process CNEFE by state
 #'

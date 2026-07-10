@@ -41,31 +41,7 @@ prefilter_by_common_words <- function(query_strings, target_strings, min_common_
   return(matches)
 }
 
-chunk_string_match <- function(query_chunk, target_strings, method = "jw", 
-                              normalize_by_length = TRUE) {
-  # Perform string matching on a chunk of query strings
-  
-  # Calculate distance matrix for this chunk
-  dist_matrix <- stringdist::stringdistmatrix(
-    query_chunk,
-    target_strings,
-    method = method
-  )
-  
-  # Normalize by string length if requested
-  if (normalize_by_length) {
-    len_matrix <- outer(
-      nchar(query_chunk),
-      nchar(target_strings),
-      FUN = "pmax"
-    )
-    dist_matrix <- dist_matrix / len_matrix
-  }
-  
-  return(dist_matrix)
-}
-
-match_strings_memory_efficient <- function(query_strings, target_strings, 
+match_strings_memory_efficient <- function(query_strings, target_strings,
                                          method = "jw", chunk_size = 1000,
                                          normalize_by_length = TRUE,
                                          prefilter = TRUE,

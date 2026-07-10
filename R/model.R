@@ -22,7 +22,7 @@ make_model_data <- function(
   schools_cnefe22_match,
   agrocnefe_stbairro_match,
   inep_string_match,
-  geocodebr_match = NULL,  # New parameter with NULL default for backward compatibility
+  geocodebr_match,
   muni_demo,
   muni_area,
   locais,
@@ -154,66 +154,9 @@ make_model_data <- function(
     .(cod_localidade_ibge = Codmun7, logpop, pct_rural)
   ]
 
-  # Define synonyms for school names
-  # Most polling stations are located in schools, so detecting school-related
-  # terms helps the model prioritize school matches from CNEFE/INEP data
-  school_syns <- c(
-    "e m e i",
-    "esc inf",
-    "esc mun",
-    "unidade escolar",
-    "centro educacional",
-    "escola municipal",
-    "colegio estadual",
-    "cmei",
-    "emeif",
-    "emeief",
-    "grupo escolar",
-    "escola estadual",
-    "erem",
-    "colegio municipal",
-    "centro de ensino infantil",
-    "escola mul",
-    "e m",
-    "grupo municipal",
-    "e e",
-    "creche",
-    "escola",
-    "colegio",
-    "em",
-    "de referencia",
-    "centro comunitario",
-    "grupo",
-    "de referencia em ensino medio",
-    "intermediaria",
-    "ginasio municipal",
-    "ginasio",
-    "emef",
-    "centro de educacao infantil",
-    "esc",
-    "ee",
-    "e f",
-    "cei",
-    "emei",
-    "ensino fundamental",
-    "ensino medio",
-    "eeief",
-    "eef",
-    "e f",
-    "ens fun",
-    "eem",
-    "eeem",
-    "est ens med",
-    "est ens fund",
-    "ens fund",
-    "mul",
-    "professora",
-    "professor",
-    "eepg",
-    "eemg",
-    "prof",
-    "ensino fundamental"
-  )
+  # School-name synonyms (school_synonyms) are defined once in R/data_cleaning.R
+  # and reused here. Most polling stations are located in schools, so detecting
+  # school-related terms helps the model prioritize school matches.
 
   # Prepare address features
   addr_features <- locais[, .(
@@ -246,7 +189,7 @@ make_model_data <- function(
   ]
   addr_features[,
     school := fifelse(
-      grepl(paste0("\\b", school_syns, "\\b", collapse = "|"), norm_name) ==
+      grepl(paste0("\\b", school_synonyms, "\\b", collapse = "|"), norm_name) ==
         TRUE,
       1,
       0

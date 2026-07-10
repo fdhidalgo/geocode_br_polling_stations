@@ -435,12 +435,7 @@ create_and_select_best_pairs_optimized <- function(data, years, blocking_column,
                                                   use_word_blocking = FALSE,
                                                   panel_weight_threshold = 0) {
   pairs_list <- list()
-  
-  # Load blocking functions if using word blocking
-  if (use_word_blocking && !exists("create_two_level_blocked_pairs")) {
-    source("R/panel_id_blocking_fns.R")
-  }
-  
+
   # Standardize column names in input data
   standardize_column_names(data, inplace = TRUE)
   

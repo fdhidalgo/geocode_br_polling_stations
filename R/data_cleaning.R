@@ -130,33 +130,9 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
 
   setnames(cnefe22, names(cnefe22), tolower(names(cnefe22)))
 
-  # Create address variable
-  cnefe22[,
-    num_endereco_char := fifelse(
-      num_endereco == 0,
-      dsc_modificador,
-      as.character(num_endereco)
-    )
-  ]
-  # Remove "SN" (sem número/no number) - a placeholder that interferes with address matching
-  cnefe22[, num_endereco_char := str_remove(num_endereco_char, "SN")]
-  cnefe22[,
-    dsc_modificador_nosn := fifelse(
-      dsc_modificador != "SN",
-      dsc_modificador,
-      ""
-    )
-  ]
-
-  cnefe22[,
-    address := str_squish(paste(
-      nom_tipo_seglogr,
-      nom_titulo_seglogr,
-      nom_seglogr,
-      num_endereco_char,
-      dsc_modificador_nosn
-    ))
-  ]
+  # Build the street address used by matching. The house-number/modifier fields
+  # (num_endereco, dsc_modificador) fed only the former `address` column, which was
+  # never read downstream and has been removed (perf ticket #60).
   cnefe22[,
     street := str_squish(paste(
       nom_tipo_seglogr,
@@ -168,10 +144,8 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
     c(
       "nom_tipo_seglogr",
       "nom_titulo_seglogr",
-      "num_endereco_char",
       "num_endereco",
       "nom_seglogr",
-      "dsc_modificador_nosn",
       "dsc_modificador"
     ) := NULL
   ]
@@ -213,7 +187,6 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
     municipio,
     especie_lab,
     street,
-    address,
     bairro = dsc_localidade,
     desc = dsc_estabelecimento,
     cnefe_long = longitude,
@@ -221,7 +194,6 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
   )]
 
   # Normalize addresses
-  addr[, norm_address := normalize_address(address)]
   addr[, norm_bairro := normalize_address(bairro)]
   addr[, norm_street := normalize_address(street)]
 
@@ -676,47 +648,53 @@ get_cnefe22_schools <- function(cnefe22) {
   schools_cnefe22[norm_desc != ""]
 }
 
-convert_coord <- function(coord) {
-  # Function to convert a single coordinate to decimal degrees
-  # Handle potential errors in coordinate parsing
-  
-  tryCatch({
-    parts <- unlist(strsplit(coord, " "))
-    
-    # Check if we have enough parts
-    if (length(parts) < 4) {
-      return(NA_real_)
-    }
-    
-    degrees <- suppressWarnings(as.numeric(parts[1]))
-    minutes <- suppressWarnings(as.numeric(parts[2]))
-    seconds <- suppressWarnings(as.numeric(parts[3]))
-    direction <- gsub("[^NSWO]", "", parts[4])
-    
-    # Check for NA values from conversion
-    if (is.na(degrees) || is.na(minutes) || is.na(seconds)) {
-      return(NA_real_)
-    }
-    
-    decimal_degrees <- degrees + (minutes / 60) + (seconds / 3600)
-    
-    if (direction %in% c("S", "W", "O")) {
-      decimal_degrees <- -decimal_degrees
-    }
-    
-    return(decimal_degrees)
-  }, error = function(e) {
-    return(NA_real_)
-  })
+convert_coords_dms <- function(coord_strings) {
+  # Vectorized "degrees minutes seconds direction" -> decimal-degree conversion
+  # (perf ticket #61). Replaces a per-element convert_coord()/tryCatch that ran
+  # over tens of millions of CNEFE 2010 rows. Produces output identical to that
+  # scalar function, element for element:
+  #   - fewer than 4 whitespace tokens          -> NA_real_
+  #   - non-numeric degrees / minutes / seconds -> NA_real_
+  #   - a 4th token containing S, W, or O        -> result negated
+  # (CNEFE 2022 already has numeric coordinates and never calls this.)
+  n <- length(coord_strings)
+  tokens <- data.table::tstrsplit(coord_strings, " ", fixed = TRUE, fill = NA)
+
+  # tstrsplit right-pads short rows with NA. With fewer than 4 columns overall,
+  # every row has < 4 tokens, so every value converts to NA (this also covers
+  # empty input: an empty list yields numeric(0)).
+  if (length(tokens) < 4) {
+    return(rep(NA_real_, n))
+  }
+
+  degrees <- suppressWarnings(as.numeric(tokens[[1]]))
+  minutes <- suppressWarnings(as.numeric(tokens[[2]]))
+  seconds <- suppressWarnings(as.numeric(tokens[[3]]))
+  decimal <- degrees + (minutes / 60) + (seconds / 3600)
+
+  # Negate for southern/western hemispheres. The direction token is very
+  # low-cardinality, so clean the distinct values once and map back rather than
+  # running the regex over every one of ~80M rows.
+  direction <- tokens[[4]]
+  levels <- unique(direction)
+  negate_level <- gsub("[^NSWO]", "", levels) %in% c("S", "W", "O")
+  negate <- negate_level[match(direction, levels)]
+  decimal[negate] <- -decimal[negate]
+
+  # A row with fewer than 4 tokens (NA 4th token) fails the scalar `length < 4`
+  # check even when D/M/S parsed, so force those to NA. Non-numeric D/M/S already
+  # propagated to NA through the arithmetic above.
+  decimal[is.na(direction)] <- NA_real_
+  decimal
 }
 
 convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
   # Convert a vector of DMS coordinate strings to decimal degrees, accounting for
-  # parse failures (cleanup phase 3, Medium). convert_coord() silently returns NA
-  # on a malformed value; here we count those NAs, stop if EVERY value failed (a
-  # systematic parse failure, e.g. a format change), and surface the NA rate as a
-  # condition so a high failure rate is visible rather than silent.
-  converted <- vapply(coord_strings, convert_coord, numeric(1), USE.NAMES = FALSE)
+  # parse failures (cleanup phase 3, Medium). convert_coords_dms() silently
+  # returns NA on a malformed value; here we count those NAs, stop if EVERY value
+  # failed (a systematic parse failure, e.g. a format change), and surface the NA
+  # rate as a condition so a high failure rate is visible rather than silent.
+  converted <- convert_coords_dms(coord_strings)
 
   n <- length(converted)
   if (n > 0) {
@@ -773,20 +751,14 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
     cnefe_chunk[, setor_code := paste0(cod_uf, cod_municipio, cod_distrito, cod_subdistrito, cod_setor)]
     cnefe_chunk[, c("cod_distrito", "cod_subdistrito", "cod_setor") := NULL]
     
-    # Create address variables efficiently
-    cnefe_chunk[, num_endereco_char := fifelse(num_endereco == 0, dsc_modificador, as.character(num_endereco))]
-    cnefe_chunk[, dsc_modificador_nosn := fifelse(dsc_modificador != "SN", dsc_modificador, "")]
-    
-    # Create address and street in one operation
-    cnefe_chunk[, `:=`(
-      address = str_squish(paste(nom_tipo_seglogr, nom_titulo_seglogr, nom_seglogr, 
-                                 num_endereco_char, dsc_modificador_nosn)),
-      street = str_squish(paste(nom_tipo_seglogr, nom_titulo_seglogr, nom_seglogr))
-    )]
-    
+    # Build the street address used by matching. The house-number/modifier fields
+    # (num_endereco, dsc_modificador) fed only the former `address` column, which
+    # was never read downstream and has been removed (perf ticket #60).
+    cnefe_chunk[, street := str_squish(paste(nom_tipo_seglogr, nom_titulo_seglogr, nom_seglogr))]
+
     # Remove intermediate columns
-    cnefe_chunk[, c("nom_tipo_seglogr", "nom_titulo_seglogr", "num_endereco_char",
-                    "num_endereco", "nom_seglogr", "dsc_modificador_nosn", 
+    cnefe_chunk[, c("nom_tipo_seglogr", "nom_titulo_seglogr",
+                    "num_endereco", "nom_seglogr",
                     "dsc_modificador") := NULL]
     
     # Handle missing values
@@ -799,7 +771,7 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
     cnefe_chunk[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
     
     # Keep only essential columns early
-    essential_cols <- c("id_munic_7", "setor_code", "especie", "street", "address",
+    essential_cols <- c("id_munic_7", "setor_code", "especie", "street",
                         "dsc_localidade", "dsc_estabelecimento", "val_longitude", "val_latitude")
     cnefe_chunk <- cnefe_chunk[, ..essential_cols]
     
@@ -832,11 +804,11 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
   message("Creating final dataset...")
   addr <- cnefe[, .(
     id_munic_7, id_TSE, municipio, setor_code, especie_lab,
-    street, address,
+    street,
     bairro = dsc_localidade,
     desc = dsc_estabelecimento,
-    val_longitude = val_longitude,  # Keep as character for convert_coord
-    val_latitude = val_latitude      # Keep as character for convert_coord
+    val_longitude = val_longitude,  # Keep as character for convert_coords_dms
+    val_latitude = val_latitude      # Keep as character for convert_coords_dms
   )]
   
   # Convert coordinates
@@ -866,7 +838,6 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
   
   # Normalize addresses
   message("Normalizing addresses...")
-  addr[, norm_address := normalize_address(address)]
   addr[, norm_bairro := normalize_address(bairro)]
   addr[, norm_street := normalize_address(street)]
   

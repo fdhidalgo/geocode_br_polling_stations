@@ -1,0 +1,264 @@
+# Evaluation spec: honest held-out accuracy + `pred_dist` calibration
+
+**Ticket:** [#25 — Decide the evaluation spec](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/25)
+**Feeds:** [#30 — methodology upgrade roadmap](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/30), [#36 — 2024 release run / cleanup phase 5](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/36)
+**Builds on:** [#24 — evaluation survey](docs/research/2026-07-evaluation-survey.md)
+**Date:** 2026-07-10
+**Status:** execution-ready spec (planning output of the wayfinder map #18)
+
+## Purpose in plain language
+
+This pipeline produces coordinates for Brazilian polling stations, but it has no
+honest, repeatable way to state *how accurate those coordinates are*. This spec defines
+that evaluation. It says what to measure (positional accuracy as a distribution, not a
+single number), how to measure it without cheating (a held-out split so the model is
+scored on stations it never trained on), how to check that the pipeline's own
+confidence score is trustworthy, and where the numbers live (rebuilt with the pipeline,
+so the public methodology document stays in sync). It deliberately does *not* solve the
+one problem no cheap method can solve — that the stations the model actually determines
+are the ones with no reference coordinate to check against — and instead reports that
+honestly as an extrapolation, while laying the groundwork (a validated Google reference)
+for closing it later.
+
+The decision this spec records: adopt the survey's **Design A** (honest held-out TSE
+evaluation) plus the **calibration half of Design B**. Drop geocodebr as an evaluation
+benchmark. Defer the manual gold set (Design C) and the independent Google-on-uncovered
+run to future efforts; this round validates Google against TSE first.
+
+---
+
+## 1. The central constraint (why the design is shaped this way)
+
+Three facts about the current pipeline (established in the survey) fix everything below:
+
+- **Where TSE has a coordinate, the output *is* the TSE coordinate**
+  (`merge_geocoded_locais()`, `R/data_cleaning.R:457`:
+  `final_long := ifelse(is.na(tse_long), pred_long, tse_long)`). The model-selected
+  coordinate reaches the output **only for TSE-uncovered stations**.
+- **TSE coordinates are the model's training target** (`make_model_data()` /
+  `train_model()`, `R/model.R`): `pred_dist` regresses `log(haversine-to-TSE)` on match
+  features, and the best match per station is the smallest `pred_dist` (`R/model.R:432`).
+- **TSE coordinates are field-collected (GEL system), not centrally geocoded** — so they
+  are genuinely independent of any CNEFE-based geocoder, which is what qualifies them as
+  ground truth. Their weaknesses here are (a) they are the training target, so evaluation
+  needs a strict held-out split, and (b) coverage varies by state and year.
+
+**Consequence.** The stations whose output the model actually determines (TSE-uncovered)
+are exactly the ones with no reference. Any accuracy number is measured on the
+TSE-*covered* subset and *extrapolated* to the uncovered subset. This spec makes the
+covered-subset measurement honest and reproducible, and reports the extrapolation
+explicitly rather than hiding it.
+
+---
+
+## 2. What the spec delivers
+
+Two evaluation surfaces, hybrid-sited:
+
+- **Pipeline targets** (rebuilt every run; feed the methodology doc in lockstep):
+  1. TSE coverage-by-year × state.
+  2. Station-grouped k-fold out-of-fold (OOF) predictions over the covered set.
+  3. Stratified accuracy tables (median / percentiles / %-within-threshold, joint with
+     match rate), with small-cell suppression.
+  4. The `pred_dist` calibration check (rank-and-filter + reliability/ENCE).
+- **A thin Quarto report** that renders the targets above for human reading and adds the
+  one-time **frozen-Google reference-validation** (Google-vs-TSE agreement on a covered
+  sample).
+
+Everything is free/open except the one-time Google API call, whose *output* is committed
+as a frozen artifact so the report reading it stays reproducible.
+
+---
+
+## 3. The honest held-out protocol
+
+**Mechanism: station-grouped k-fold cross-validation, evaluated on out-of-fold
+predictions over the entire covered set.** Not a single 20% holdout — the covered subset
+is already a limited, biased slice of all stations, and OOF uses all of it, tightens
+per-stratum estimates, and directly feeds the calibration check.
+
+Requirements (all mandatory):
+
+- **Station-grouped folds.** Every candidate row for a given station must be in the same
+  fold; the group key is the station identity used elsewhere in the pipeline. Splitting a
+  station's candidates across folds leaks the TSE target.
+- **Split upstream of tuning.** The fold assignment is created once, before hyperparameter
+  tuning, so tuning cannot peek at the evaluation stations. This consumes the C4
+  test-set-leak fix already scoped in cleanup phase 2
+  ([#21](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/21) /
+  [#33](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/33)) — this spec
+  does not re-implement it; it depends on it.
+- **Per-station selected match from OOF scores.** For each covered station, rank its
+  candidates by OOF `pred_dist`, select the best, and score that pick's haversine distance
+  to the TSE coordinate. This is the number that enters the accuracy tables.
+- **k** is an execution detail (5 or 10); pick for stable per-stratum cells given TSE
+  coverage density (§6).
+
+Production remains a single full-data fit (predicting for all stations including
+uncovered); OOF is the *evaluation* substrate, not the production path.
+
+---
+
+## 4. Metrics and stratification
+
+### 4a. Metrics
+
+Positional accuracy is a right-skewed distribution, so lead with the distribution, not
+the mean/RMSE.
+
+- **Headline numbers:** median haversine error **and** %-within-500 m.
+- **Full table per stratum:** percentiles **50 / 90 / 95 / 99**; share within **100 m /
+  500 m / 1 km**; and **match rate** (share of stations geocoded) — accuracy and match
+  rate **always reported jointly**, never accuracy alone (they trade off).
+- Error is computed against the model-selected coordinate (`pred_long/lat`), **not** the
+  TSE-substituted `final_*` (matching the existing methodology-doc computation).
+
+### 4b. Stratification axes
+
+Every accuracy table is cut by:
+
+- **urban/rural** (the dominant axis; rural is multiples worse),
+- **region**,
+- **vintage (election year)**,
+- **match source** (which matcher won: INEP schools `match_inep_muni()`, CNEFE schools
+  `match_schools_cnefe_muni()`, CNEFE street/neighborhood `match_stbairro_cnefe_muni()`,
+  geocodebr `match_geocodebr_muni()`).
+
+Deferred (future fog): a **spatial-autocorrelation diagnostic** (Moran's I on residuals +
+a residual map) to catch localized failure pockets that stratified medians hide.
+
+### 4c. Vintages
+
+Evaluation covers **2018 / 2020 / 2022 / 2024** only — TSE coordinates begin with the
+2018 vintage. The pipeline geocodes 2006–2024, but pre-2018 station-years have no TSE
+reference and are **unmeasurable**; they fold into the extrapolation caveat (§5), never
+into a silent headline. Anchor each station-year to its same/nearest-vintage TSE
+reference (2018/2022 general, 2020/2024 municipal — the active-station sets differ).
+
+---
+
+## 5. The uncovered subset (reported honestly, not solved)
+
+The TSE-uncovered stations — the ones the model determines — are reported this round as
+**explicitly extrapolated / unmeasured**. The accuracy tables carry an unambiguous
+caveat that headline numbers are measured on the covered subset and assume carry-over.
+
+Two paths to actually *measure* the uncovered subset are **deferred**, each as future
+fog, not part of this spec's execution:
+
+- **Google on the uncovered subset** — gated on the covered-only Google validation (§7)
+  showing Google is trustworthy enough relative to field-GPS TSE.
+- **Design C manual gold set** — a stratified, dual-rater, adjudicated audit (Street View
+  urban, satellite rural); the only design that quantifies TSE's own noise floor and
+  directly scores uncovered stations. High labor; a future effort.
+
+**geocodebr is not used** to bound the uncovered subset. It is CNEFE-based and so is this
+pipeline, so their errors are correlated: agreement confirms CNEFE-consistency, not
+correctness, and (critically) the two agree precisely on the hard stations where both are
+confidently wrong — so a triage signal calibrated on covered stations would transfer
+*false confidence* to the uncovered ones. Its disagreement signal is also largely
+redundant with the pipeline's own `pred_dist` ranking. geocodebr's methodology role
+(features, deeper adoption) stays in
+[#26](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/26) /
+[#30](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/30); it has no role
+in this evaluation.
+
+---
+
+## 6. TSE coverage density
+
+TSE coordinate coverage (non-missing, non-`-1` share per distinct station) is unpublished
+and varies by state and year; it determines how much real ground truth each stratum has.
+
+- **Compute coverage by year × state as a first-class pipeline target** — a cheap count
+  over files already ingested — and surface it alongside every accuracy table so numbers
+  are read against their ground-truth density.
+- **Small-cell suppression:** report a stratum's accuracy only above a minimum held-out N;
+  below the floor, flag/suppress rather than publish a noisy median. The floor is an
+  execution parameter (document the chosen value).
+
+---
+
+## 7. `pred_dist` calibration check
+
+Validates the predicted-distance ranking the pipeline already trusts for match selection.
+Runs on the OOF predictions from §3.
+
+- **Rank-and-filter demonstration (headline artifact):** sort covered stations by
+  predicted error; show that dropping the worst-predicted tail *monotonically* lowers
+  realized median error and raises %-within-500 m. Proves the ranking carries information
+  even if not calibrated in absolute meters.
+- **Reliability diagram + ENCE:** bin by predicted error, plot predicted vs. realized,
+  summarize the gap with Expected Normalized Calibration Error. Measures absolute
+  calibration of the current point estimate.
+- **Prediction-interval coverage: deferred to
+  [#29](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/29).** Today's
+  `pred_dist` is a point estimate, so coverage is undefined until #29 exports a calibrated
+  quantile/interval — at which point this same harness validates it. This makes the
+  calibration check a baseline for the current selector *and* the acceptance test for #29's
+  replacement.
+
+---
+
+## 8. The Google reference-validation (covered-only this round)
+
+Purpose: quantify **Google's own error budget** relative to field-GPS TSE *before*
+spending trust on Google for the uncovered subset (quantify the reference's error before
+using it as one).
+
+- **Sample:** covered stations only, stratified by urban/rural × region; on the order of a
+  few thousand points (Google Geocoding API is ~$5/1,000, so cost is not binding; sample
+  for rate limits and a tractable frozen artifact, not for cost).
+- **Frozen artifact:** commit the Google results (as `data/google_geocoded.csv` was),
+  so the report reading them is reproducible even though the API call is not free to rerun.
+  The stale 2020 snapshot's unreproducibility was a named weakness; do not repeat it.
+- **What it reports:** the Google-vs-TSE agreement distribution (same metric ladder as
+  §4a) — i.e., how close Google lands to field-GPS TSE, by stratum. This is a
+  *reference-validation*, **not** a release gate and **not** an accuracy number for the
+  pipeline.
+- **Sets up:** a future Google-on-uncovered run (fog, §5), unlocked only if this
+  validation shows Google's error budget is well below the errors we're trying to measure.
+
+---
+
+## 9. Siting, lockstep, and gating
+
+- **Pipeline targets:** coverage (§6), OOF predictions (§3), accuracy tables (§4),
+  calibration check (§7) live in `_targets.R`, rebuilt every run. Follow the readability
+  rule — helper functions in `R/`, not long inline blocks. Assign memory-heavy targets to
+  the `memory_limited` crew controller as needed.
+- **Methodology doc in lockstep:** `doc/geocoding_procedure.qmd` ("Estimating Geocoding
+  Error") reads the pipeline-produced numbers; it is updated in the same change as any
+  evaluation change (a standing project constraint).
+- **Thin Quarto report:** renders the targets + the frozen-Google validation (§8) for
+  human reading; the exploratory, non-lockstep surface.
+- **Release gating:** this spec **blocks the 2024 release run
+  ([#36](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/36))** so the
+  release ships with leakage-controlled numbers, and **feeds the methodology roadmap
+  ([#30](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/30))**. Per the
+  release spec, the release gates are **correctness-only**; the honest accuracy numbers
+  are *reported*, not gated on a threshold. The Google validation (§8) is independent of
+  the release and gates nothing.
+
+---
+
+## 10. Dependencies and sequencing
+
+- **Depends on:** C4 test-set-leak fix (station-grouped split upstream of tuning) —
+  cleanup phase 2, [#33](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/33)
+  under [#21](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/21).
+- **Blocks:** [#36](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/36)
+  (2024 release run), [#30](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/30)
+  (methodology roadmap) — both edges already wired.
+- **Interlocks with:** [#29](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/29)
+  (match-selection refresh) — the calibration harness (§7) is the acceptance test for
+  #29's calibrated quantile.
+
+## 11. Deferred / future fog (handed to the map)
+
+- Google-on-uncovered run (gated on §8).
+- Design C manual gold set.
+- Spatial-autocorrelation diagnostic (§4b).
+- A shipped per-station confidence field in the released dataset — a
+  [#30](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/30) methodology
+  decision, deliberately kept out of this evaluation spec.

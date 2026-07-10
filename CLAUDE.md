@@ -115,7 +115,10 @@ Other source files: `R/config.R` (pipeline config + crew controllers), `R/utilit
 **External downloads required**:
 - CNEFE Census data (2010, 2017, 2022)
 - TSE geocoded data (ground truth)
-- Census tract shapefiles (via geobr)
+
+Census tract and municipality boundaries are read from pre-saved `.rds` files in
+`data/` (`census_tracts2010_shp.rds`, `muni_shp.rds`), not fetched at pipeline
+run time.
 
 **Outputs**:
 - `output/geocoded_polling_stations.csv.gz`: Final geocoded coordinates
@@ -141,12 +144,14 @@ For setting up this project on a new computer with AWS S3 integration, see [AWS_
 - **Data**: `data.table` for all operations
 - **Pipeline**: `targets` (+ `tarchetypes`)
 - **Modeling**: `tidymodels` stack (`parsnip`, `recipes`, `workflows`, `tune`, `finetune`, `rsample`, `yardstick`) with `bonsai` for lightgbm
-- **Record linkage**: `reclin2`; **spatial**: `sf`, `geosphere`, `geobr`; **string distance**: `stringdist`, `stringr`
+- **Record linkage**: `reclin2`; **spatial**: `sf`, `geosphere` (boundaries are pre-saved `.rds`, not fetched via `geobr`); **string distance**: `stringdist`, `stringr`
 - **Validation**: `validate` package (see `R/validation.R`)
 - **Parallelization**: `crew` (mirai-backed local controllers)
 - **Dependencies**: pinned with `renv` (`renv.lock`); `.Rprofile` prefers binary installs / `pak`
 
-Note: there is no active `testthat` suite — the `test_*.R` files under `backup/` are historical scratch scripts, not a maintained test directory.
+Note: the maintained test suite lives in `tests/` (see the Testing section above and
+[docs/specs/2026-07-testing-spec.md](docs/specs/2026-07-testing-spec.md)) — fast
+`testthat` unit tests plus a dev-mode integration check.
 
 ### Code Standards
 - Use snake_case naming

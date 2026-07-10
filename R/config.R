@@ -12,6 +12,15 @@ library(crew)
 # ===== PIPELINE CONFIGURATION =====
 # Core configuration settings that control pipeline behavior
 
+# The 27 Brazilian federative units (26 states + the Federal District), used to
+# enumerate all states in production. Defined once and reused (cleanup phase 4
+# dedup).
+BRAZIL_STATES <- c(
+  "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA",
+  "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN",
+  "RO", "RR", "RS", "SC", "SE", "SP", "TO"
+)
+
 get_pipeline_config <- function(dev_mode = FALSE) {
   # Get pipeline configuration based on development mode
   
@@ -44,9 +53,7 @@ get_pipeline_config <- function(dev_mode = FALSE) {
   # Add computed values
   config$n_cores <- config$max_workers
   config$states <- if (is.null(config$dev_states)) {
-    c("AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA",
-      "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN",
-      "RO", "RR", "RS", "SC", "SE", "SP", "TO")
+    BRAZIL_STATES
   } else {
     config$dev_states
   }
@@ -75,10 +82,7 @@ get_states_for_processing <- function(context, pipeline_config, custom_states = 
     },
     panel = {
       # Use custom states or default to all Brazilian states
-      custom_states %||% c("AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", 
-                          "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", 
-                          "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", 
-                          "SE", "SP", "TO")
+      custom_states %||% BRAZIL_STATES
     },
     stop("Unknown context: ", context)
   )
@@ -162,27 +166,6 @@ get_expected_municipality_count_for_config <- function(pipeline_config) {
   } else {
     5570
   }
-}
-
-get_expected_municipality_range <- function(state_abbrev, tolerance = 0.05) {
-  # Get expected range of municipalities allowing for some tolerance
-  # Useful for validation as municipality counts can change slightly
-  
-  expected <- get_expected_municipality_count(state_abbrev)
-  
-  if (is.na(expected)) {
-    return(list(min = NA, max = NA, expected = NA))
-  }
-  
-  # Calculate range with tolerance
-  min_count <- floor(expected * (1 - tolerance))
-  max_count <- ceiling(expected * (1 + tolerance))
-  
-  return(list(
-    min = min_count,
-    max = max_count,
-    expected = expected
-  ))
 }
 
 # ===== CREW CONTROLLER CONFIGURATION =====

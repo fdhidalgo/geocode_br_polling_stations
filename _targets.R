@@ -512,8 +512,7 @@ list(
     command = apply_dev_mode_filters(
       inep_data_all,
       pipeline_config,
-      filter_type = "municipality",
-      muni_col = "id_munic_7"
+      state_col = "uf"
     )
   ),
 
@@ -543,7 +542,6 @@ list(
     command = apply_dev_mode_filters(
       locais_all,
       pipeline_config,
-      filter_type = "state",
       state_col = "sg_uf"
     ),
     format = "qs"
@@ -678,7 +676,6 @@ list(
     command = apply_dev_mode_filters(
       secc_loc_map_all,
       pipeline_config,
-      filter_type = "state",
       state_col = "sg_uf"
     ),
     format = "qs"
@@ -1186,25 +1183,4 @@ list(
     path = "reports/polling_station_sanity_check.qmd",
     output_dir = "reports"
   )
-  #,
-  ## Methodology and Evaluation
-  # Only render in production mode
-  #tar_target(
-  #  name = geocode_writeup,
-  #  command = {
-  # Explicitly depend on pipeline_config
-  #    if (!pipeline_config$dev_mode) {
-  # Render the document in production mode
-  #     rmarkdown::render(
-  #      input = "./doc/geocoding_procedure.Rmd",
-  ##  )
-  # "./doc/geocoding_procedure.html"
-  # } else {
-  # Skip in dev mode - just return the expected output path
-  #  message("Skipping geocode_writeup in development mode")
-  #  "./doc/geocoding_procedure.html"
-  #}
-  #},
-  # format = "file"
-  #)
 )

@@ -48,20 +48,6 @@ validate_merge_stage <- function(merged_data, left_data, right_data = NULL,
     n_cols = ncol(merged_data)
   )
   
-  # If input data provided, calculate merge statistics
-  if (!is.null(left_data) && !is.null(right_data)) {
-    metadata$left_rows <- nrow(left_data)
-    metadata$right_rows <- nrow(right_data)
-    metadata$output_rows <- nrow(merged_data)
-    metadata$merge_type <- case_when(
-      nrow(merged_data) == nrow(left_data) ~ "left join",
-      nrow(merged_data) == nrow(right_data) ~ "right join",
-      nrow(merged_data) == max(nrow(left_data), nrow(right_data)) ~ "full join",
-      nrow(merged_data) < min(nrow(left_data), nrow(right_data)) ~ "inner join",
-      TRUE ~ "unknown"
-    )
-  }
-  
   # Return structured result
   structure(
     list(
@@ -107,13 +93,6 @@ validate_prediction_stage <- function(predictions, stage_name,
         deparse(prob_col), deparse(prob_col)
       ))[[1]]
     }
-  }
-  
-  # For backward compatibility, also check for coordinate predictions
-  if (any(c("pred_long", "pred_lat", "long", "lat") %in% names(predictions))) {
-    base_rules$has_coordinate_predictions <- quote(
-      any(c("pred_long", "pred_lat", "long", "lat") %in% names(.))
-    )
   }
   
   # Create validator
@@ -421,79 +400,6 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
 }
 
 # ===== VALIDATION REPORT HELPERS =====
-
-ensure_quarto_path <- function() {
-  # Ensure QUARTO_PATH is set for crew workers
-  
-  if (Sys.getenv("QUARTO_PATH") == "") {
-    quarto_bin <- Sys.which("quarto")
-    if (nzchar(quarto_bin)) {
-      Sys.setenv(QUARTO_PATH = as.character(quarto_bin))
-      message("Setting QUARTO_PATH to: ", quarto_bin)
-      return(TRUE)
-    } else {
-      warning("Quarto not found in PATH")
-      return(FALSE)
-    }
-  }
-  return(TRUE)
-}
-
-render_sanity_check_report <- function(geocoded_data, output_file = NULL, 
-                                     output_format = "html_document") {
-  # Render sanity check report for geocoded data
-  
-  # Ensure quarto is available
-  ensure_quarto_path()
-  
-  if (is.null(output_file)) {
-    output_file <- paste0("sanity_check_", Sys.Date(), ".html")
-  }
-  
-  # Prepare data for report
-  report_data <- geocoded_data[, .(
-    ano,
-    estado = sg_uf,
-    municipio = nm_localidade,
-    n_locations = .N,
-    n_geocoded = sum(!is.na(final_long) & !is.na(final_lat)),
-    geocoding_rate = mean(!is.na(final_long) & !is.na(final_lat))
-  ), by = .(ano, sg_uf, nm_localidade)]
-  
-  # Create simple markdown report
-  report_content <- c(
-    "# Polling Station Geocoding Sanity Check",
-    paste("Generated:", Sys.Date()),
-    "",
-    "## Summary Statistics",
-    "",
-    knitr::kable(summary(report_data)),
-    "",
-    "## Geocoding Rates by State",
-    "",
-    knitr::kable(report_data[, .(
-      n_municipalities = .N,
-      total_locations = sum(n_locations),
-      total_geocoded = sum(n_geocoded),
-      avg_geocoding_rate = mean(geocoding_rate)
-    ), by = estado])
-  )
-  
-  # Write and render
-  temp_rmd <- tempfile(fileext = ".Rmd")
-  writeLines(report_content, temp_rmd)
-  
-  rmarkdown::render(
-    input = temp_rmd,
-    output_file = output_file,
-    output_format = output_format,
-    quiet = TRUE
-  )
-  
-  unlink(temp_rmd)
-  
-  return(output_file)
-}
 
 get_report_output_files <- function(base_name = "validation_report") {
   # Generate output file names for validation reports

@@ -67,6 +67,41 @@ standardize_column_names <- function(dt, inplace = FALSE) {
 
 # ===== DATA CLEANING FUNCTIONS =====
 
+# Human-readable labels for CNEFE "espécie de endereço" codes, used by
+# clean_cnefe10() and clean_cnefe22(). The two censuses code establishment types
+# differently: 2010 uses 7 codes (keyed on `especie`); 2022 uses 8 codes (keyed
+# on `cod_especie`), widening code 7's label to include reforms and adding a
+# distinct "estabelecimento religioso" (code 8). Defined once here (cleanup phase
+# 4 dedup) with the former "estabeleciemento" typo corrected to "estabelecimento"
+# — an output-visible label change noted for the 2024 release.
+cnefe_especie_labels <- function(year) {
+  common <- c(
+    "domicílio particular",
+    "domicílio coletivo",
+    "estabelecimento agropecuário",
+    "estabelecimento de ensino",
+    "estabelecimento de saúde",
+    "estabelecimento de outras finalidades"
+  )
+  if (year == 2010) {
+    data.table(
+      especie = 1:7,
+      especie_lab = c(common, "edificação em construção")
+    )
+  } else if (year == 2022) {
+    data.table(
+      cod_especie = 1:8,
+      especie_lab = c(
+        common,
+        "edificação em construção ou reforma",
+        "estabelecimento religioso"
+      )
+    )
+  } else {
+    stop(sprintf("cnefe_especie_labels(): unsupported CNEFE year %s.", year))
+  }
+}
+
 clean_cnefe22 <- function(cnefe22_file, muni_ids) {
   # Accept either file path or data.table
   if (is.character(cnefe22_file)) {
@@ -162,19 +197,7 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
     all.x = TRUE
   )
   # Add human-readable labels for CNEFE establishment types (especie codes)
-  especie_labs <- data.table(
-    cod_especie = 1:8,
-    especie_lab = c(
-      "domicílio particular",
-      "domicílio coletivo",
-      "estabeleciemento agropecuário",
-      "estabelecimento de ensino",
-      "estabelecimento de saúde",
-      "estabeleciemento de outras finalidades",
-      "edificação em construção ou reforma",
-      "estabeleciemento religioso"
-    )
-  )
+  especie_labs <- cnefe_especie_labels(2022)
 
   cnefe22 <- merge(
     cnefe22,
@@ -502,66 +525,67 @@ normalize_address <- function(x) {
   return(result)
 }
 
-normalize_school <- function(x) {
-  ## Common school-related terms to remove for better name matching
-  school_syns <- c(
-    "e m e i",
-    "esc inf",
-    "esc mun",
-    "unidade escolar",
-    "centro educacional",
-    "escola municipal",
-    "colegio estadual",
-    "cmei",
-    "emeif",
-    "emeief",
-    "grupo escolar",
-    "escola estadual",
-    "erem",
-    "colegio municipal",
-    "centro de ensino infantil",
-    "escola mul",
-    "e m",
-    "grupo municipal",
-    "e e",
-    "creche",
-    "escola",
-    "colegio",
-    "em",
-    "de referencia",
-    "centro comunitario",
-    "grupo",
-    "de referencia em ensino medio",
-    "intermediaria",
-    "ginasio municipal",
-    "ginasio",
-    "emef",
-    "centro de educacao infantil",
-    "esc",
-    "ee",
-    "e f",
-    "cei",
-    "emei",
-    "ensino fundamental",
-    "ensino medio",
-    "eeief",
-    "eef",
-    "e f",
-    "ens fun",
-    "eem",
-    "eeem",
-    "est ens med",
-    "est ens fund",
-    "ens fund",
-    "mul",
-    "professora",
-    "professor",
-    "eepg",
-    "eemg",
-    "prof",
-    "ensino fundamental"
-  )
+## Common school-related terms, stripped from school names for better matching in
+## normalize_school() and used as a school-detection feature by make_model_data()
+## in R/model.R. Defined once here and reused in both places (cleanup phase 4
+## dedup). Order is irrelevant — both uses build one regex alternation.
+school_synonyms <- c(
+  "e m e i",
+  "esc inf",
+  "esc mun",
+  "unidade escolar",
+  "centro educacional",
+  "escola municipal",
+  "colegio estadual",
+  "cmei",
+  "emeif",
+  "emeief",
+  "grupo escolar",
+  "escola estadual",
+  "erem",
+  "colegio municipal",
+  "centro de ensino infantil",
+  "escola mul",
+  "e m",
+  "grupo municipal",
+  "e e",
+  "creche",
+  "escola",
+  "colegio",
+  "em",
+  "de referencia",
+  "centro comunitario",
+  "grupo",
+  "de referencia em ensino medio",
+  "intermediaria",
+  "ginasio municipal",
+  "ginasio",
+  "emef",
+  "centro de educacao infantil",
+  "esc",
+  "ee",
+  "e f",
+  "cei",
+  "emei",
+  "ensino fundamental",
+  "ensino medio",
+  "eeief",
+  "eef",
+  "ens fun",
+  "eem",
+  "eeem",
+  "est ens med",
+  "est ens fund",
+  "ens fund",
+  "mul",
+  "professora",
+  "professor",
+  "eepg",
+  "eemg",
+  "prof"
+)
 
+normalize_school <- function(x) {
   ## Normalize school names by removing generic terms and standardizing format
   result <- stringi::stri_trans_general(x, "Latin-ASCII")
   result <- str_to_lower(result)
@@ -570,7 +594,7 @@ normalize_school <- function(x) {
   result <- str_squish(result)
   result <- str_remove_all(
     result,
-    paste0("\\b", school_syns, "\\b", collapse = "|")
+    paste0("\\b", school_synonyms, "\\b", collapse = "|")
   )
   result <- str_squish(result)
 
@@ -695,107 +719,6 @@ convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
 }
 
 
-read_cnefe_chunked <- function(file_path, chunk_size = 5e6, process_fn = NULL) {
-  # Read large CNEFE files in chunks to avoid memory exhaustion
-  # CNEFE 2022 files can exceed 40GB and contain >100M rows
-  # Processing in 5M row chunks keeps memory usage manageable
-  message(sprintf("Reading %s in chunks of %s rows", 
-                  basename(file_path), 
-                  format(chunk_size, big.mark = ",")))
-  
-  # First, get total number of rows
-  total_rows <- fread(file_path, select = 1L, sep = ";")[, .N]
-  n_chunks <- ceiling(total_rows / chunk_size)
-  
-  message(sprintf("Total rows: %s, will process in %d chunks", 
-                  format(total_rows, big.mark = ","), 
-                  n_chunks))
-  
-  # Process each chunk
-  results <- list()
-  
-  for (i in seq_len(n_chunks)) {
-    skip_rows <- (i - 1) * chunk_size
-    
-    message(sprintf("Processing chunk %d/%d (rows %s-%s)...", 
-                    i, n_chunks, 
-                    format(skip_rows + 1, big.mark = ","),
-                    format(min(skip_rows + chunk_size, total_rows), big.mark = ",")))
-    
-    # Read chunk
-    chunk <- fread(
-      file_path,
-      sep = ";",
-      nrows = chunk_size,
-      skip = skip_rows,
-      header = (i == 1),  # Only read header for first chunk
-      col.names = if (i > 1) names(results[[1]]) else NULL,
-      encoding = "UTF-8",
-      showProgress = FALSE
-    )
-    
-    # Apply processing function if provided
-    if (!is.null(process_fn)) {
-      chunk <- process_fn(chunk)
-    }
-    
-    results[[i]] <- chunk
-    
-    # Force garbage collection after each chunk
-    rm(chunk)
-    gc(verbose = FALSE)
-    
-    # Check memory usage
-    mem_usage <- gc()[2, 2]  # Current memory usage in MB
-    message(sprintf("  Memory usage: %.1f GB", mem_usage / 1024))
-    
-    # If memory usage is high, combine results so far and clear list
-    if (mem_usage > 50000) {  # If using more than 50GB
-      message("  High memory usage detected, combining chunks...")
-      if (length(results) > 1) {
-        combined <- rbindlist(results, use.names = TRUE, fill = TRUE)
-        results <- list(combined)
-        gc(verbose = FALSE)
-      }
-    }
-  }
-  
-  # Combine all results
-  message("Combining all chunks...")
-  final_result <- rbindlist(results, use.names = TRUE, fill = TRUE)
-  
-  message(sprintf("Finished reading %s rows", 
-                  format(nrow(final_result), big.mark = ",")))
-  
-  return(final_result)
-}
-
-
-monitor_memory <- function() {
-  gc_info <- gc()
-  
-  # Get system memory info on Linux
-  if (Sys.info()["sysname"] == "Linux") {
-    mem_info <- system("free -m", intern = TRUE)
-    total_mem <- as.numeric(gsub(".*Mem:\\s+(\\d+).*", "\\1", mem_info[2]))
-    used_mem <- as.numeric(gsub(".*Mem:\\s+\\d+\\s+(\\d+).*", "\\1", mem_info[2]))
-    free_mem <- total_mem - used_mem
-    
-    list(
-      r_memory_mb = sum(gc_info[, "used"]),
-      system_total_gb = total_mem / 1024,
-      system_used_gb = used_mem / 1024,
-      system_free_gb = free_mem / 1024,
-      system_used_pct = used_mem / total_mem * 100
-    )
-  } else {
-    list(
-      r_memory_mb = sum(gc_info[, "used"]),
-      system_info = "Not available on this platform"
-    )
-  }
-}
-
 clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools = FALSE) {
   # Memory-efficient processing of CNEFE 2010 data
   
@@ -866,12 +789,8 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
   
   # Read and process CNEFE data
   if (is.character(cnefe_file)) {
-    if (file.size(cnefe_file) > 1e9) {  # Use chunks for files > 1GB
-      cnefe <- read_cnefe_chunked(cnefe_file, chunk_size = 5e6, process_fn = process_chunk)
-    } else {
-      cnefe <- fread(cnefe_file, sep = ";", encoding = "UTF-8")
-      cnefe <- process_chunk(cnefe)
-    }
+    cnefe <- fread(cnefe_file, sep = ";", encoding = "UTF-8")
+    cnefe <- process_chunk(cnefe)
   } else {
     cnefe <- process_chunk(copy(cnefe_file))
   }
@@ -886,15 +805,7 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
   
   # Merge especie labels
   message("Adding especie labels...")
-  especie_labs <- data.table(
-    especie = 1:7,
-    especie_lab = c(
-      "domicílio particular", "domicílio coletivo",
-      "estabeleciemento agropecuário", "estabelecimento de ensino",
-      "estabelecimento de saúde", "estabeleciemento de outras finalidades",
-      "edificação em construção"
-    )
-  )
+  especie_labs <- cnefe_especie_labels(2010)
   cnefe <- especie_labs[cnefe, on = "especie"]
   
   # Create final dataset with renamed columns

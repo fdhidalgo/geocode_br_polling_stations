@@ -446,27 +446,27 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
 # ===== GEOCODEBR MATCHING FUNCTION =====
 
 match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
-  # Match polling stations with geocodebr for a single municipality
-  # Moved from geocodebr_matching.R
-  
-  # Wrap entire function in tryCatch to prevent pipeline crashes
-  tryCatch({
-    # Load geocodebr if not already loaded
-    if (!requireNamespace("geocodebr", quietly = TRUE)) {
-      warning("geocodebr package not installed. Returning NULL.")
-      return(NULL)
-    }
-    
-    # Check if we have data
-    if (nrow(locais_muni) == 0) {
-      return(NULL)
-    }
-    
-    # Debug info
-    muni_code <- unique(locais_muni$cod_localidade_ibge)
-    muni_name <- unique(locais_muni$nm_localidade)
-    message(sprintf("Processing municipality: %s (%s)", muni_name[1], muni_code[1]))
-  
+  # Match polling stations with geocodebr for a single municipality.
+  #
+  # Fail-loud contract (cleanup phase 3, finding C5): geocodebr must be
+  # installed, and any geocoding error propagates to the caller rather than
+  # being converted to a warning + NULL or an empty result. The batch driver
+  # (process_geocodebr_batch) applies the collect-and-stop convention, so a
+  # failing municipality is surfaced instead of silently dropped from coverage.
+  # A missing package is a structural precondition and stops immediately here.
+  if (!requireNamespace("geocodebr", quietly = TRUE)) {
+    stop("geocodebr package not installed; it is required for match_geocodebr_muni().")
+  }
+
+  # No polling stations to geocode is a legitimate empty case, not an error.
+  if (nrow(locais_muni) == 0) {
+    return(NULL)
+  }
+
+  muni_code <- unique(locais_muni$cod_localidade_ibge)
+  muni_name <- unique(locais_muni$nm_localidade)
+  message(sprintf("Processing municipality: %s (%s)", muni_name[1], muni_code[1]))
+
   # Prepare data for geocodebr
   dt_geocode <- locais_muni[, .(
     local_id = local_id,
@@ -475,99 +475,66 @@ match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
     logradouro = ds_endereco,
     localidade = ds_bairro
   )]
-  
+
   # Clean text fields - use simplified addresses for better matching
-  # Process each column separately to isolate errors
   dt_geocode[, municipio := clean_text_for_geocodebr(municipio)]
   dt_geocode[, logradouro := simplify_address_for_geocodebr(logradouro)]
   dt_geocode[, localidade := clean_text_for_geocodebr(localidade)]
-  
+
   # Remove rows with missing essential fields
   dt_geocode <- dt_geocode[!is.na(municipio) & !is.na(estado) & !is.na(logradouro)]
-  
+
   if (nrow(dt_geocode) == 0) {
     return(NULL)
   }
-  
-  # Attempt geocoding with error handling
-  geocoded_result <- tryCatch({
-    # Ensure all text is properly encoded. Carry local_id through as a
-    # passthrough column so geocodebr reattaches it to each result via its
-    # internal row id (see the row-count assertion below), rather than us
-    # reassigning it by position afterward.
-    geocode_data <- dt_geocode[, .(local_id, estado, municipio, logradouro)]
 
-    # Force UTF-8 encoding on all character columns
-    char_cols <- names(geocode_data)[sapply(geocode_data, is.character)]
-    for (col in char_cols) {
-      set(geocode_data, j = col, value = enc2utf8(geocode_data[[col]]))
-    }
+  # Carry local_id through as a passthrough column so geocodebr reattaches it to
+  # each result via its internal row id (see the row-count assertion below),
+  # rather than us reassigning it by position afterward. Only estado, municipio,
+  # logradouro are address fields; local_id is returned unchanged in the result.
+  geocode_data <- dt_geocode[, .(local_id, estado, municipio, logradouro)]
+  char_cols <- names(geocode_data)[sapply(geocode_data, is.character)]
+  for (col in char_cols) {
+    set(geocode_data, j = col, value = enc2utf8(geocode_data[[col]]))
+  }
 
-    # Only use estado, municipio, logradouro as address fields; local_id is a
-    # non-address passthrough column returned unchanged in the result.
-    geocodebr::geocode(
-      geocode_data,
-      campos_endereco = geocodebr::definir_campos(
-        estado = "estado",
-        municipio = "municipio",
-        logradouro = "logradouro"
-      ),
-      resolver_empates = TRUE,
-      verboso = FALSE,
-      cache = TRUE,
-      n_cores = 1  # Single core for stability
-    )
-  }, error = function(e) {
-    warning(paste("geocodebr error for municipality", 
-                  unique(dt_geocode$municipio), ":", e$message))
-    # Return empty result with correct structure
-    data.table(
-      local_id = integer(),
-      estado = character(),
-      municipio = character(),
-      logradouro = character(),
-      lat = numeric(),
-      lon = numeric(),
-      tipo_resultado = character(),
-      precisao = character(),
-      endereco_encontrado = character(),
-      contagem_cnefe = integer()
-    )
-  })
-  
-  # If we got results, format them
-  if (nrow(geocoded_result) > 0) {
-    # geocodebr returns one row per input row (ties resolved) with all input
-    # columns preserved, so local_id is already attached to the correct result.
-    # Assert the invariant so a coordinate can never be tied to the wrong
-    # polling station: local_id must survive the round-trip and the row count
-    # must be unchanged.
-    stopifnot(
-      "local_id" %in% names(geocoded_result),
-      nrow(geocoded_result) == nrow(dt_geocode),
-      !anyNA(geocoded_result$local_id)
-    )
+  geocoded_result <- geocodebr::geocode(
+    geocode_data,
+    campos_endereco = geocodebr::definir_campos(
+      estado = "estado",
+      municipio = "municipio",
+      logradouro = "logradouro"
+    ),
+    resolver_empates = TRUE,
+    verboso = FALSE,
+    cache = TRUE,
+    n_cores = 1  # Single core for stability
+  )
 
-    # Create output in format consistent with other matching functions
-    output <- data.table(
-      local_id = geocoded_result$local_id,
-      match_geocodebr = geocoded_result$endereco_encontrado,
-      mindist_geocodebr = 0,  # geocodebr doesn't provide distance metric
-      match_long_geocodebr = geocoded_result$lon,
-      match_lat_geocodebr = geocoded_result$lat,
-      precisao_geocodebr = geocoded_result$precisao,
-      tipo_resultado_geocodebr = geocoded_result$tipo_resultado,
-      contagem_cnefe_geocodebr = geocoded_result$contagem_cnefe
-    )
-    
-    return(output)
-  } else {
+  # No geocoding hits is a legitimate empty result, not an error.
+  if (nrow(geocoded_result) == 0) {
     return(NULL)
   }
-  }, error = function(e) {
-    # If any error occurs, log it and return NULL
-    warning(sprintf("Error in match_geocodebr_muni for municipality %s: %s", 
-                    unique(locais_muni$cod_localidade_ibge), e$message))
-    return(NULL)
-  })
+
+  # geocodebr returns one row per input row (ties resolved) with all input
+  # columns preserved, so local_id is already attached to the correct result.
+  # Assert the invariant so a coordinate can never be tied to the wrong polling
+  # station: local_id must survive the round-trip and the row count must match.
+  stopifnot(
+    "local_id" %in% names(geocoded_result),
+    nrow(geocoded_result) == nrow(dt_geocode),
+    !anyNA(geocoded_result$local_id)
+  )
+
+  # Create output in format consistent with other matching functions
+  data.table(
+    local_id = geocoded_result$local_id,
+    match_geocodebr = geocoded_result$endereco_encontrado,
+    mindist_geocodebr = 0,  # geocodebr doesn't provide distance metric
+    match_long_geocodebr = geocoded_result$lon,
+    match_lat_geocodebr = geocoded_result$lat,
+    precisao_geocodebr = geocoded_result$precisao,
+    tipo_resultado_geocodebr = geocoded_result$tipo_resultado,
+    contagem_cnefe_geocodebr = geocoded_result$contagem_cnefe
+  )
 }

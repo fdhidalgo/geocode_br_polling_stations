@@ -621,7 +621,8 @@ list(
         years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
         blocking_column = "cod_localidade_ibge",
         scoring_columns = c("normalized_name", "normalized_addr"),
-        use_word_blocking = pipeline_config$use_word_blocking
+        use_word_blocking = pipeline_config$use_word_blocking,
+        panel_weight_threshold = pipeline_config$panel_weight_threshold
       )
     },
     pattern = map(panel_batch_ids),

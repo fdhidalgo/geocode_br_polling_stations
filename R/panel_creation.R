@@ -193,14 +193,17 @@ create_panel_dataset <- function(final_pairs_list, years) {
 #' @param use_word_blocking Whether to use two-level word blocking
 #' @return Panel data for the block
 #' @export
-make_panel_1block <- function(block, years, blocking_column, scoring_columns, use_word_blocking = FALSE) {
+make_panel_1block <- function(block, years, blocking_column, scoring_columns,
+                              use_word_blocking = FALSE, panel_weight_threshold = 0) {
   # Standardize column names in block
   standardize_column_names(block, inplace = TRUE)
-  
+
   cat("Processing block with", nrow(block), "rows\n")
-  
+
   # Use optimized version
-  pairs_list <- create_and_select_best_pairs_optimized(block, years, blocking_column, scoring_columns, use_word_blocking)
+  pairs_list <- create_and_select_best_pairs_optimized(
+    block, years, blocking_column, scoring_columns, use_word_blocking, panel_weight_threshold
+  )
   
   if (length(pairs_list) == 0) {
     cat("  No pairs found for this block\n")
@@ -320,12 +323,13 @@ create_panel_municipality_batches <- function(locais_data, target_batch_size = 5
 #' @return Data table with panel IDs for the batch
 #' @export
 process_panel_ids_municipality_batch <- function(
-  locais_full, 
+  locais_full,
   municipality_batch,
   years,
   blocking_column,
   scoring_columns,
-  use_word_blocking = FALSE
+  use_word_blocking = FALSE,
+  panel_weight_threshold = 0
 ) {
   # Extract municipality codes for this batch
   muni_codes <- municipality_batch$cod_localidade_ibge
@@ -373,32 +377,56 @@ process_panel_ids_municipality_batch <- function(
       cat("  Insufficient years for panel creation\n")
       return(NULL)
     }
-    
-    # Process panel IDs for this municipality
-    result <- tryCatch({
+
+    # Collect-and-stop (cleanup phase 3, finding H3): a genuine per-municipality
+    # error is captured as a marker and surfaced at batch end, never swallowed to
+    # NULL and filtered out (which would silently exclude the municipality from
+    # published panel IDs). A NULL from make_panel_1block (no cross-year pairs)
+    # is a legitimate empty result, distinct from a failure.
+    result <- tryCatch(
       make_panel_1block(
         block = muni_data,
         years = years_to_use,
         blocking_column = blocking_column,
         scoring_columns = scoring_columns,
-        use_word_blocking = use_word_blocking
-      )
-    }, error = function(e) {
-      cat("  Error processing municipality", muni_code, ":", e$message, "\n")
-      return(NULL)
-    })
-    
+        use_word_blocking = use_word_blocking,
+        panel_weight_threshold = panel_weight_threshold
+      ),
+      error = function(e) {
+        structure(
+          list(muni_code = muni_code, message = conditionMessage(e)),
+          class = "panel_muni_failure"
+        )
+      }
+    )
+
     # Add municipality identifier for tracking
-    if (!is.null(result) && nrow(result) > 0) {
+    if (!is.null(result) && !inherits(result, "panel_muni_failure") && nrow(result) > 0) {
       result[, cod_localidade_ibge := muni_code]
     }
-    
+
     return(result)
   })
-  
-  # Remove NULL results and combine
-  valid_results <- results_list[!sapply(results_list, is.null)]
-  
+
+  # Surface any collected failures before combining legitimate results.
+  failures <- Filter(function(x) inherits(x, "panel_muni_failure"), results_list)
+  if (length(failures) > 0) {
+    msgs <- vapply(
+      failures,
+      function(f) sprintf("  %s: %s", f$muni_code, f$message),
+      character(1)
+    )
+    stop(sprintf(
+      "Panel ID creation failed for %d municipalit%s:\n%s",
+      length(failures),
+      if (length(failures) == 1L) "y" else "ies",
+      paste(msgs, collapse = "\n")
+    ))
+  }
+
+  # Combine legitimate results (NULLs are municipalities with no cross-year pairs).
+  valid_results <- Filter(Negate(is.null), results_list)
+
   if (length(valid_results) == 0) {
     return(data.table())
   }
@@ -428,8 +456,9 @@ process_panel_ids_municipality_batch <- function(
 #' @param use_word_blocking Whether to use two-level word blocking (default: FALSE)
 #' @return List of best pairs for each year transition
 #' @export
-create_and_select_best_pairs_optimized <- function(data, years, blocking_column, scoring_columns, 
-                                                  use_word_blocking = FALSE) {
+create_and_select_best_pairs_optimized <- function(data, years, blocking_column, scoring_columns,
+                                                  use_word_blocking = FALSE,
+                                                  panel_weight_threshold = 0) {
   pairs_list <- list()
   
   # Load blocking functions if using word blocking
@@ -534,10 +563,12 @@ create_and_select_best_pairs_optimized <- function(data, years, blocking_column,
       y_local_id = linkexample2$local_id[.y]
     )]
     
-    # Select the best match for each observation
-    # Using a small positive threshold (e.g., 0.5) can help filter out very low confidence matches
-    weight_threshold <- getOption("geocode_br.panel_weight_threshold", 0)
-    best_pairs <- select_n_to_m(pairs, threshold = weight_threshold, score = "weights", var = "match", n = 1, m = 1)
+    # Select the best match for each observation. The weight threshold is an
+    # explicit argument wired through pipeline config (cleanup phase 3, Medium),
+    # replacing the former untracked getOption(). NOTE: the effective default is
+    # kept at 0; the adjacent comment's ~0.5 is an open evaluation question
+    # (ticket #25), deliberately not changed here.
+    best_pairs <- select_n_to_m(pairs, threshold = panel_weight_threshold, score = "weights", var = "match", n = 1, m = 1)
     
     # Keep only the pairs where match is TRUE
     best_pairs <- best_pairs[match == TRUE]
@@ -757,20 +788,17 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
 
   cat("Creating section-to-panel mapping...\n")
 
-  # Validate inputs
+  # Fail loud on empty inputs (cleanup phase 3, Medium): returning an empty
+  # data.table hid an upstream failure to produce sections, geocoded locations,
+  # or panel IDs.
   if (nrow(secc_loc_map) == 0) {
-    cat("Warning: Empty section-location mapping\n")
-    return(data.table())
+    stop("create_section_panel_mapping(): empty section-location mapping.")
   }
-
   if (nrow(geocoded_locais) == 0) {
-    cat("Warning: Empty geocoded locations\n")
-    return(data.table())
+    stop("create_section_panel_mapping(): empty geocoded locations.")
   }
-
   if (nrow(panel_ids) == 0) {
-    cat("Warning: Empty panel IDs\n")
-    return(data.table())
+    stop("create_section_panel_mapping(): empty panel IDs.")
   }
 
   # Standardize column names
@@ -810,7 +838,10 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
   cat("  Sections with local_id:", format(success_count, big.mark = ","), "\n")
 
   if (success_rate < 0.8) {
-    cat("Warning: Low join success rate (<80%). Check data quality.\n")
+    warning(sprintf(
+      "Low section-to-location join success rate: %.1f%% (<80%%). Check data quality.",
+      success_rate * 100
+    ))
   }
 
   # Step 3: Join with panel IDs to get panel_id
@@ -834,7 +865,10 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
   cat("  Final mapping records:", format(final_success_count, big.mark = ","), "\n")
 
   if (final_success_rate < 0.9) {
-    cat("Warning: Low final join success rate (<90%). Check panel ID coverage.\n")
+    warning(sprintf(
+      "Low section-to-panel join success rate: %.1f%% (<90%%). Check panel ID coverage.",
+      final_success_rate * 100
+    ))
   }
 
   # Step 4: Clean and select final columns
@@ -847,7 +881,7 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
 
   if (length(available_columns) < length(output_columns)) {
     missing_cols <- setdiff(output_columns, available_columns)
-    cat("Warning: Missing columns in output:", paste(missing_cols, collapse = ", "), "\n")
+    warning("Missing columns in section-panel output: ", paste(missing_cols, collapse = ", "))
   }
 
   result <- final_clean[, .SD, .SDcols = available_columns]
@@ -858,7 +892,7 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
   # Check for duplicate section identifiers
   duplicate_sections <- result[, .N, by = .(nr_secao, nr_zona, ano, estado_abrev)][N > 1]
   if (nrow(duplicate_sections) > 0) {
-    cat("Warning:", nrow(duplicate_sections), "duplicate section identifiers found\n")
+    warning(nrow(duplicate_sections), " duplicate section identifiers found")
   }
 
   # Check panel ID distribution

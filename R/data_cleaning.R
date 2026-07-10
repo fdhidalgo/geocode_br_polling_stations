@@ -147,20 +147,20 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
   cnefe22[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
 
   setnames(cnefe22, "cod_municipio", "id_munic_7")
-  
-  # Check if muni_ids has data for this state
-  if (nrow(muni_ids) > 0) {
-    cnefe22 <- merge(
-      cnefe22,
-      muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)],
-      by.x = "id_munic_7",
-      by.y = "id_munic_7",
-      all.x = TRUE
-    )
-  } else {
-    # If no muni_ids for this state, add empty columns
-    cnefe22[, `:=`(id_TSE = NA_integer_, municipio = NA_character_, estado_abrev = NA_character_)]
+
+  # muni_ids is the municipality crosswalk; an empty table is a structural
+  # failure, not a state without municipalities. Stop rather than filling the
+  # id_TSE/municipio/estado_abrev columns with NA (cleanup phase 3, finding H1).
+  if (nrow(muni_ids) == 0) {
+    stop("clean_cnefe22(): muni_ids is empty; cannot attach municipality identifiers.")
   }
+  cnefe22 <- merge(
+    cnefe22,
+    muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)],
+    by.x = "id_munic_7",
+    by.y = "id_munic_7",
+    all.x = TRUE
+  )
   # Add human-readable labels for CNEFE establishment types (especie codes)
   especie_labs <- data.table(
     cod_especie = 1:8,
@@ -206,49 +206,32 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
 }
 
 clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
-  # Read the data from the 2018, 2020, 2022, and 2024 election files
-  # Wrap in tryCatch to handle encoding warnings better
-  loc18 <- tryCatch({
-    fread(tse_files[1], encoding = "Latin-1")
-  }, warning = function(w) {
-    message("Warning reading 2018 TSE file: ", conditionMessage(w))
-    suppressWarnings(fread(tse_files[1], encoding = "Latin-1"))
-  })
-  
-  loc20 <- tryCatch({
-    fread(tse_files[2], encoding = "Latin-1")
-  }, warning = function(w) {
-    message("Warning reading 2020 TSE file: ", conditionMessage(w))
-    suppressWarnings(fread(tse_files[2], encoding = "Latin-1"))
-  })
-  
-  loc22 <- tryCatch({
-    fread(tse_files[3], encoding = "Latin-1")
-  }, warning = function(w) {
-    message("Warning reading 2022 TSE file: ", conditionMessage(w))
-    suppressWarnings(fread(tse_files[3], encoding = "Latin-1"))
-  })
-  
-  # Check if 2024 file exists (may not be available in all environments)
-  if (length(tse_files) >= 4 && file.exists(tse_files[4])) {
-    loc24 <- tryCatch({
-      fread(tse_files[4], encoding = "Latin-1")
-    }, warning = function(w) {
-      message("Warning reading 2024 TSE file: ", conditionMessage(w))
-      suppressWarnings(fread(tse_files[4], encoding = "Latin-1"))
-    })
-    # Combine the data from all four years into a single data frame
-    locs <- rbindlist(list(loc18, loc20, loc22, loc24), fill = TRUE)
-  } else {
-    # Combine the data from three years into a single data frame
-    locs <- rbindlist(list(loc18, loc20, loc22), fill = TRUE)
+  # tse_files lists the TSE geocoded ground-truth files (2018, 2020, 2022). The
+  # 2024 file is added only by the 2024 release work (#22/#23); until then,
+  # assert the expected count so a missing file fails loud here rather than
+  # being silently dropped by an existence guard (cleanup phase 3, finding H1).
+  expected_tse_files <- 3L
+  if (length(tse_files) != expected_tse_files) {
+    stop(sprintf(
+      "Expected %d TSE geocoded files, got %d: %s",
+      expected_tse_files, length(tse_files),
+      paste(tse_files, collapse = ", ")
+    ))
   }
 
-  # Only keep columns that are present in all data set
-  locs <- locs[,
-    names(loc22)[names(loc22) %in% names(loc18) == TRUE],
-    with = FALSE
-  ]
+  # Read each year. Encoding/parse warnings are allowed to surface once rather
+  # than being masked by a suppressWarnings() re-read (Medium: TSE reads).
+  loc_list <- lapply(tse_files, function(f) fread(f, encoding = "Latin-1"))
+
+  # Keep only the columns present in every year (a schema change in any year is
+  # not papered over by rbindlist(fill = TRUE)); assert the survivors are
+  # non-empty (cleanup phase 3, finding H1).
+  common_cols <- Reduce(intersect, lapply(loc_list, names))
+  if (length(common_cols) == 0) {
+    stop("No columns are common to all TSE geocoded files.")
+  }
+  loc_list <- lapply(loc_list, function(x) x[, common_cols, with = FALSE])
+  locs <- rbindlist(loc_list, use.names = TRUE)
 
   # Convert column names to lowercase
   setnames(locs, names(locs), tolower(names(locs)))
@@ -667,6 +650,34 @@ convert_coord <- function(coord) {
   })
 }
 
+convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
+  # Convert a vector of DMS coordinate strings to decimal degrees, accounting for
+  # parse failures (cleanup phase 3, Medium). convert_coord() silently returns NA
+  # on a malformed value; here we count those NAs, stop if EVERY value failed (a
+  # systematic parse failure, e.g. a format change), and surface the NA rate as a
+  # condition so a high failure rate is visible rather than silent.
+  converted <- vapply(coord_strings, convert_coord, numeric(1), USE.NAMES = FALSE)
+
+  n <- length(converted)
+  if (n > 0) {
+    n_na <- sum(is.na(converted))
+    if (n_na == n) {
+      stop(sprintf(
+        "All %d %s values failed to parse to decimal degrees.",
+        n, coord_name
+      ))
+    }
+    if (n_na > 0) {
+      message(sprintf(
+        "%s: %d/%d (%.1f%%) values failed to parse and are NA.",
+        coord_name, n_na, n, 100 * n_na / n
+      ))
+    }
+  }
+
+  converted
+}
+
 
 read_cnefe_chunked <- function(file_path, chunk_size = 5e6, process_fn = NULL) {
   # Read large CNEFE files in chunks to avoid memory exhaustion
@@ -886,11 +897,11 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
   # Initialize numeric columns
   addr[, `:=`(cnefe_long = NA_real_, cnefe_lat = NA_real_)]
   
-  # Convert coordinates for non-empty values
-  # Use sapply to vectorize convert_coord function
-  addr[val_longitude != "" & val_latitude != "", 
-       `:=`(cnefe_long = sapply(val_longitude, convert_coord), 
-            cnefe_lat = sapply(val_latitude, convert_coord))]
+  # Convert coordinates for non-empty values, accounting for parse failures
+  # (stops if every value fails; reports the NA rate otherwise).
+  addr[val_longitude != "" & val_latitude != "",
+       `:=`(cnefe_long = convert_coords_checked(val_longitude, "CNEFE longitude"),
+            cnefe_lat = convert_coords_checked(val_latitude, "CNEFE latitude"))]
   
   # Remove the character columns
   addr[, c("val_longitude", "val_latitude") := NULL]

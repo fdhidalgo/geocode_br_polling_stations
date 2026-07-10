@@ -35,6 +35,12 @@ get_pipeline_config <- function(dev_mode = FALSE) {
     )
   }
   
+  # Panel record-linkage weight threshold (Fellegi-Sunter). An explicit,
+  # tracked config field replaces the former untracked
+  # getOption("geocode_br.panel_weight_threshold") (cleanup phase 3, Medium).
+  # Kept at 0; whether ~0.5 is intended is an evaluation question (ticket #25).
+  config$panel_weight_threshold <- 0
+
   # Add computed values
   config$n_cores <- config$max_workers
   config$states <- if (is.null(config$dev_states)) {
@@ -135,12 +141,13 @@ get_expected_municipality_count <- function(state_abbrev) {
   )
   
   count <- expected_counts[[state_abbrev]]
-  
+
+  # Fail loud on an unknown state (cleanup phase 3, Medium): returning NA with a
+  # warning let a typo'd or unexpected state code flow through validation as NA.
   if (is.null(count)) {
-    warning(paste("Unknown state abbreviation:", state_abbrev))
-    return(NA)
+    stop(paste("Unknown state abbreviation:", state_abbrev))
   }
-  
+
   return(count)
 }
 

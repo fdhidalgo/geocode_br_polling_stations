@@ -5,6 +5,31 @@
 
 library(data.table)
 
+#' Coordinate columns for a string-match target
+#'
+#' Maps each string-match target name to the longitude/latitude columns its
+#' diagnostics report on. Declaring this explicitly (rather than guessing from a
+#' fallback list) means a renamed or missing coordinate column fails loud
+#' (cleanup phase 3, Medium).
+#'
+#' @param match_name name of the string-match target
+#' @return named character vector with elements "long" and "lat"
+string_match_coord_cols <- function(match_name) {
+  cols <- list(
+    inep_string_match        = c(long = "match_long_inep_addr",       lat = "match_lat_inep_addr"),
+    cnefe10_stbairro_match   = c(long = "match_long_cnefe_bairro",    lat = "match_lat_cnefe_bairro"),
+    cnefe22_stbairro_match   = c(long = "match_long_cnefe_bairro",    lat = "match_lat_cnefe_bairro"),
+    schools_cnefe10_match    = c(long = "match_long_schools_cnefe",   lat = "match_lat_schools_cnefe"),
+    schools_cnefe22_match    = c(long = "match_long_schools_cnefe",   lat = "match_lat_schools_cnefe"),
+    agrocnefe_stbairro_match = c(long = "match_long_agrocnefe_bairro", lat = "match_lat_agrocnefe_bairro")
+  )[[match_name]]
+
+  if (is.null(cols)) {
+    stop("No coordinate-column mapping for string-match target: ", match_name)
+  }
+  cols
+}
+
 #' Calculate String Match Diagnostics
 #' 
 #' Computes comprehensive diagnostics for string matching results including
@@ -12,36 +37,22 @@ library(data.table)
 #' 
 #' @param match_data data.table with string matching results
 #' @param match_name character string identifying the match type
-#' @param coord_cols character vector of coordinate column names to check
+#' @param long_col name of the longitude column to check (explicit; must exist)
+#' @param lat_col name of the latitude column to check (explicit; must exist)
 #' @return data.table with diagnostic metrics
-calculate_string_match_diagnostics <- function(match_data, match_name, 
-                                             coord_cols = c("match_long_cnefe_bairro", 
-                                                          "match_lat_cnefe_bairro")) {
-  # Find which coordinate columns exist
-  existing_coords <- coord_cols[coord_cols %in% names(match_data)]
-  
-  if (length(existing_coords) == 0) {
-    # Try alternative column names
-    alt_coords <- c("match_long_cnefe_st", "match_lat_cnefe_st", 
-                   "match_long_cnefe", "match_lat_cnefe",
-                   "match_long_inep_addr", "match_lat_inep_addr",
-                   "match_long_inep_name", "match_lat_inep_name",
-                   "longitude_match", "latitude_match")
-    existing_coords <- alt_coords[alt_coords %in% names(match_data)]
-  }
-  
-  if (length(existing_coords) == 0) {
-    return(data.table(
-      match_name = match_name,
-      total_rows = nrow(match_data),
-      error = "No coordinate columns found"
+calculate_string_match_diagnostics <- function(match_data, match_name,
+                                               long_col, lat_col) {
+  # Fail loud when the named coordinate columns are absent (cleanup phase 3,
+  # Medium): the former code guessed columns from fallback lists and returned an
+  # "error" string row when it could not, silently degrading the diagnostics.
+  missing_cols <- setdiff(c(long_col, lat_col), names(match_data))
+  if (length(missing_cols) > 0) {
+    stop(sprintf(
+      "calculate_string_match_diagnostics(): coordinate column(s) not found in '%s': %s",
+      match_name, paste(missing_cols, collapse = ", ")
     ))
   }
-  
-  # Use the first longitude column found
-  long_col <- existing_coords[grep("long", existing_coords)][1]
-  lat_col <- existing_coords[grep("lat", existing_coords)][1]
-  
+
   # Calculate basic statistics
   total_rows <- nrow(match_data)
   
@@ -106,14 +117,18 @@ calculate_string_match_diagnostics <- function(match_data, match_name,
 aggregate_string_match_diagnostics <- function(...) {
   match_list <- list(...)
   match_names <- names(match_list)
-  
+
   if (is.null(match_names) || any(match_names == "")) {
     stop("All arguments must be named")
   }
-  
-  # Calculate diagnostics for each match
+
+  # Calculate diagnostics for each match, supplying the coordinate columns
+  # explicitly by match type (cleanup phase 3, Medium).
   diagnostics <- lapply(seq_along(match_list), function(i) {
-    calculate_string_match_diagnostics(match_list[[i]], match_names[i])
+    coords <- string_match_coord_cols(match_names[i])
+    calculate_string_match_diagnostics(
+      match_list[[i]], match_names[i], coords[["long"]], coords[["lat"]]
+    )
   })
   
   # Combine results

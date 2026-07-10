@@ -312,6 +312,41 @@ make_model_data <- function(
   model_data
 }
 
+build_gbm_workflow <- function(data) {
+  # Build the (unfitted) tunable LightGBM workflow used for match selection.
+  # Extracted so both train_model() (production tuning) and the out-of-fold
+  # evaluation harness (compute_oof_predictions() in R/evaluation.R) construct
+  # the recipe and model specification from a single definition. `data` supplies
+  # the recipe's column roles/types; the returned workflow is not yet fitted.
+
+  ## Define the model recipe
+  gbm_recipe <- recipes::recipe(
+    formula = dist ~ .,
+    data = data
+  ) |>
+    recipes::update_role(cod_localidade_ibge, new_role = "id variable") |>
+    recipes::update_role(local_id, new_role = "id variable") |>
+    recipes::step_impute_median(logpop, pct_rural, area) |>
+    ## Log transform the outcome variable to deal w ith outliers
+    recipes::step_log(recipes::all_outcomes(), offset = .0001, skip = TRUE)
+
+  ## Define the model specification
+  gbm_spec <-
+    parsnip::boost_tree(
+      trees = tune(),
+      min_n = tune(),
+      mtry = tune(),
+      learn_rate = tune(),
+      loss_reduction = tune()
+    ) |>
+    parsnip::set_mode("regression") |>
+    parsnip::set_engine("lightgbm", num_leaves = tune())
+
+  workflows::workflow() |>
+    workflows::add_recipe(gbm_recipe) |>
+    workflows::add_model(gbm_spec)
+}
+
 train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE) {
   # Function to train a model using the provided data
 
@@ -365,33 +400,8 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
     v = n_folds
   )
 
-  ## Define the model recipe
-  gbm_recipe <- recipes::recipe(
-    formula = dist ~ .,
-    data = training_set
-  ) |>
-    recipes::update_role(cod_localidade_ibge, new_role = "id variable") |>
-    recipes::update_role(local_id, new_role = "id variable") |>
-    recipes::step_impute_median(logpop, pct_rural, area) |>
-    ## Log transform the outcome variable to deal w ith outliers
-    recipes::step_log(recipes::all_outcomes(), offset = .0001, skip = TRUE)
-
-  ## Define the model specification
-  gbm_spec <-
-    parsnip::boost_tree(
-      trees = tune(),
-      min_n = tune(),
-      mtry = tune(),
-      learn_rate = tune(),
-      loss_reduction = tune()
-    ) |>
-    parsnip::set_mode("regression") |>
-    parsnip::set_engine("lightgbm", num_leaves = tune())
-
-  gbm_workflow <-
-    workflows::workflow() |>
-    workflows::add_recipe(gbm_recipe) |>
-    workflows::add_model(gbm_spec)
+  ## Build the tunable workflow (recipe + model spec) from the training data.
+  gbm_workflow <- build_gbm_workflow(training_set)
 
   metrics <- yardstick::metric_set(
     yardstick::rmse,

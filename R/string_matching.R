@@ -491,16 +491,20 @@ match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
   
   # Attempt geocoding with error handling
   geocoded_result <- tryCatch({
-    # Ensure all text is properly encoded
-    geocode_data <- dt_geocode[, .(estado, municipio, logradouro)]
-    
+    # Ensure all text is properly encoded. Carry local_id through as a
+    # passthrough column so geocodebr reattaches it to each result via its
+    # internal row id (see the row-count assertion below), rather than us
+    # reassigning it by position afterward.
+    geocode_data <- dt_geocode[, .(local_id, estado, municipio, logradouro)]
+
     # Force UTF-8 encoding on all character columns
     char_cols <- names(geocode_data)[sapply(geocode_data, is.character)]
     for (col in char_cols) {
       set(geocode_data, j = col, value = enc2utf8(geocode_data[[col]]))
     }
-    
-    # Only use estado, municipio, logradouro to avoid database errors
+
+    # Only use estado, municipio, logradouro as address fields; local_id is a
+    # non-address passthrough column returned unchanged in the result.
     geocodebr::geocode(
       geocode_data,
       campos_endereco = geocodebr::definir_campos(
@@ -518,6 +522,7 @@ match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
                   unique(dt_geocode$municipio), ":", e$message))
     # Return empty result with correct structure
     data.table(
+      local_id = integer(),
       estado = character(),
       municipio = character(),
       logradouro = character(),
@@ -532,9 +537,17 @@ match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
   
   # If we got results, format them
   if (nrow(geocoded_result) > 0) {
-    # Add local_id back
-    geocoded_result[, local_id := dt_geocode$local_id]
-    
+    # geocodebr returns one row per input row (ties resolved) with all input
+    # columns preserved, so local_id is already attached to the correct result.
+    # Assert the invariant so a coordinate can never be tied to the wrong
+    # polling station: local_id must survive the round-trip and the row count
+    # must be unchanged.
+    stopifnot(
+      "local_id" %in% names(geocoded_result),
+      nrow(geocoded_result) == nrow(dt_geocode),
+      !anyNA(geocoded_result$local_id)
+    )
+
     # Create output in format consistent with other matching functions
     output <- data.table(
       local_id = geocoded_result$local_id,

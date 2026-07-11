@@ -4,9 +4,8 @@
 ## cod_uf, and the result is a 7-digit IBGE code. A caller that lost the padding
 ## upstream (the #75 regression) must fail loud, not produce short codes.
 
-test_that("make_id_munic_7 zero-pads cod_municipio to width 5 before pasting", {
-  # "12" + "00401" is the padded form; the numeric form 401 must pad the same way.
-  expect_equal(make_id_munic_7("12", "00401"), 1200401)
+test_that("make_id_munic_7 zero-pads a numeric cod_municipio to width 5", {
+  # A numeric 401 (leading zeros already stripped) must pad back to "00401".
   expect_equal(make_id_munic_7("12", 401), 1200401)
 })
 

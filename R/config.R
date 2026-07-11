@@ -200,6 +200,13 @@ get_crew_controllers <- function() {
   # Uses same configuration for both dev and production modes
   # Crew will only spawn workers as needed, so this is efficient
 
+  # Capture each worker's stdout/stderr to per-worker log files so a worker that
+  # dies mid-task (a crew "crash") leaves its actual dying error on disk, instead
+  # of only surfacing the opaque "worker crashed N consecutive times" message
+  # (issue #48 debugging). Created eagerly because crew does not mkdir it.
+  crew_log_dir <- "crew_logs"
+  dir.create(crew_log_dir, showWarnings = FALSE, recursive = TRUE)
+
   # Standard controller for most tasks - optimized for 32-core machine
   controller_standard <- crew::crew_controller_local(
     name = "standard",
@@ -209,20 +216,27 @@ get_crew_controllers <- function() {
     seconds_timeout = 300,
     reset_globals = TRUE,
     reset_packages = FALSE,
-    garbage_collection = TRUE
+    garbage_collection = TRUE,
+    options_local = crew::crew_options_local(log_directory = crew_log_dir)
   )
 
-  # Memory-limited controller for CNEFE operations
-  # Fewer workers but more memory per worker
+  # Memory-limited controller for CNEFE operations. Fewer workers but more memory
+  # per worker. Capped at 4 (was 8): the standard (28) and memory_limited pools
+  # run concurrently, so the census-cleaning stage could put up to 36 heavy R
+  # processes on a 32-core / 125 GB machine at once and exhaust memory, killing a
+  # worker. The victim was agro_cnefe (now also pinned here, see _targets.R); the
+  # target itself builds fine in isolation, so the fix is capping peak concurrency
+  # rather than the target (issue #48).
   controller_memory <- crew::crew_controller_local(
     name = "memory_limited",
-    workers = 8, # Max workers for memory-intensive tasks
+    workers = 4, # Max workers for memory-intensive tasks
     seconds_idle = 60,
     seconds_wall = 7200, # 2 hours for memory-intensive tasks
     seconds_timeout = 600, # 10 minutes timeout
     reset_globals = TRUE,
     reset_packages = FALSE,
-    garbage_collection = TRUE
+    garbage_collection = TRUE,
+    options_local = crew::crew_options_local(log_directory = crew_log_dir)
   )
 
   # Return controller group

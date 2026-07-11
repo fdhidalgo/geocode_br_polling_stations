@@ -375,7 +375,13 @@ list(
     ),
     format = "qs",
     storage = "worker",
-    retrieval = "worker"
+    retrieval = "worker",
+    # Memory-heavy CNEFE clean: run on the memory_limited controller alongside its
+    # sibling CNEFE targets, not the 28-wide standard pool, so it does not pile
+    # onto peak concurrency and get its worker killed (issue #48).
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
   ),
   ## Create a dataset of streets in 2017 CNEFE
   tar_target(

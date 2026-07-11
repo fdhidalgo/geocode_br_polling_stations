@@ -97,3 +97,6 @@ project_backup/
 # Codex review outputs (transient artifacts from `codex exec review`)
 codex-findings.txt
 codex-full.log
+
+# crew per-worker logs (issue #48 diagnostics)
+crew_logs/

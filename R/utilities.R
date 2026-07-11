@@ -421,11 +421,12 @@ process_inep_batch <- function(municipality_batch_assignments, locais_filtered, 
   ]$cod_localidade_ibge
 
   data.table::setkey(inep_data, id_munic_7)
+  data.table::setkey(locais_filtered, cod_localidade_ibge)
 
   # Process all municipalities in this batch
   batch_results <- lapply(batch_munis, function(muni_code) {
     match_inep_muni(
-      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
+      locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
       inep_muni = inep_data[.(muni_code), nomatch = NULL]
     )
   })
@@ -460,10 +461,11 @@ process_schools_cnefe_batch <- function(municipality_batch_assignments, locais_f
   ]$cod_localidade_ibge
 
   data.table::setkey(schools_cnefe, id_munic_7)
+  data.table::setkey(locais_filtered, cod_localidade_ibge)
 
   batch_results <- lapply(batch_munis, function(muni_code) {
     match_schools_cnefe_muni(
-      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
+      locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
       schools_cnefe_muni = schools_cnefe[.(muni_code), nomatch = NULL]
     )
   })
@@ -491,6 +493,8 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
     batch_id == batch_ids
   ]$cod_localidade_ibge
 
+  data.table::setkey(locais_filtered, cod_localidade_ibge)
+
   # Collect-and-stop (cleanup phase 3, finding C5): a NULL result (no polling
   # stations or no geocoding hits) is a legitimate empty case and is filtered;
   # a municipality that errors is surfaced at batch end, never silently dropped.
@@ -498,7 +502,7 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
     batch_munis,
     function(muni_code) {
       match_geocodebr_muni(
-        locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
+        locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
         muni_ids = muni_ids[id_munic_7 == muni_code]
       )
     },
@@ -548,6 +552,7 @@ process_stbairro_batch <- function(
   bairro <- stbairro[component == "bairro"]
   data.table::setkey(st, id_munic_7)
   data.table::setkey(bairro, id_munic_7)
+  data.table::setkey(locais_filtered, cod_localidade_ibge)
 
   message(sprintf(
     "[Batch %d] Starting %s street/neighborhood matching for %d municipalities",
@@ -559,7 +564,7 @@ process_stbairro_batch <- function(
   batch_results <- lapply(seq_along(batch_munis), function(i) {
     muni_code <- batch_munis[i]
 
-    locais_muni <- locais_filtered[cod_localidade_ibge == muni_code]
+    locais_muni <- locais_filtered[.(muni_code), nomatch = NULL]
     st_muni <- st[.(muni_code), nomatch = NULL]
     bairro_muni <- bairro[.(muni_code), nomatch = NULL]
 

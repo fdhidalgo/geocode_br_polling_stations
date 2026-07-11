@@ -304,6 +304,28 @@ clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
   locs
 }
 
+# Build the 7-digit IBGE municipality key from separate UF + municipality codes.
+# cod_uf is the 2-digit state code (11-53, never zero-padded); cod_municipio is
+# the within-state code that MUST be zero-padded to width 5 before pasting, or
+# codes like "12" + "401" collapse to 12401 instead of 1200401 and share zero
+# overlap with the polling-station municipalities (the #75 regression). The
+# padding is done here so every caller gets the guard for free, and the 7-digit
+# assertion fails loud if a caller fed codes that already lost their leading
+# zeros upstream.
+make_id_munic_7 <- function(cod_uf, cod_municipio) {
+  cod_municipio <- str_pad(cod_municipio, width = 5, side = "left", pad = "0")
+  id_munic_7 <- as.numeric(paste0(cod_uf, cod_municipio))
+  if (any(id_munic_7 < 1e6 | id_munic_7 >= 1e7, na.rm = TRUE)) {
+    stop(
+      "make_id_munic_7(): produced non-7-digit municipality codes. ",
+      "cod_uf/cod_municipio likely lost their leading zeros upstream (see #75). ",
+      "Sample id_munic_7: ",
+      paste(utils::head(sort(unique(id_munic_7))), collapse = ", ")
+    )
+  }
+  id_munic_7
+}
+
 clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
   # Read and combine all agro census files.
   # COD_UF/COD_MUNICIPIO are zero-padded numeric strings in the source files
@@ -333,7 +355,7 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
   ]
 
   # Create id_munic_7 from cod_uf and cod_municipio BEFORE standardization
-  agro_cnefe[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
+  agro_cnefe[, id_munic_7 := make_id_munic_7(cod_uf, cod_municipio)]
 
   # Fail loud if the municipality key does not line up with the polling-station
   # municipalities. Zero overlap means the leading-zero padding was lost on read
@@ -803,8 +825,9 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
     cnefe_chunk[dsc_estabelecimento == "", dsc_estabelecimento := NA]
     cnefe_chunk[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
 
-    # Add municipality code
-    cnefe_chunk[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
+    # Add municipality code (cod_municipio was already padded above for setor_code;
+    # make_id_munic_7 re-pads idempotently and asserts the 7-digit invariant)
+    cnefe_chunk[, id_munic_7 := make_id_munic_7(cod_uf, cod_municipio)]
 
     # Keep only essential columns early
     essential_cols <- c(

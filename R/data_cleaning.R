@@ -339,7 +339,7 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
   # municipalities. Zero overlap means the leading-zero padding was lost on read
   # (the #75 regression) and every downstream agrocnefe_stbairro lookup would
   # silently match nothing.
-  if (!any(unique(agro_cnefe$id_munic_7) %in% muni_ids$id_munic_7)) {
+  if (!any(agro_cnefe$id_munic_7 %in% muni_ids$id_munic_7)) {
     stop(
       "clean_agro_cnefe(): id_munic_7 has zero overlap with muni_ids$id_munic_7. ",
       "COD_UF/COD_MUNICIPIO likely lost their leading zeros on read (see #75). ",

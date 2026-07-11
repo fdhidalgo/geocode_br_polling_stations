@@ -1,8 +1,8 @@
 ## Data Import and Cleaning Functions
-## 
+##
 ## Functions for importing and cleaning polling station data from multiple sources:
 ## - TSE geocoded polling stations (2018-2024)
-## - CNEFE census data (2010, 2017, 2022) 
+## - CNEFE census data (2010, 2017, 2022)
 ## - INEP school census data
 ## - Municipal demographic and geographic data
 ## Includes memory-efficient processing for large CNEFE files (>40GB)
@@ -17,14 +17,14 @@ library(stringr)
 standardize_column_names <- function(dt, inplace = FALSE) {
   # Standardize column names across different data sources
   # This function handles variations in column naming conventions
-  
+
   if (!inplace) {
     dt <- copy(dt)
   }
-  
+
   # Get current names
   old_names <- names(dt)
-  
+
   # Common replacements
   replacements <- c(
     # TSE naming variations
@@ -35,19 +35,19 @@ standardize_column_names <- function(dt, inplace = FALSE) {
     "ds_endereco" = "nm_endereco",
     "ds_bairro" = "nm_bairro",
     "nr_locvot" = "nr_local_votacao",
-    
+
     # CNEFE naming variations
     "dsc_estabelecimento" = "desc_estabelecimento",
     "nom_seglogr" = "nome_logradouro",
     "nom_tipo_seglogr" = "tipo_logradouro",
     "nom_titulo_seglogr" = "titulo_logradouro",
     "dsc_localidade" = "nome_localidade",
-    
+
     # Panel ID naming
     ".x_local_id" = "x_local_id",
     ".y_local_id" = "y_local_id"
   )
-  
+
   # Apply replacements
   new_names <- old_names
   for (old in names(replacements)) {
@@ -56,10 +56,10 @@ standardize_column_names <- function(dt, inplace = FALSE) {
       new_names[idx] <- replacements[old]
     }
   }
-  
+
   # Set new names
   data.table::setnames(dt, old_names, new_names)
-  
+
   if (!inplace) {
     return(dt)
   }
@@ -108,21 +108,21 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
     cnefe22 <- fread(
       cnefe22_file,
       drop = c(
-      "nom_comp_elem1",
-      "val_comp_elem1",
-      "nom_comp_elem2",
-      "val_comp_elem2",
-      "nom_comp_elem3",
-      "val_comp_elem3",
-      "nom_comp_elem4",
-      "val_comp_elem4",
-      "nom_comp_elem5",
-      "val_comp_elem5",
-      "num_quadra",
-      "num_face",
-      "cod_unico_endereco"
+        "nom_comp_elem1",
+        "val_comp_elem1",
+        "nom_comp_elem2",
+        "val_comp_elem2",
+        "nom_comp_elem3",
+        "val_comp_elem3",
+        "nom_comp_elem4",
+        "val_comp_elem4",
+        "nom_comp_elem5",
+        "val_comp_elem5",
+        "num_quadra",
+        "num_face",
+        "cod_unico_endereco"
+      )
     )
-  )
   } else {
     # If already a data.table, use it directly
     cnefe22 <- cnefe22_file
@@ -209,7 +209,8 @@ clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
   if (length(tse_files) != expected_tse_files) {
     stop(sprintf(
       "Expected %d TSE geocoded files, got %d: %s",
-      expected_tse_files, length(tse_files),
+      expected_tse_files,
+      length(tse_files),
       paste(tse_files, collapse = ", ")
     ))
   }
@@ -312,7 +313,7 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
 
   # Convert column names to lowercase first (agro files have uppercase columns)
   setnames(agro_cnefe, names(agro_cnefe), tolower(names(agro_cnefe)))
-  
+
   # Create street column combining type and name BEFORE standardization
   agro_cnefe[,
     street := str_squish(paste(
@@ -321,17 +322,17 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
       nom_seglogr
     ))
   ]
-  
+
   # Create id_munic_7 from cod_uf and cod_municipio BEFORE standardization
   agro_cnefe[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
-  
+
   # Now standardize column names
   standardize_column_names(agro_cnefe, inplace = TRUE)
-  
+
   # Create normalized street and neighborhood columns
   agro_cnefe[, norm_street := normalize_address(street)]
   agro_cnefe[, norm_bairro := normalize_address(nome_localidade)]
-  
+
   # Convert latitude and longitude to numeric
   agro_cnefe[, latitude := as.numeric(latitude)]
   agro_cnefe[, longitude := as.numeric(longitude)]
@@ -702,13 +703,17 @@ convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
     if (n_na == n) {
       stop(sprintf(
         "All %d %s values failed to parse to decimal degrees.",
-        n, coord_name
+        n,
+        coord_name
       ))
     }
     if (n_na > 0) {
       message(sprintf(
         "%s: %d/%d (%.1f%%) values failed to parse and are NA.",
-        coord_name, n_na, n, 100 * n_na / n
+        coord_name,
+        n_na,
+        n,
+        100 * n_na / n
       ))
     }
   }
@@ -719,30 +724,41 @@ convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
 
 clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools = FALSE) {
   # Memory-efficient processing of CNEFE 2010 data
-  
+
   # Monitor memory before processing
   mem_before <- gc()[2, 2]
   message(sprintf("Memory before CNEFE processing: %.1f GB", mem_before / 1024))
-  
+
   # Define the processing function for each chunk
   process_chunk <- function(cnefe_chunk) {
     # Standardize column names
     setnames(cnefe_chunk, names(cnefe_chunk), tolower(names(cnefe_chunk)))
-    
+
     # Drop unnecessary columns early to save memory
     cols_to_drop <- c(
-      "situacao_setor", "nom_comp_elem1", "val_comp_elem1",
-      "nom_comp_elem2", "val_comp_elem2", "nom_comp_elem3", 
-      "val_comp_elem3", "nom_comp_elem4", "val_comp_elem4",
-      "nom_comp_elem5", "val_comp_elem5", "indicador_endereco",
-      "num_quadra", "num_face", "cep_face", "cod_unico_endereco"
+      "situacao_setor",
+      "nom_comp_elem1",
+      "val_comp_elem1",
+      "nom_comp_elem2",
+      "val_comp_elem2",
+      "nom_comp_elem3",
+      "val_comp_elem3",
+      "nom_comp_elem4",
+      "val_comp_elem4",
+      "nom_comp_elem5",
+      "val_comp_elem5",
+      "indicador_endereco",
+      "num_quadra",
+      "num_face",
+      "cep_face",
+      "cod_unico_endereco"
     )
-    
+
     cols_to_drop <- cols_to_drop[cols_to_drop %in% names(cnefe_chunk)]
     if (length(cols_to_drop) > 0) {
       cnefe_chunk[, (cols_to_drop) := NULL]
     }
-    
+
     # Pad administrative codes
     cnefe_chunk[, cod_municipio := str_pad(cod_municipio, width = 5, side = "left", pad = "0")]
     cnefe_chunk[, cod_distrito := str_pad(cod_distrito, width = 2, side = "left", pad = "0")]
@@ -750,35 +766,41 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
     cnefe_chunk[, cod_setor := str_pad(cod_setor, width = 4, side = "left", pad = "0")]
     cnefe_chunk[, setor_code := paste0(cod_uf, cod_municipio, cod_distrito, cod_subdistrito, cod_setor)]
     cnefe_chunk[, c("cod_distrito", "cod_subdistrito", "cod_setor") := NULL]
-    
+
     # Build the street address used by matching. The house-number/modifier fields
     # (num_endereco, dsc_modificador) fed only the former `address` column, which
     # was never read downstream and has been removed (perf ticket #60).
     cnefe_chunk[, street := str_squish(paste(nom_tipo_seglogr, nom_titulo_seglogr, nom_seglogr))]
 
     # Remove intermediate columns
-    cnefe_chunk[, c("nom_tipo_seglogr", "nom_titulo_seglogr",
-                    "num_endereco", "nom_seglogr",
-                    "dsc_modificador") := NULL]
-    
+    cnefe_chunk[, c("nom_tipo_seglogr", "nom_titulo_seglogr", "num_endereco", "nom_seglogr", "dsc_modificador") := NULL]
+
     # Handle missing values
     cnefe_chunk[val_longitude == "", val_longitude := NA]
     cnefe_chunk[val_latitude == "", val_latitude := NA]
     cnefe_chunk[dsc_estabelecimento == "", dsc_estabelecimento := NA]
     cnefe_chunk[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
-    
+
     # Add municipality code
     cnefe_chunk[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
-    
+
     # Keep only essential columns early
-    essential_cols <- c("id_munic_7", "setor_code", "especie", "street",
-                        "dsc_localidade", "dsc_estabelecimento", "val_longitude", "val_latitude")
+    essential_cols <- c(
+      "id_munic_7",
+      "setor_code",
+      "especie",
+      "street",
+      "dsc_localidade",
+      "dsc_estabelecimento",
+      "val_longitude",
+      "val_latitude"
+    )
     cnefe_chunk <- cnefe_chunk[, ..essential_cols]
-    
+
     gc(verbose = FALSE)
     return(cnefe_chunk)
   }
-  
+
   # Read and process CNEFE data
   if (is.character(cnefe_file)) {
     cnefe <- fread(cnefe_file, sep = ";", encoding = "UTF-8")
@@ -786,68 +808,77 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
   } else {
     cnefe <- process_chunk(copy(cnefe_file))
   }
-  
+
   # Continue with rest of processing
   message("Merging municipality identifiers...")
   cnefe <- muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)][
-    cnefe, on = "id_munic_7"
+    cnefe,
+    on = "id_munic_7"
   ]
-  
+
   gc(verbose = FALSE)
-  
+
   # Merge especie labels
   message("Adding especie labels...")
   especie_labs <- cnefe_especie_labels(2010)
   cnefe <- especie_labs[cnefe, on = "especie"]
-  
+
   # Create final dataset with renamed columns
   message("Creating final dataset...")
   addr <- cnefe[, .(
-    id_munic_7, id_TSE, municipio, setor_code, especie_lab,
+    id_munic_7,
+    id_TSE,
+    municipio,
+    setor_code,
+    especie_lab,
     street,
     bairro = dsc_localidade,
     desc = dsc_estabelecimento,
-    val_longitude = val_longitude,  # Keep as character for convert_coords_dms
-    val_latitude = val_latitude      # Keep as character for convert_coords_dms
+    val_longitude = val_longitude, # Keep as character for convert_coords_dms
+    val_latitude = val_latitude # Keep as character for convert_coords_dms
   )]
-  
+
   # Convert coordinates
   message("Converting coordinates...")
   # Initialize numeric columns
   addr[, `:=`(cnefe_long = NA_real_, cnefe_lat = NA_real_)]
-  
+
   # Convert coordinates for non-empty values, accounting for parse failures
   # (stops if every value fails; reports the NA rate otherwise).
-  addr[val_longitude != "" & val_latitude != "",
-       `:=`(cnefe_long = convert_coords_checked(val_longitude, "CNEFE longitude"),
-            cnefe_lat = convert_coords_checked(val_latitude, "CNEFE latitude"))]
-  
+  addr[
+    val_longitude != "" & val_latitude != "",
+    `:=`(
+      cnefe_long = convert_coords_checked(val_longitude, "CNEFE longitude"),
+      cnefe_lat = convert_coords_checked(val_latitude, "CNEFE latitude")
+    )
+  ]
+
   # Remove the character columns
   addr[, c("val_longitude", "val_latitude") := NULL]
-  
+
   # Merge tract centroids
   message("Merging tract centroids...")
   addr <- tract_centroids[addr, on = .(setor_code)]
-  
+
   # Replace NA coordinates with tract centroids
   addr[is.na(cnefe_long), cnefe_long := tract_centroid_long]
   addr[is.na(cnefe_lat), cnefe_lat := tract_centroid_lat]
-  
+
   # Remove tract centroid columns
   addr[, c("tract_centroid_long", "tract_centroid_lat") := NULL]
-  
+
   # Normalize addresses
   message("Normalizing addresses...")
   addr[, norm_bairro := normalize_address(bairro)]
   addr[, norm_street := normalize_address(street)]
-  
+
   gc(verbose = FALSE)
-  
+
   # Extract schools if requested
   if (extract_schools) {
     message("Extracting schools...")
     schools <- addr[especie_lab == "estabelecimento de ensino"]
-    
+
     if (nrow(schools) > 0) {
       # Normalize school descriptions, then drop rows with an empty normalized
       # description. This harmonizes 2010 with get_cnefe22_schools(), which
@@ -860,22 +891,22 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
     } else {
       message("No schools found in this dataset")
     }
-    
+
     gc(verbose = FALSE)
     message("CNEFE processing complete")
-    
+
     # Return both datasets as a list
     return(list(
       data = addr,
       schools = schools
     ))
   }
-  
+
   # Monitor memory after processing
   mem_after <- gc()[2, 2]
   message(sprintf("Memory after CNEFE processing: %.1f GB", mem_after / 1024))
   message("CNEFE processing complete")
-  
+
   return(addr)
 }
 
@@ -883,31 +914,31 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
 clean_text_for_geocodebr <- function(text) {
   # Clean text for geocodebr matching
   # Remove special characters and normalize
-  
+
   text <- tolower(text)
   text <- stringi::stri_trans_general(text, "Latin-ASCII")
   text <- gsub("[^a-z0-9 ]", " ", text)
   text <- gsub("\\s+", " ", text)
   text <- trimws(text)
-  
+
   return(text)
 }
 
 simplify_address_for_geocodebr <- function(address) {
   # Simplify address for better geocodebr matching
-  # GeocodeR API works best with street names only - numbers, prefixes, and 
+  # GeocodeR API works best with street names only - numbers, prefixes, and
   # suffixes often cause failed matches or incorrect results
-  
+
   # Remove common prefixes
   address <- gsub("^(rua|avenida|av|r|travessa|tv|praca|pc|alameda|al)\\s+", "", address)
-  
+
   # Remove numbers and common suffixes
   address <- gsub("\\b\\d+\\b", "", address)
   address <- gsub("\\b(sn|s n|sem numero)\\b", "", address)
   address <- gsub("\\b(lote|lt|quadra|qd|bloco|bl|casa|cs|apartamento|apto|ap)\\s*\\w*", "", address)
-  
+
   # Clean up
   address <- clean_text_for_geocodebr(address)
-  
+
   return(address)
 }

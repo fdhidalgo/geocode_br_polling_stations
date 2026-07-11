@@ -16,18 +16,42 @@ library(crew)
 # enumerate all states in production. Defined once and reused (cleanup phase 4
 # dedup).
 BRAZIL_STATES <- c(
-  "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA",
-  "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN",
-  "RO", "RR", "RS", "SC", "SE", "SP", "TO"
+  "AC",
+  "AL",
+  "AM",
+  "AP",
+  "BA",
+  "CE",
+  "DF",
+  "ES",
+  "GO",
+  "MA",
+  "MG",
+  "MS",
+  "MT",
+  "PA",
+  "PB",
+  "PE",
+  "PI",
+  "PR",
+  "RJ",
+  "RN",
+  "RO",
+  "RR",
+  "RS",
+  "SC",
+  "SE",
+  "SP",
+  "TO"
 )
 
 get_pipeline_config <- function(dev_mode = FALSE) {
   # Get pipeline configuration based on development mode
-  
+
   if (dev_mode) {
     config <- list(
       dev_mode = TRUE,
-      dev_states = c("AC", "RR"),  # Acre and Roraima - smallest states by population for fast testing
+      dev_states = c("AC", "RR"), # Acre and Roraima - smallest states by population for fast testing
       batch_size = 10,
       max_workers = 2,
       cache_dir = "_targets/cache",
@@ -36,14 +60,14 @@ get_pipeline_config <- function(dev_mode = FALSE) {
   } else {
     config <- list(
       dev_mode = FALSE,
-      dev_states = NULL,  # Process all states
+      dev_states = NULL, # Process all states
       batch_size = 100,
       max_workers = parallel::detectCores() - 1,
       cache_dir = "_targets/cache",
       log_level = "INFO"
     )
   }
-  
+
   # Panel record-linkage weight threshold (Fellegi-Sunter). An explicit,
   # tracked config field replaces the former untracked
   # getOption("geocode_br.panel_weight_threshold") (cleanup phase 3, Medium).
@@ -57,7 +81,7 @@ get_pipeline_config <- function(dev_mode = FALSE) {
   } else {
     config$dev_states
   }
-  
+
   return(config)
 }
 
@@ -65,13 +89,14 @@ get_states_for_processing <- function(context, pipeline_config, custom_states = 
   # Get states to process based on context and mode
   # Centralized function to determine which states to process based on the
   # pipeline context and development mode setting
-  
+
   if (pipeline_config$dev_mode) {
     return(pipeline_config$dev_states)
   }
-  
+
   # Production mode - determine states based on context
-  switch(context,
+  switch(
+    context,
     cnefe10 = {
       state_files <- list.files("data/cnefe_2010", pattern = "cnefe_2010_.*\\.csv\\.gz$")
       gsub("cnefe_2010_(.+)\\.csv\\.gz", "\\1", state_files)
@@ -93,7 +118,7 @@ get_agro_cnefe_files <- function(pipeline_config) {
   # Special handler for agro_cnefe_files which returns file paths not states
   # In dev mode, maps state abbreviations to specific file names
   # In production mode, returns all files in the agro_censo directory
-  
+
   if (pipeline_config$dev_mode) {
     state_file_map <- c(
       "AC" = "12_ACRE.csv.gz",
@@ -113,7 +138,7 @@ get_agro_cnefe_files <- function(pipeline_config) {
 get_expected_municipality_count <- function(state_abbrev) {
   # Expected number of municipalities per state (2022 data)
   # Source: IBGE
-  
+
   expected_counts <- list(
     AC = 22,
     AL = 102,
@@ -143,7 +168,7 @@ get_expected_municipality_count <- function(state_abbrev) {
     SP = 645,
     TO = 139
   )
-  
+
   count <- expected_counts[[state_abbrev]]
 
   # Fail loud on an unknown state (cleanup phase 3, Medium): returning NA with a
@@ -174,11 +199,11 @@ get_crew_controllers <- function() {
   # Create crew controller group for parallel processing
   # Uses same configuration for both dev and production modes
   # Crew will only spawn workers as needed, so this is efficient
-  
+
   # Standard controller for most tasks - optimized for 32-core machine
   controller_standard <- crew::crew_controller_local(
     name = "standard",
-    workers = 28,  # Max workers - crew only spawns as needed
+    workers = 28, # Max workers - crew only spawns as needed
     seconds_idle = 30,
     seconds_wall = 3600,
     seconds_timeout = 300,
@@ -186,32 +211,32 @@ get_crew_controllers <- function() {
     reset_packages = FALSE,
     garbage_collection = TRUE
   )
-  
+
   # Memory-limited controller for CNEFE operations
   # Fewer workers but more memory per worker
   controller_memory <- crew::crew_controller_local(
     name = "memory_limited",
-    workers = 8,  # Max workers for memory-intensive tasks
+    workers = 8, # Max workers for memory-intensive tasks
     seconds_idle = 60,
-    seconds_wall = 7200,  # 2 hours for memory-intensive tasks
-    seconds_timeout = 600,  # 10 minutes timeout
+    seconds_wall = 7200, # 2 hours for memory-intensive tasks
+    seconds_timeout = 600, # 10 minutes timeout
     reset_globals = TRUE,
     reset_packages = FALSE,
     garbage_collection = TRUE
   )
-  
+
   # Return controller group
   controller_group <- crew::crew_controller_group(
     controller_standard,
     controller_memory
   )
-  
+
   return(controller_group)
 }
 
 configure_targets_options <- function(controller_group) {
   # Configure targets options with the controller group
-  
+
   tar_option_set(
     packages = c(
       "data.table",
@@ -253,7 +278,7 @@ configure_targets_options <- function(controller_group) {
     memory = "transient",
     garbage_collection = TRUE,
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "standard")  # Default to standard controller
+      crew = tar_resources_crew(controller = "standard") # Default to standard controller
     )
   )
 }

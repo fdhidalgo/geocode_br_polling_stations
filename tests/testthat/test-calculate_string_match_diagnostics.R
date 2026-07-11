@@ -26,7 +26,10 @@ test_that("calculate_string_match_diagnostics computes NA rate on the named colu
     match_lat_inep_addr = c(-9, NA, -8, -7)
   )
   out <- calculate_string_match_diagnostics(
-    match_data, "inep_string_match", "match_long_inep_addr", "match_lat_inep_addr"
+    match_data,
+    "inep_string_match",
+    "match_long_inep_addr",
+    "match_lat_inep_addr"
   )
   expect_equal(out$total_rows, 4L)
   expect_equal(out$na_coords, 1L)
@@ -37,7 +40,10 @@ test_that("calculate_string_match_diagnostics stops when a coordinate column is 
   match_data <- data.table::data.table(some_other_col = 1:3)
   expect_error(
     calculate_string_match_diagnostics(
-      match_data, "inep_string_match", "match_long_inep_addr", "match_lat_inep_addr"
+      match_data,
+      "inep_string_match",
+      "match_long_inep_addr",
+      "match_lat_inep_addr"
     ),
     "coordinate column\\(s\\) not found"
   )

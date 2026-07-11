@@ -28,7 +28,7 @@ make_inep_codes <- function() {
 
 test_that("clean_inep drops schools with missing latitude", {
   out <- clean_inep(copy(make_inep_data()), copy(make_inep_codes()))
-  expect_equal(nrow(out), 2L)                          # the NA-latitude row is dropped
+  expect_equal(nrow(out), 2L) # the NA-latitude row is dropped
   expect_false("33333333" %in% out$codigo_inep)
 })
 

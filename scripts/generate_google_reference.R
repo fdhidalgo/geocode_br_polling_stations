@@ -39,29 +39,27 @@ if (!nzchar(api_key)) {
 tar_load(c(oof_selected_matches, locais_filtered, tsegeocoded_locais))
 
 sel <- as.data.table(oof_selected_matches)
-covered <- sel[!is.na(urban_rural)]  # need a stratum to sample within
+covered <- sel[!is.na(urban_rural)] # need a stratum to sample within
 
 set.seed(20260710L)
-sampled <- covered[
-  , .SD[sample(.N, min(.N, n_per_stratum))],
+sampled <- covered[,
+  .SD[sample(.N, min(.N, n_per_stratum))],
   by = .(urban_rural, region)
 ]
 
 addr <- as.data.table(locais_filtered)[
   local_id %in% sampled$local_id,
-  .(local_id, nr_zona, nr_locvot, cod_localidade_ibge,
-    ds_endereco, ds_bairro, nm_localidade = nm_localidade, sg_uf)
+  .(local_id, nr_zona, nr_locvot, cod_localidade_ibge, ds_endereco, ds_bairro, nm_localidade = nm_localidade, sg_uf)
 ]
-tse <- as.data.table(tsegeocoded_locais)[
-  , .(local_id, tse_long, tse_lat)
+tse <- as.data.table(tsegeocoded_locais)[,
+  .(local_id, tse_long, tse_lat)
 ]
 
 query_dt <- Reduce(
   function(x, y) merge(x, y, by = "local_id"),
   list(sampled[, .(local_id, urban_rural, region)], addr, tse)
 )
-query_dt[, address := paste(ds_endereco, ds_bairro, nm_localidade, sg_uf,
-                            "Brazil", sep = ", ")]
+query_dt[, address := paste(ds_endereco, ds_bairro, nm_localidade, sg_uf, "Brazil", sep = ", ")]
 
 ## ---- Geocode one address via the Google Geocoding API --------------------
 geocode_one <- function(address) {
@@ -71,11 +69,9 @@ geocode_one <- function(address) {
   body <- resp_body_json(resp)
   if (identical(body$status, "OK") && length(body$results) > 0) {
     loc <- body$results[[1]]$geometry$location
-    return(list(google_lat = loc$lat, google_long = loc$lng,
-                google_status = body$status))
+    return(list(google_lat = loc$lat, google_long = loc$lng, google_status = body$status))
   }
-  list(google_lat = NA_real_, google_long = NA_real_,
-       google_status = body$status %||% "ERROR")
+  list(google_lat = NA_real_, google_long = NA_real_, google_status = body$status %||% "ERROR")
 }
 
 ## ---- Run (rate-limited) ---------------------------------------------------
@@ -83,17 +79,15 @@ message("Geocoding ", nrow(query_dt), " stations via Google...")
 results <- vector("list", nrow(query_dt))
 for (i in seq_len(nrow(query_dt))) {
   results[[i]] <- geocode_one(query_dt$address[i])
-  Sys.sleep(0.05)  # stay under the per-second rate limit
+  Sys.sleep(0.05) # stay under the per-second rate limit
   if (i %% 200 == 0) message("  ", i, " / ", nrow(query_dt))
 }
 res_dt <- rbindlist(results)
 out <- cbind(
-  query_dt[, .(local_id, cod_localidade_ibge, nr_zona, nr_locvot,
-               urban_rural, region, tse_long, tse_lat)],
+  query_dt[, .(local_id, cod_localidade_ibge, nr_zona, nr_locvot, urban_rural, region, tse_long, tse_lat)],
   res_dt
 )
 
 dir.create("data", showWarnings = FALSE)
 fwrite(out, "data/google_geocoded.csv")
-message("Wrote data/google_geocoded.csv (", nrow(out), " rows). ",
-        "Commit it as the frozen artifact.")
+message("Wrote data/google_geocoded.csv (", nrow(out), " rows). ", "Commit it as the frozen artifact.")

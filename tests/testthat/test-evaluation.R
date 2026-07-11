@@ -17,11 +17,35 @@ if (!exists("accuracy_metrics")) {
 }
 
 test_that("state_to_region maps all 27 UFs and errors on unknown codes", {
-  ufs <- c("AC", "AP", "AM", "PA", "RO", "RR", "TO",
-           "AL", "BA", "CE", "MA", "PB", "PE", "PI", "RN", "SE",
-           "DF", "GO", "MT", "MS",
-           "ES", "MG", "RJ", "SP",
-           "PR", "RS", "SC")
+  ufs <- c(
+    "AC",
+    "AP",
+    "AM",
+    "PA",
+    "RO",
+    "RR",
+    "TO",
+    "AL",
+    "BA",
+    "CE",
+    "MA",
+    "PB",
+    "PE",
+    "PI",
+    "RN",
+    "SE",
+    "DF",
+    "GO",
+    "MT",
+    "MS",
+    "ES",
+    "MG",
+    "RJ",
+    "SP",
+    "PR",
+    "RS",
+    "SC"
+  )
   regions <- state_to_region(ufs)
   expect_length(regions, 27L)
   expect_false(anyNA(regions))
@@ -38,9 +62,9 @@ test_that("accuracy_metrics computes the ladder and thresholds", {
   e <- c(0.05, 0.05, 0.6, 1.0)
   m <- accuracy_metrics(e)
   expect_equal(m$median_km, median(e))
-  expect_equal(m$within_100m, 50)   # 2 of 4 <= 0.1 km
-  expect_equal(m$within_500m, 50)   # 2 of 4 <= 0.5 km
-  expect_equal(m$within_1km, 100)   # all <= 1 km
+  expect_equal(m$within_100m, 50) # 2 of 4 <= 0.1 km
+  expect_equal(m$within_500m, 50) # 2 of 4 <= 0.5 km
+  expect_equal(m$within_1km, 100) # all <= 1 km
   # empty stratum -> all NA, no error
   empty <- accuracy_metrics(numeric(0))
   expect_true(all(vapply(empty, is.na, logical(1))))
@@ -49,13 +73,13 @@ test_that("accuracy_metrics computes the ladder and thresholds", {
 test_that("assign_eval_folds is deterministic and never splits a municipality", {
   md <- data.table(
     cod_localidade_ibge = rep(1:20, each = 3),
-    dist = 1  # all covered
+    dist = 1 # all covered
   )
   f1 <- assign_eval_folds(md, k = 5L, seed = 123L)
   f2 <- assign_eval_folds(md, k = 5L, seed = 123L)
-  expect_identical(f1, f2)                       # deterministic
+  expect_identical(f1, f2) # deterministic
   expect_equal(uniqueN(f1$cod_localidade_ibge), 20L)
-  expect_equal(sort(unique(f1$fold)), 1:5)       # every fold used
+  expect_equal(sort(unique(f1$fold)), 1:5) # every fold used
   # one fold per municipality => a municipality's rows can't be split
   expect_equal(nrow(f1), uniqueN(f1$cod_localidade_ibge))
   expect_error(assign_eval_folds(md, k = 25L), "covered municipalities")
@@ -64,7 +88,7 @@ test_that("assign_eval_folds is deterministic and never splits a municipality", 
 test_that("assign_eval_folds ignores uncovered municipalities", {
   md <- data.table(
     cod_localidade_ibge = c(1:10, 100:105),
-    dist = c(rep(1, 10), rep(NA_real_, 6))  # 100:105 uncovered
+    dist = c(rep(1, 10), rep(NA_real_, 6)) # 100:105 uncovered
   )
   f <- assign_eval_folds(md, k = 5L)
   expect_equal(sort(unique(f$cod_localidade_ibge)), 1:10)
@@ -76,14 +100,14 @@ test_that("compute_tse_coverage counts and flags small cells", {
     ano = c(rep(2018L, 6), rep(2020L, 4)),
     sg_uf = "AC"
   )
-  tse <- data.table(local_id = c(1:4))  # 4 covered, all 2018
+  tse <- data.table(local_id = c(1:4)) # 4 covered, all 2018
   cov <- compute_tse_coverage(locais, tse, min_cell_n = 5L)
   y18 <- cov[ano == 2018L]
   y20 <- cov[ano == 2020L]
   expect_equal(y18$n_total, 6L)
   expect_equal(y18$n_covered, 4L)
-  expect_equal(y20$n_covered, 0L)             # no covered stations in 2020
-  expect_true(y18$suppressed)                 # 4 < floor of 5
+  expect_equal(y20$n_covered, 0L) # no covered stations in 2020
+  expect_true(y18$suppressed) # 4 < floor of 5
   expect_equal(round(y18$coverage_pct, 2), round(100 * 4 / 6, 2))
 })
 
@@ -97,8 +121,8 @@ test_that("compute_calibration rank-and-filter improves as tail is dropped", {
   )
   cal <- compute_calibration(sel, n_bins = 5L)
   rf <- cal$rank_filter
-  expect_true(all(diff(rf$median_km) <= 0))       # median monotonically down
-  expect_true(all(diff(rf$within_500m) >= 0))      # within-500m monotonically up
+  expect_true(all(diff(rf$median_km) <= 0)) # median monotonically down
+  expect_true(all(diff(rf$within_500m) >= 0)) # within-500m monotonically up
   expect_true(is.finite(cal$ence))
 })
 
@@ -117,8 +141,8 @@ test_that("compute_accuracy_tables reports match rate and suppresses small cells
   expect_equal(overall$n_total, 8L)
   expect_equal(overall$n_geocoded, 5L)
   expect_equal(overall$match_rate, 100 * 5 / 8)
-  expect_true(overall$suppressed)                  # 5 geocoded < floor 100
-  expect_true(is.na(overall$median_km))            # accuracy suppressed
+  expect_true(overall$suppressed) # 5 geocoded < floor 100
+  expect_true(is.na(overall$median_km)) # accuracy suppressed
   # match-source cut carries NA match rate (denominator is geocoded-only)
   ms <- tabs[stratum == "match_source"]
   expect_true(all(is.na(ms$match_rate)))

@@ -6,12 +6,12 @@
 
 test_that("prefilter flags targets sharing at least one word", {
   m <- prefilter_by_common_words(
-    query_strings  = c("escola joao", "hospital central"),
+    query_strings = c("escola joao", "hospital central"),
     target_strings = c("escola maria", "banco central", "nada aqui")
   )
   expect_equal(dim(m), c(2L, 3L))
-  expect_equal(m[1, ], c(TRUE, FALSE, FALSE))   # "escola" shared with target 1 only
-  expect_equal(m[2, ], c(FALSE, TRUE, FALSE))   # "central" shared with target 2 only
+  expect_equal(m[1, ], c(TRUE, FALSE, FALSE)) # "escola" shared with target 1 only
+  expect_equal(m[2, ], c(FALSE, TRUE, FALSE)) # "central" shared with target 2 only
 })
 
 test_that("prefilter is case-insensitive", {

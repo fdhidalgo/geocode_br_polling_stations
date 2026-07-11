@@ -20,9 +20,13 @@ library(data.table)
 # if any items failed, stop() with a single message naming every failure. A NULL
 # result is a legitimate empty item (not a failure) and is dropped from the
 # returned list. `task_label` and the unit noun shape the error message.
-collect_batch_or_stop <- function(items, fn, task_label,
-                                  unit_singular = "municipality",
-                                  unit_plural = "municipalities") {
+collect_batch_or_stop <- function(
+  items,
+  fn,
+  task_label,
+  unit_singular = "municipality",
+  unit_plural = "municipalities"
+) {
   results <- lapply(items, function(item) {
     tryCatch(
       fn(item),
@@ -45,7 +49,9 @@ collect_batch_or_stop <- function(items, fn, task_label,
     )
     stop(sprintf(
       "%s failed for %d %s:\n%s",
-      task_label, n, ngettext(n, unit_singular, unit_plural),
+      task_label,
+      n,
+      ngettext(n, unit_singular, unit_plural),
       paste(msgs, collapse = "\n")
     ))
   }
@@ -181,7 +187,8 @@ process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL) {
     # Get tract centroids for this state
     state_codes <- unique(substr(
       as.character(state_muni_ids$id_munic_7),
-      1, 2
+      1,
+      2
     ))
     state_tract_centroids <- tract_centroids[
       substr(setor_code, 1, 2) %in% state_codes
@@ -233,8 +240,7 @@ process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL) {
 #'   `n` (one row per group, including `n == 1` groups)
 #' @export
 aggregate_cnefe_coords <- function(addr, group_col) {
-  addr[
-    ,
+  addr[,
     .(
       long = median(cnefe_long, na.rm = TRUE),
       lat = median(cnefe_lat, na.rm = TRUE),
@@ -267,8 +273,7 @@ aggregate_cnefe_coords <- function(addr, group_col) {
 #' @return The row-bound data.table for the requested component (aggregate
 #'   components thinned to `n > 1` groups)
 #' @export
-combine_cnefe_state_component <- function(state_results, component,
-                                          unique_key = NULL) {
+combine_cnefe_state_component <- function(state_results, component, unique_key = NULL) {
   combined <- rbindlist(
     lapply(state_results, `[[`, component),
     use.names = TRUE,
@@ -290,7 +295,9 @@ combine_cnefe_state_component <- function(state_results, component,
         "state slices (e.g. %s). A municipality spanning two state files or ",
         "a mis-assigned state file produces this."
       ),
-      nrow(dup_keys), component, example
+      nrow(dup_keys),
+      component,
+      example
     ))
   }
 
@@ -312,8 +319,7 @@ combine_cnefe_state_component <- function(state_results, component,
 #' @param inep_data INEP data
 #' @return Combined match results
 #' @export
-process_inep_batch <- function(batch_ids, municipality_batch_assignments,
-                               locais_filtered, inep_data) {
+process_inep_batch <- function(batch_ids, municipality_batch_assignments, locais_filtered, inep_data) {
   # Get municipalities for this batch
   batch_munis <- municipality_batch_assignments[
     batch_id == batch_ids
@@ -344,8 +350,7 @@ process_inep_batch <- function(batch_ids, municipality_batch_assignments,
 #' @param schools_cnefe Schools CNEFE data
 #' @return Combined match results
 #' @export
-process_schools_cnefe_batch <- function(batch_ids, municipality_batch_assignments,
-                                        locais_filtered, schools_cnefe) {
+process_schools_cnefe_batch <- function(batch_ids, municipality_batch_assignments, locais_filtered, schools_cnefe) {
   # Get municipalities for this batch
   batch_munis <- municipality_batch_assignments[
     batch_id == batch_ids
@@ -376,8 +381,7 @@ process_schools_cnefe_batch <- function(batch_ids, municipality_batch_assignment
 #' @param muni_ids Municipality IDs data
 #' @return Combined match results
 #' @export
-process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments,
-                                    locais_filtered, muni_ids) {
+process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, locais_filtered, muni_ids) {
   # Get municipalities for this batch
   batch_munis <- municipality_batch_assignments[
     batch_id == batch_ids
@@ -413,8 +417,13 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments,
 #' @param cnefe_bairro Neighborhood-level CNEFE data
 #' @return Combined match results
 #' @export
-process_cnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignments,
-                                         locais_filtered, cnefe_st, cnefe_bairro) {
+process_cnefe_stbairro_batch <- function(
+  batch_ids,
+  municipality_batch_assignments,
+  locais_filtered,
+  cnefe_st,
+  cnefe_bairro
+) {
   # Get municipalities for this batch
   batch_munis <- municipality_batch_assignments[
     batch_id == batch_ids
@@ -423,7 +432,8 @@ process_cnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignmen
   # Log batch start
   message(sprintf(
     "[Batch %d] Starting CNEFE street/neighborhood matching for %d municipalities",
-    batch_ids, length(batch_munis)
+    batch_ids,
+    length(batch_munis)
   ))
 
   # Process all municipalities in this batch with progress tracking
@@ -437,7 +447,13 @@ process_cnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignmen
 
     message(sprintf(
       "[Batch %d - %d/%d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
-      batch_ids, i, length(batch_munis), muni_code, n_locais, n_streets, n_bairros
+      batch_ids,
+      i,
+      length(batch_munis),
+      muni_code,
+      n_locais,
+      n_streets,
+      n_bairros
     ))
 
     # Perform matching
@@ -451,7 +467,11 @@ process_cnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignmen
     if (!is.null(result)) {
       message(sprintf(
         "[Batch %d - %d/%d] Completed municipality %s: %d matches",
-        batch_ids, i, length(batch_munis), muni_code, nrow(result)
+        batch_ids,
+        i,
+        length(batch_munis),
+        muni_code,
+        nrow(result)
       ))
     }
 
@@ -470,7 +490,9 @@ process_cnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignmen
 
   message(sprintf(
     "[Batch %d] Completed with %d total matches from %d municipalities",
-    batch_ids, total_matches, length(batch_results)
+    batch_ids,
+    total_matches,
+    length(batch_results)
   ))
 
   if (length(batch_results) > 0) {
@@ -489,8 +511,13 @@ process_cnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignmen
 #' @param agrocnefe_bairro Neighborhood-level Agro CNEFE data
 #' @return Combined match results
 #' @export
-process_agrocnefe_stbairro_batch <- function(batch_ids, municipality_batch_assignments,
-                                             locais_filtered, agrocnefe_st, agrocnefe_bairro) {
+process_agrocnefe_stbairro_batch <- function(
+  batch_ids,
+  municipality_batch_assignments,
+  locais_filtered,
+  agrocnefe_st,
+  agrocnefe_bairro
+) {
   # Get municipalities for this batch
   batch_munis <- municipality_batch_assignments[
     batch_id == batch_ids
@@ -499,7 +526,8 @@ process_agrocnefe_stbairro_batch <- function(batch_ids, municipality_batch_assig
   # Log batch start
   message(sprintf(
     "[Batch %d] Starting Agro CNEFE street/neighborhood matching for %d municipalities",
-    batch_ids, length(batch_munis)
+    batch_ids,
+    length(batch_munis)
   ))
 
   # Process all municipalities in this batch with progress tracking
@@ -513,7 +541,13 @@ process_agrocnefe_stbairro_batch <- function(batch_ids, municipality_batch_assig
 
     message(sprintf(
       "[Batch %d - %d/%d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
-      batch_ids, i, length(batch_munis), muni_code, n_locais, n_streets, n_bairros
+      batch_ids,
+      i,
+      length(batch_munis),
+      muni_code,
+      n_locais,
+      n_streets,
+      n_bairros
     ))
 
     # Perform matching
@@ -527,7 +561,11 @@ process_agrocnefe_stbairro_batch <- function(batch_ids, municipality_batch_assig
     if (!is.null(result)) {
       message(sprintf(
         "[Batch %d - %d/%d] Completed municipality %s: %d matches",
-        batch_ids, i, length(batch_munis), muni_code, nrow(result)
+        batch_ids,
+        i,
+        length(batch_munis),
+        muni_code,
+        nrow(result)
       ))
     }
 
@@ -546,7 +584,9 @@ process_agrocnefe_stbairro_batch <- function(batch_ids, municipality_batch_assig
 
   message(sprintf(
     "[Batch %d] Completed with %d total matches from %d municipalities",
-    batch_ids, total_matches, length(batch_results)
+    batch_ids,
+    total_matches,
+    length(batch_results)
   ))
 
   if (length(batch_results) > 0) {
@@ -577,12 +617,12 @@ process_agrocnefe_stbairro_batch <- function(batch_ids, municipality_batch_assig
 #' @export
 create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, muni_sizes = NULL) {
   n_munis <- length(muni_codes)
-  
+
   # Simple sequential batching if no size information provided
   if (is.null(muni_sizes)) {
     n_batches <- ceiling(n_munis / batch_size)
     batch_nums <- rep(seq_len(n_batches), each = batch_size, length.out = n_munis)
-    
+
     result <- data.table::data.table(
       cod_localidade_ibge = muni_codes,
       batch_id = batch_nums
@@ -596,10 +636,7 @@ create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, m
         cod_localidade_ibge = muni_codes
       )
       # Join with the sizes data
-      muni_df <- merge(muni_df, muni_sizes, 
-                       by.x = "cod_localidade_ibge", 
-                       by.y = "muni_code", 
-                       all.x = TRUE)
+      muni_df <- merge(muni_df, muni_sizes, by.x = "cod_localidade_ibge", by.y = "muni_code", all.x = TRUE)
     } else {
       # If muni_sizes is a named vector
       muni_df <- data.table::data.table(
@@ -620,25 +657,25 @@ create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, m
       ))
     }
     data.table::setorder(muni_df, -size)
-    
+
     # Assign to batches using round-robin for load balancing
     n_batches <- ceiling(n_munis / batch_size)
     muni_df[, batch_id := rep_len(seq_len(n_batches), .N)]
-    
+
     result <- muni_df[, .(cod_localidade_ibge, batch_id)]
   }
-  
+
   # Log batch statistics
   batch_stats <- result[, .N, by = batch_id]
   message(sprintf(
     "Created %d batches for %d municipalities (min: %d, max: %d, avg: %.1f per batch)",
-    length(unique(result$batch_id)), 
+    length(unique(result$batch_id)),
     n_munis,
     min(batch_stats$N),
     max(batch_stats$N),
     mean(batch_stats$N)
   ))
-  
+
   result
 }
 
@@ -646,7 +683,7 @@ create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, m
 # These functions were moved from data_export.R
 
 #' Export geocoded locations to file
-#' 
+#'
 #' @param geocoded_locais Geocoded locations data
 #' @return Path to exported file
 #' @export
@@ -656,7 +693,7 @@ export_geocoded_locais <- function(geocoded_locais) {
 }
 
 #' Export panel IDs to file
-#' 
+#'
 #' @param panel_ids Panel ID data to export
 #' @return Path to exported file
 #' @export

@@ -105,7 +105,7 @@ if (!DEV_MODE) {
         bucket = "geocode-br-polling-stations",
         prefix = "production"
       ),
-      crew = existing_resources$crew  # Preserve crew configuration
+      crew = existing_resources$crew # Preserve crew configuration
     )
   )
   message("AWS S3 storage configured for production mode")
@@ -342,7 +342,8 @@ list(
   tar_target(
     name = cnefe10_st,
     command = combine_cnefe_state_component(
-      cnefe10_by_state, "st",
+      cnefe10_by_state,
+      "st",
       unique_key = c("id_munic_7", "norm_street")
     ),
     format = "qs",
@@ -353,7 +354,8 @@ list(
   tar_target(
     name = cnefe10_bairro,
     command = combine_cnefe_state_component(
-      cnefe10_by_state, "bairro",
+      cnefe10_by_state,
+      "bairro",
       unique_key = c("id_munic_7", "norm_bairro")
     ),
     format = "qs",
@@ -417,7 +419,8 @@ list(
   tar_target(
     name = cnefe22_st,
     command = combine_cnefe_state_component(
-      cnefe22_by_state, "st",
+      cnefe22_by_state,
+      "st",
       unique_key = c("id_munic_7", "norm_street")
     ),
     format = "qs",
@@ -428,7 +431,8 @@ list(
   tar_target(
     name = cnefe22_bairro,
     command = combine_cnefe_state_component(
-      cnefe22_by_state, "bairro",
+      cnefe22_by_state,
+      "bairro",
       unique_key = c("id_munic_7", "norm_bairro")
     ),
     format = "qs",
@@ -515,7 +519,7 @@ list(
       "./data/eleitorado_local_votacao_2024.csv.gz"
     ),
     format = "file",
-    repository = "local"  # Force local storage for file targets to avoid S3 issues
+    repository = "local" # Force local storage for file targets to avoid S3 issues
   ),
   tar_target(
     name = tsegeocoded_locais,

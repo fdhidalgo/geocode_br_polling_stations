@@ -35,8 +35,8 @@ duplicated-constants dedup (including the "estabeleciemento" typo that ships int
 - Roxygen coverage and `cat()`/`message()` logging harmonization.
 - renv never-used-package tail cleanup (`renv::clean()` + dependency-scanned snapshot).
 - All Low-tier polish.
-- Lint-debt paydown: the staged-ratchet hook from the testing spec pays it down naturally;
-  phase 4 records the count only.
+- Lint-debt paydown: superseded 2026-07-11 (#58) — `air` reformatted the whole repo at once,
+  eliminating the backlog, and replaced the lintr ratchet with an `air format --check` gate.
 
 ## Cross-cutting conventions
 
@@ -161,9 +161,8 @@ lands with its fail-loud tests in the same commit; `master` stays green througho
    change (allowed; note it in the 2024 release notes).
 4. **`backup/`:** delete (33 directories of historical scratch, nothing references it;
    git history preserves it).
-5. **Riders:** run `lintr::lint_dir("R")` once and record the violation count in the
-   phase-4 issue (informational only — testing-spec §7); fix CLAUDE.md's stack description
-   (geobr is not used; tracts/munis come from pre-saved `.rds` files).
+5. **Riders:** (lint-baseline rider superseded 2026-07-11 by the air migration, #58 — testing-spec §7);
+   fix CLAUDE.md's stack description (geobr is not used; tracts/munis come from pre-saved `.rds` files).
 
 ## Phase 5 — Invalidation integrity, riding the 2024 release run (C2, H5, H9, H6)
 

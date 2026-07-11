@@ -38,14 +38,16 @@ make_geocoded_fixture <- function() {
 # Per year x state coverage in the shape compute_tse_coverage() returns, with the
 # TSE-bearing vintages (2018+) all above the regression floor and 2024 above the
 # hard gate.
-make_coverage_fixture <- function(cov_2024 = 95, cov_2018 = 90,
-                                  cov_2020 = 90, cov_2022 = 92) {
+make_coverage_fixture <- function(cov_2024 = 95, cov_2018 = 90, cov_2020 = 90, cov_2022 = 92) {
   pct <- c("2018" = cov_2018, "2020" = cov_2020, "2022" = cov_2022, "2024" = cov_2024)
   data.table::rbindlist(lapply(names(pct), function(y) {
     data.table::data.table(
-      ano = as.integer(y), sg_uf = "AC",
-      n_total = 100L, n_covered = as.integer(round(pct[[y]])),
-      coverage_pct = pct[[y]], suppressed = FALSE
+      ano = as.integer(y),
+      sg_uf = "AC",
+      n_total = 100L,
+      n_covered = as.integer(round(pct[[y]])),
+      coverage_pct = pct[[y]],
+      suppressed = FALSE
     )
   }))
 }
@@ -53,14 +55,18 @@ make_coverage_fixture <- function(cov_2024 = 95, cov_2018 = 90,
 # Existing files so gate 4 (output files exist) is satisfied.
 make_export_paths <- function() {
   paths <- c(tempfile(fileext = ".csv.gz"), tempfile(fileext = ".csv.gz"))
-  for (p in paths) writeLines("x", p)
+  for (p in paths) {
+    writeLines("x", p)
+  }
   paths
 }
 
 test_that("all gates pass on a well-formed build (dev mode)", {
   res <- validate_release_gates(
-    make_geocoded_fixture(), make_coverage_fixture(),
-    make_export_paths(), dev_mode = TRUE
+    make_geocoded_fixture(),
+    make_coverage_fixture(),
+    make_export_paths(),
+    dev_mode = TRUE
   )
   expect_true(res$passed)
   expect_length(res$failures, 0)
@@ -112,8 +118,10 @@ test_that("Gate 3 fails when a year has zero non-NA coordinates", {
 test_that("Gate 4 fails when an output file is missing", {
   expect_error(
     validate_release_gates(
-      make_geocoded_fixture(), make_coverage_fixture(),
-      c("/nonexistent/geocoded.csv.gz"), dev_mode = TRUE
+      make_geocoded_fixture(),
+      make_coverage_fixture(),
+      c("/nonexistent/geocoded.csv.gz"),
+      dev_mode = TRUE
     ),
     "Gate 4.*missing"
   )
@@ -122,8 +130,10 @@ test_that("Gate 4 fails when an output file is missing", {
 test_that("Gate 6 fails when landed 2024 TSE coverage is below 92%", {
   expect_error(
     validate_release_gates(
-      make_geocoded_fixture(), make_coverage_fixture(cov_2024 = 80),
-      make_export_paths(), dev_mode = TRUE
+      make_geocoded_fixture(),
+      make_coverage_fixture(cov_2024 = 80),
+      make_export_paths(),
+      dev_mode = TRUE
     ),
     "Gate 6.*coverage"
   )
@@ -132,15 +142,17 @@ test_that("Gate 6 fails when landed 2024 TSE coverage is below 92%", {
 test_that("Gate 7 fails when a TSE vintage drops below the regression floor", {
   expect_error(
     validate_release_gates(
-      make_geocoded_fixture(), make_coverage_fixture(cov_2018 = 40),
-      make_export_paths(), dev_mode = TRUE
+      make_geocoded_fixture(),
+      make_coverage_fixture(cov_2018 = 40),
+      make_export_paths(),
+      dev_mode = TRUE
     ),
     "Gate 7.*2018"
   )
 })
 
 test_that("Gate 5 (absolute counts) is enforced only in production mode", {
-  g <- make_geocoded_fixture()  # tiny per-year counts
+  g <- make_geocoded_fixture() # tiny per-year counts
   # dev mode: small counts are fine.
   expect_true(
     validate_release_gates(g, make_coverage_fixture(), make_export_paths(), dev_mode = TRUE)$passed
@@ -156,7 +168,7 @@ test_that("Gate 5 catches an exploded non-2024 year in production mode", {
   # Build a fixture at plausible national scale so only the exploded year trips.
   years <- seq(2006L, 2024L, by = 2L)
   g <- data.table::rbindlist(lapply(years, function(y) {
-    n <- if (y == 2022L) 180000L else 90000L  # 2022 doubled by a bad merge
+    n <- if (y == 2022L) 180000L else 90000L # 2022 doubled by a bad merge
     f <- make_geocoded_fixture()[ano == 2024L][1L]
     dt <- f[rep(1L, n)]
     dt[, ano := y]

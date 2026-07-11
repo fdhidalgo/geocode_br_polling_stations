@@ -284,19 +284,23 @@ list(
   # ========================================
 
   ## CNEFE 2010 Processing
+  #
+  # Per-state cleaning returns list(st, bairro, schools) computed in memory; the
+  # full cleaned address rows are never persisted (spec D5). The national
+  # `cnefe10` combine and the duplicate schools read/clean pass are deleted; the
+  # small aggregates are row-bound from the per-state results below.
   tar_target(
     name = cnefe10_states,
     command = get_states_for_processing("cnefe10", pipeline_config)
   ),
-  # Process CNEFE10 state by state to avoid memory issues
+  # Clean each state and aggregate in-memory (streets, neighborhoods, schools)
   tar_target(
-    name = cnefe10_cleaned_by_state,
+    name = cnefe10_by_state,
     command = process_cnefe_state(
       state = cnefe10_states,
       year = 2010,
       muni_ids = muni_ids,
-      tract_centroids = tract_centroids,
-      extract_schools = FALSE
+      tract_centroids = tract_centroids
     ),
     pattern = map(cnefe10_states),
     format = "qs",
@@ -304,44 +308,15 @@ list(
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
     )
-  ),
-  # Extract schools by state for CNEFE10
-  tar_target(
-    name = schools_cnefe10_by_state,
-    command = process_cnefe_state(
-      state = cnefe10_states,
-      year = 2010,
-      muni_ids = muni_ids,
-      tract_centroids = tract_centroids,
-      extract_schools = TRUE
-    ),
-    pattern = map(cnefe10_states),
-    format = "qs",
-    iteration = "list",
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "memory_limited")
-    )
-  ),
-  # Combine all cleaned state data for CNEFE10
-  tar_target(
-    name = cnefe10,
-    command = rbindlist(
-      cnefe10_cleaned_by_state,
-      use.names = TRUE,
-      fill = TRUE
-    ),
-    format = "qs",
-    storage = "worker",
-    retrieval = "worker"
   ),
   # Get list of states to process based on mode
   tar_target(
     name = cnefe22_states,
     command = get_states_for_processing("cnefe22", pipeline_config)
   ),
-  # Process CNEFE22 state by state to avoid memory issues
+  # Clean each state and aggregate in-memory (streets, neighborhoods, schools)
   tar_target(
-    name = cnefe22_cleaned_by_state,
+    name = cnefe22_by_state,
     command = process_cnefe_state(
       state = cnefe22_states,
       year = 2022,
@@ -354,57 +329,33 @@ list(
       crew = tar_resources_crew(controller = "memory_limited")
     )
   ),
-  # Combine all cleaned state data
-  tar_target(
-    name = cnefe22,
-    command = rbindlist(
-      cnefe22_cleaned_by_state,
-      use.names = TRUE,
-      fill = TRUE
-    ),
-    format = "qs",
-    storage = "worker",
-    retrieval = "worker"
-  ),
 
-  ## Combine state-level school extracts for 2010 CNEFE
+  ## Combine per-state school extracts for 2010 CNEFE
   tar_target(
     name = schools_cnefe10,
-    command = rbindlist(
-      schools_cnefe10_by_state,
-      use.names = TRUE,
-      fill = TRUE
+    command = combine_cnefe_state_component(cnefe10_by_state, "schools"),
+    format = "qs",
+    storage = "worker",
+    retrieval = "worker"
+  ),
+  ## Create a dataset of streets in 2010 CNEFE (D6 invariant asserted at combine)
+  tar_target(
+    name = cnefe10_st,
+    command = combine_cnefe_state_component(
+      cnefe10_by_state, "st",
+      unique_key = c("id_munic_7", "norm_street")
     ),
     format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
-  ## Create a dataset of streets in 2010 CNEFE
-  tar_target(
-    name = cnefe10_st,
-    command = cnefe10[,
-      .(
-        long = median(cnefe_long, na.rm = TRUE),
-        lat = median(cnefe_lat, na.rm = TRUE),
-        n = .N
-      ),
-      by = .(id_munic_7, norm_street)
-    ][n > 1],
-    format = "qs",
-    storage = "worker",
-    retrieval = "worker"
-  ),
-  ## Create a dataset of neighborhoods in 2010 CNEFE
+  ## Create a dataset of neighborhoods in 2010 CNEFE (D6 invariant asserted)
   tar_target(
     name = cnefe10_bairro,
-    command = cnefe10[,
-      .(
-        long = median(cnefe_long, na.rm = TRUE),
-        lat = median(cnefe_lat, na.rm = TRUE),
-        n = .N
-      ),
-      by = .(id_munic_7, norm_bairro)
-    ][n > 1],
+    command = combine_cnefe_state_component(
+      cnefe10_by_state, "bairro",
+      unique_key = c("id_munic_7", "norm_bairro")
+    ),
     format = "qs",
     storage = "worker",
     retrieval = "worker"
@@ -454,40 +405,32 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
+  ## Combine per-state school extracts for 2022 CNEFE
   tar_target(
-    ## Extract schools frome 2022 CNEFE
     name = schools_cnefe22,
-    command = get_cnefe22_schools(cnefe22),
+    command = combine_cnefe_state_component(cnefe22_by_state, "schools"),
     format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
-  ## Create a dataset of streets in 2022 CNEFE
+  ## Create a dataset of streets in 2022 CNEFE (D6 invariant asserted at combine)
   tar_target(
     name = cnefe22_st,
-    command = cnefe22[,
-      .(
-        long = median(cnefe_long, na.rm = TRUE),
-        lat = median(cnefe_lat, na.rm = TRUE),
-        n = .N
-      ),
-      by = .(id_munic_7, norm_street)
-    ][n > 1],
+    command = combine_cnefe_state_component(
+      cnefe22_by_state, "st",
+      unique_key = c("id_munic_7", "norm_street")
+    ),
     format = "qs",
     storage = "worker",
     retrieval = "worker"
   ),
-  ## Create a dataset of neighborhoods in 2022 CNEFE
+  ## Create a dataset of neighborhoods in 2022 CNEFE (D6 invariant asserted)
   tar_target(
     name = cnefe22_bairro,
-    command = cnefe22[,
-      .(
-        long = median(cnefe_long, na.rm = TRUE),
-        lat = median(cnefe_lat, na.rm = TRUE),
-        n = .N
-      ),
-      by = .(id_munic_7, norm_bairro)
-    ][n > 1],
+    command = combine_cnefe_state_component(
+      cnefe22_by_state, "bairro",
+      unique_key = c("id_munic_7", "norm_bairro")
+    ),
     format = "qs",
     storage = "worker",
     retrieval = "worker"

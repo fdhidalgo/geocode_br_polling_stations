@@ -311,14 +311,16 @@ clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
 # overlap with the polling-station municipalities (the #75 regression). The
 # padding is done here so every caller gets the guard for free, and the 7-digit
 # assertion fails loud if a caller fed codes that already lost their leading
-# zeros upstream.
+# zeros upstream. Missing/non-numeric codes coerce to NA; those are rejected too,
+# since an NA municipality key silently sails through the muni_ids join with
+# empty geography rather than matching anything.
 make_id_munic_7 <- function(cod_uf, cod_municipio) {
   cod_municipio <- str_pad(cod_municipio, width = 5, side = "left", pad = "0")
   id_munic_7 <- as.numeric(paste0(cod_uf, cod_municipio))
-  if (any(id_munic_7 < 1e6 | id_munic_7 >= 1e7, na.rm = TRUE)) {
+  if (any(is.na(id_munic_7) | id_munic_7 < 1e6 | id_munic_7 >= 1e7)) {
     stop(
-      "make_id_munic_7(): produced non-7-digit municipality codes. ",
-      "cod_uf/cod_municipio likely lost their leading zeros upstream (see #75). ",
+      "make_id_munic_7(): produced invalid (NA or non-7-digit) municipality codes. ",
+      "cod_uf/cod_municipio were missing or lost their leading zeros upstream (see #75). ",
       "Sample id_munic_7: ",
       paste(utils::head(sort(unique(id_munic_7))), collapse = ", ")
     )

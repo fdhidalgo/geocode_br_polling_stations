@@ -20,6 +20,16 @@ test_that("make_id_munic_7 stops when a code is not 7 digits", {
   # A cod_uf that lost its leading structure yields a short code: fail loud.
   expect_error(
     make_id_munic_7("1", "00401"),
-    "non-7-digit municipality codes"
+    "invalid \\(NA or non-7-digit\\) municipality codes"
+  )
+})
+
+test_that("make_id_munic_7 stops on a missing code rather than returning NA", {
+  # A missing municipality key would silently sail through the muni_ids join
+  # with empty geography; reject it at construction instead.
+  # Coercing "NA00401" to numeric warns before the stop(); the stop is the point.
+  expect_error(
+    suppressWarnings(make_id_munic_7(c("12", NA), c("00401", "00401"))),
+    "invalid \\(NA or non-7-digit\\) municipality codes"
   )
 })

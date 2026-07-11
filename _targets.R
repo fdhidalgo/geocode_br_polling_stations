@@ -477,7 +477,12 @@ list(
     name = locais_all,
     command = import_locais(
       locais_file = locais_file,
-      muni_ids = muni_ids
+      # locais_all is the pre-dev-filter national import, so it must merge against
+      # the unfiltered national crosswalk. Using dev-filtered muni_ids here would
+      # leave non-dev stations with cod_localidade_ibge = NA, colliding on the
+      # deterministic local_id key (#70). Dev subsetting happens downstream in the
+      # `locais` target via apply_dev_mode_filters().
+      muni_ids = muni_ids_all
     ),
     format = "qs",
     storage = "worker",

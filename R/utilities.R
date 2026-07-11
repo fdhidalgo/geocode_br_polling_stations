@@ -142,18 +142,22 @@ apply_brasilia_filters <- function(data, remove_brasilia = TRUE, state_col = "sg
 
 # ===== PIPELINE HELPERS =====
 
-#' Process CNEFE by state
+#' Process one state's CNEFE data into per-municipality aggregates
 #'
-#' Generic function to process CNEFE data state by state
+#' Reads and cleans one state's CNEFE file entirely in memory and returns only
+#' the small summaries the pipeline consumes: street- and neighborhood-level
+#' coordinate aggregates plus the school rows. The full cleaned address table is
+#' never returned (and therefore never persisted); it has no consumer other than
+#' these three aggregates (spec `2026-07-partition-reference-data-spec.md`, D5).
+#'
 #' @param state Current state being processed
 #' @param year CNEFE year (2010 or 2022)
 #' @param muni_ids Municipality identifiers
 #' @param tract_centroids Tract centroids (for 2010 only)
-#' @param extract_schools Whether to extract schools (2010 only)
-#' @return Cleaned CNEFE data for the state
+#' @return A list with `st` (street aggregates), `bairro` (neighborhood
+#'   aggregates), and `schools` (school rows) for this state
 #' @export
-process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL,
-                                extract_schools = FALSE) {
+process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL) {
   # Construct file path
   state_file <- file.path(
     "data",
@@ -183,29 +187,121 @@ process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL,
       substr(setor_code, 1, 2) %in% state_codes
     ]
 
-    # Clean the data
-    result <- clean_cnefe10(
+    # Clean the data, extracting schools from the same in-memory pass (the
+    # duplicate 2010 schools read/clean pass is deleted per spec D5).
+    cleaned <- clean_cnefe10(
       cnefe_file = state_data,
       muni_ids = state_muni_ids,
       tract_centroids = state_tract_centroids,
-      extract_schools = extract_schools
+      extract_schools = TRUE
     )
-
-    # Return based on what was requested
-    if (extract_schools) {
-      return(result$schools)
-    } else {
-      return(result)
-    }
+    addr <- cleaned$data
+    schools <- cleaned$schools
   } else {
     # CNEFE 2022 processing
-    result <- clean_cnefe22(
+    addr <- clean_cnefe22(
       cnefe22_file = state_file,
       muni_ids = state_muni_ids
     )
-
-    return(result)
+    schools <- get_cnefe22_schools(addr)
   }
+
+  list(
+    st = aggregate_cnefe_coords(addr, "norm_street"),
+    bairro = aggregate_cnefe_coords(addr, "norm_bairro"),
+    schools = schools
+  )
+}
+
+#' Aggregate CNEFE coordinates to per-municipality group medians
+#'
+#' Collapses cleaned CNEFE rows to one row per `(id_munic_7, <group_col>)` group,
+#' taking the median coordinate and the group size `n`. This is the aggregation
+#' formerly applied to the combined national `cnefe10`/`cnefe22` tables; because
+#' each municipality lives in exactly one state file, computing it per state and
+#' row-binding the results is equivalent to aggregating the national table.
+#'
+#' Singleton groups (`n == 1`) are intentionally NOT dropped here: the singleton
+#' drop happens in [combine_cnefe_state_component()], *after* the cross-slice
+#' duplicate check, so that a key accidentally split one-and-one across two state
+#' files is caught by the D6 invariant instead of being filtered away unseen.
+#'
+#' @param addr Cleaned CNEFE address data.table with `id_munic_7`,
+#'   `cnefe_long`, `cnefe_lat`, and the grouping column
+#' @param group_col Grouping column name (`"norm_street"` or `"norm_bairro"`)
+#' @return A data.table with columns `id_munic_7`, `<group_col>`, `long`, `lat`,
+#'   `n` (one row per group, including `n == 1` groups)
+#' @export
+aggregate_cnefe_coords <- function(addr, group_col) {
+  addr[
+    ,
+    .(
+      long = median(cnefe_long, na.rm = TRUE),
+      lat = median(cnefe_lat, na.rm = TRUE),
+      n = .N
+    ),
+    by = c("id_munic_7", group_col)
+  ]
+}
+
+#' Combine one component of the per-state CNEFE results
+#'
+#' Row-binds a named component (`"st"`, `"bairro"`, or `"schools"`) across the
+#' per-state result lists returned by [process_cnefe_state()]. For the street and
+#' neighborhood aggregates, `unique_key` asserts the spec-D6 invariant: no
+#' `(id_munic_7, <key>)` may appear in more than one state slice. A duplicate is
+#' exactly what a municipality spanning two state files, or a mis-assigned state
+#' file, would produce, so it is a hard error rather than a silently merged row.
+#'
+#' The duplicate check runs on the un-thinned aggregates (singleton `n == 1`
+#' groups still present), so a key split one-and-one across two state files is
+#' detected here; only afterwards are singleton groups dropped (`n > 1`), matching
+#' the national aggregation's `[n > 1]` filter. `schools` has no `n` column and is
+#' returned in full.
+#'
+#' @param state_results List of per-state result lists
+#' @param component Component name to extract from each per-state list
+#' @param unique_key Optional key columns whose uniqueness across slices is
+#'   asserted; `NULL` (the default) skips the check (used for `schools`, which is
+#'   legitimately many-per-municipality)
+#' @return The row-bound data.table for the requested component (aggregate
+#'   components thinned to `n > 1` groups)
+#' @export
+combine_cnefe_state_component <- function(state_results, component,
+                                          unique_key = NULL) {
+  combined <- rbindlist(
+    lapply(state_results, `[[`, component),
+    use.names = TRUE,
+    fill = TRUE
+  )
+
+  # anyDuplicated() is a single pass with a 0L fast path, so the expensive
+  # per-key count table is only materialized on the rare error path (to build
+  # the diagnostic), not on every combine.
+  if (!is.null(unique_key) && anyDuplicated(combined, by = unique_key) > 0L) {
+    dup_keys <- combined[, .N, by = unique_key][N > 1]
+    example <- paste(
+      unlist(dup_keys[1, ..unique_key]),
+      collapse = ", "
+    )
+    stop(sprintf(
+      paste0(
+        "combine_cnefe_state_component(): %d '%s' key(s) duplicated across ",
+        "state slices (e.g. %s). A municipality spanning two state files or ",
+        "a mis-assigned state file produces this."
+      ),
+      nrow(dup_keys), component, example
+    ))
+  }
+
+  # Drop singleton groups only now, after the cross-slice duplicate check, so a
+  # 1+1 split cannot be filtered away before the invariant sees it. Aggregate
+  # components carry an `n` column; `schools` does not and passes through whole.
+  if ("n" %in% names(combined)) {
+    combined <- combined[n > 1]
+  }
+
+  combined
 }
 
 #' Process INEP string matching in batches

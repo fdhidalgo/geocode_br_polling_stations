@@ -318,16 +318,7 @@ create_panel_municipality_batches <- function(locais_data, target_batch_size = 5
     muni_counts[is.na(batch_id) | batch_id == 0, batch_id := remaining$batch_id]
   }
 
-  # Add batch type for controller selection
-  muni_counts[,
-    batch_type := fcase(
-      size_class == "mega"  , "mega_cities"    ,
-      size_class == "large" , "memory_limited" ,
-      default = "standard"
-    )
-  ]
-
-  return(muni_counts[, .(cod_localidade_ibge, sg_uf, n_stations, batch_id, batch_type, size_class)])
+  return(muni_counts[, .(cod_localidade_ibge, sg_uf, n_stations, batch_id, size_class)])
 }
 
 #' Process panel IDs for a batch of municipalities

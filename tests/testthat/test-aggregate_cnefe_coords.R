@@ -57,10 +57,8 @@ test_that("per-state aggregate + combine equals national aggregate", {
   )
 
   national <- rbindlist(list(s1, s2))
-  old <- national[
-    ,
-    .(long = median(cnefe_long, na.rm = TRUE),
-      lat = median(cnefe_lat, na.rm = TRUE), n = .N),
+  old <- national[,
+    .(long = median(cnefe_long, na.rm = TRUE), lat = median(cnefe_lat, na.rm = TRUE), n = .N),
     by = .(id_munic_7, norm_street)
   ][n > 1]
 
@@ -69,7 +67,8 @@ test_that("per-state aggregate + combine equals national aggregate", {
     list(st = aggregate_cnefe_coords(s2, "norm_street"))
   )
   new <- combine_cnefe_state_component(
-    state_results, "st",
+    state_results,
+    "st",
     unique_key = c("id_munic_7", "norm_street")
   )
 
@@ -90,14 +89,13 @@ test_that("combine_cnefe_state_component stops on a cross-slice duplicate key", 
   # The same (id_munic_7, norm_street) in two slices is exactly what a
   # municipality spanning two state files would produce (D6).
   state_results <- list(
-    list(st = data.table(id_munic_7 = 1L, norm_street = "x",
-                         long = 1, lat = 1, n = 3L)),
-    list(st = data.table(id_munic_7 = 1L, norm_street = "x",
-                         long = 2, lat = 2, n = 5L))
+    list(st = data.table(id_munic_7 = 1L, norm_street = "x", long = 1, lat = 1, n = 3L)),
+    list(st = data.table(id_munic_7 = 1L, norm_street = "x", long = 2, lat = 2, n = 5L))
   )
   expect_error(
     combine_cnefe_state_component(
-      state_results, "st",
+      state_results,
+      "st",
       unique_key = c("id_munic_7", "norm_street")
     ),
     "duplicated across"
@@ -110,17 +108,29 @@ test_that("combine_cnefe_state_component catches a 1+1 cross-slice split", {
   # dropped before the invariant could see them. The check must fire before the
   # singleton drop. (Also confirms the surviving n > 1 groups are still thinned.)
   state_results <- list(
-    list(st = data.table(
-      id_munic_7 = c(1L, 9L), norm_street = c("x", "keep"),
-      long = c(1, 1), lat = c(1, 1), n = c(1L, 2L)
-    )),
-    list(st = data.table(
-      id_munic_7 = 1L, norm_street = "x", long = 2, lat = 2, n = 1L
-    ))
+    list(
+      st = data.table(
+        id_munic_7 = c(1L, 9L),
+        norm_street = c("x", "keep"),
+        long = c(1, 1),
+        lat = c(1, 1),
+        n = c(1L, 2L)
+      )
+    ),
+    list(
+      st = data.table(
+        id_munic_7 = 1L,
+        norm_street = "x",
+        long = 2,
+        lat = 2,
+        n = 1L
+      )
+    )
   )
   expect_error(
     combine_cnefe_state_component(
-      state_results, "st",
+      state_results,
+      "st",
       unique_key = c("id_munic_7", "norm_street")
     ),
     "duplicated across"
@@ -131,13 +141,19 @@ test_that("combine_cnefe_state_component drops singletons after the check", {
   # No cross-slice duplicate: the check passes, then n == 1 groups are dropped
   # and only n > 1 groups survive (matching the national [n > 1] filter).
   state_results <- list(
-    list(st = data.table(
-      id_munic_7 = c(1L, 1L), norm_street = c("keep", "solo"),
-      long = c(1, 2), lat = c(1, 2), n = c(4L, 1L)
-    ))
+    list(
+      st = data.table(
+        id_munic_7 = c(1L, 1L),
+        norm_street = c("keep", "solo"),
+        long = c(1, 2),
+        lat = c(1, 2),
+        n = c(4L, 1L)
+      )
+    )
   )
   out <- combine_cnefe_state_component(
-    state_results, "st",
+    state_results,
+    "st",
     unique_key = c("id_munic_7", "norm_street")
   )
   expect_equal(out$norm_street, "keep")

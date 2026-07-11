@@ -23,8 +23,13 @@ EVAL_FOLD_SEED <- 20260710L
 ## Metric-ladder columns produced by accuracy_metrics(), suppressed together when
 ## a stratum falls below the held-out N floor.
 EVAL_METRIC_COLS <- c(
-  "median_km", "p90", "p95", "p99",
-  "within_100m", "within_500m", "within_1km"
+  "median_km",
+  "p90",
+  "p95",
+  "p99",
+  "within_100m",
+  "within_500m",
+  "within_1km"
 )
 
 # ============================================================================
@@ -35,19 +40,37 @@ state_to_region <- function(sg_uf) {
   # Map the 27 Brazilian UF (state) codes to the 5 IBGE macro-regions.
   region_map <- c(
     # Norte
-    AC = "Norte", AP = "Norte", AM = "Norte", PA = "Norte",
-    RO = "Norte", RR = "Norte", TO = "Norte",
+    AC = "Norte",
+    AP = "Norte",
+    AM = "Norte",
+    PA = "Norte",
+    RO = "Norte",
+    RR = "Norte",
+    TO = "Norte",
     # Nordeste
-    AL = "Nordeste", BA = "Nordeste", CE = "Nordeste", MA = "Nordeste",
-    PB = "Nordeste", PE = "Nordeste", PI = "Nordeste", RN = "Nordeste",
+    AL = "Nordeste",
+    BA = "Nordeste",
+    CE = "Nordeste",
+    MA = "Nordeste",
+    PB = "Nordeste",
+    PE = "Nordeste",
+    PI = "Nordeste",
+    RN = "Nordeste",
     SE = "Nordeste",
     # Centro-Oeste
-    DF = "Centro-Oeste", GO = "Centro-Oeste", MT = "Centro-Oeste",
+    DF = "Centro-Oeste",
+    GO = "Centro-Oeste",
+    MT = "Centro-Oeste",
     MS = "Centro-Oeste",
     # Sudeste
-    ES = "Sudeste", MG = "Sudeste", RJ = "Sudeste", SP = "Sudeste",
+    ES = "Sudeste",
+    MG = "Sudeste",
+    RJ = "Sudeste",
+    SP = "Sudeste",
     # Sul
-    PR = "Sul", RS = "Sul", SC = "Sul"
+    PR = "Sul",
+    RS = "Sul",
+    SC = "Sul"
   )
   out <- unname(region_map[as.character(sg_uf)])
   # Fail loud on an unknown UF: a missing region means a data problem upstream,
@@ -99,8 +122,11 @@ assign_eval_folds <- function(model_data, k = EVAL_N_FOLDS, seed = EVAL_FOLD_SEE
   n_muni <- length(covered_munis)
   if (n_muni < k) {
     stop(
-      "assign_eval_folds(): only ", n_muni,
-      " covered municipalities for k = ", k, " folds."
+      "assign_eval_folds(): only ",
+      n_muni,
+      " covered municipalities for k = ",
+      k,
+      " folds."
     )
   }
   # Deterministic, balanced assignment: a fixed seed makes the split reproducible
@@ -129,7 +155,7 @@ compute_oof_predictions <- function(
   # score, not per-row TSE targets). Eliminating it fully would require nested
   # per-fold tuning (k x the already hours-long tune), judged not worth it; it is
   # documented here and in the reports rather than hidden.
-  library(bonsai)  # registers the lightgbm engine on the worker
+  library(bonsai) # registers the lightgbm engine on the worker
 
   covered <- model_data[!is.na(dist) & !is.na(mindist)]
   covered <- merge(covered, fold_assignment, by = "cod_localidade_ibge")
@@ -211,11 +237,13 @@ select_oof_matches <- function(
     tract_shp
   )
   universe <- merge(universe, zones, by = "local_id", all.x = TRUE)
-  universe[, urban_rural := fcase(
-    zone == "URBANO", "urban",
-    zone == "RURAL", "rural",
-    default = NA_character_
-  )]
+  universe[,
+    urban_rural := fcase(
+      zone == "URBANO" , "urban" ,
+      zone == "RURAL"  , "rural" ,
+      default = NA_character_
+    )
+  ]
   universe[, zone := NULL]
 
   out <- merge(universe, selected, by = "local_id", all.x = TRUE)
@@ -261,13 +289,18 @@ accuracy_metrics <- function(error_km) {
   e <- error_km[!is.na(error_km)]
   if (length(e) == 0) {
     return(list(
-      median_km = NA_real_, p90 = NA_real_, p95 = NA_real_, p99 = NA_real_,
-      within_100m = NA_real_, within_500m = NA_real_, within_1km = NA_real_
+      median_km = NA_real_,
+      p90 = NA_real_,
+      p95 = NA_real_,
+      p99 = NA_real_,
+      within_100m = NA_real_,
+      within_500m = NA_real_,
+      within_1km = NA_real_
     ))
   }
   qs <- stats::quantile(e, probs = c(.5, .9, .95, .99), names = FALSE)
   list(
-    median_km = qs[1],  # the 50th percentile / median
+    median_km = qs[1], # the 50th percentile / median
     p90 = qs[2],
     p95 = qs[3],
     p99 = qs[4],
@@ -291,17 +324,20 @@ accuracy_metrics <- function(error_km) {
     dt <- copy(dt)[, .all := "all"]
     by_cols <- ".all"
   }
-  res <- dt[, {
-    ng <- sum(geocoded)
-    c(
-      list(
-        n_total = .N,
-        n_geocoded = ng,
-        match_rate = 100 * ng / .N
-      ),
-      accuracy_metrics(error_km[geocoded])
-    )
-  }, by = by_cols]
+  res <- dt[,
+    {
+      ng <- sum(geocoded)
+      c(
+        list(
+          n_total = .N,
+          n_geocoded = ng,
+          match_rate = 100 * ng / .N
+        ),
+        accuracy_metrics(error_km[geocoded])
+      )
+    },
+    by = by_cols
+  ]
 
   res[, level := do.call(paste, c(.SD, sep = ":")), .SDcols = by_cols]
   res[, stratum := stratum]
@@ -380,11 +416,14 @@ compute_calibration <- function(selected_matches, n_bins = 10L) {
     names = FALSE
   ))
   geo[, bin := cut(pred_dist, breaks = breaks, include.lowest = TRUE, labels = FALSE)]
-  reliability <- geo[, .(
-    n = .N,
-    mean_pred = mean(pred_dist),
-    mean_realized = mean(error_km)
-  ), by = bin][order(bin)]
+  reliability <- geo[,
+    .(
+      n = .N,
+      mean_pred = mean(pred_dist),
+      mean_realized = mean(error_km)
+    ),
+    by = bin
+  ][order(bin)]
 
   # Expected Normalized Calibration Error: N-weighted mean of the per-bin
   # absolute predicted-vs-realized gap, normalized by predicted error.

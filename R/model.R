@@ -54,17 +54,17 @@ make_model_data <- function(
   # Remove NULL entries
   cnefe_list <- cnefe_list[!sapply(cnefe_list, is.null)]
   cnefe_list <- cnefe_list[sapply(cnefe_list, nrow) > 0]
-  
+
   if (length(cnefe_list) > 0) {
     cnefe_stbairro_match <- rbindlist(cnefe_list, use.names = TRUE, fill = TRUE)
   } else {
     cnefe_stbairro_match <- data.table()
   }
-  
+
   schools_list <- list(schools_cnefe10_match, schools_cnefe22_match)
   schools_list <- schools_list[!sapply(schools_list, is.null)]
   schools_list <- schools_list[sapply(schools_list, nrow) > 0]
-  
+
   if (length(schools_list) > 0) {
     schools_cnefe_match <- rbindlist(schools_list, use.names = TRUE, fill = TRUE)
   } else {
@@ -120,24 +120,27 @@ make_model_data <- function(
   } else {
     inep_string_match <- data.table()
   }
-  
+
   # Process geocodebr data to long format
   if (!is.null(geocodebr_match) && nrow(geocodebr_match) > 0) {
     # Create long format with precision info - use same column names as melted data
-    geocodebr_long <- geocodebr_match[!is.na(match_lat_geocodebr), .(
-      local_id,
-      type = "geocodebr",
-      long = match_long_geocodebr,
-      lat = match_lat_geocodebr,
-      mindist = mindist_geocodebr,  # Always 0 for geocodebr
-      # Add precision as a numeric score (higher = better)
-      precision_score = fcase(
-        precisao_geocodebr == "numero", 3,
-        precisao_geocodebr == "logradouro", 2,
-        precisao_geocodebr == "municipio", 1,
-        default = 0
+    geocodebr_long <- geocodebr_match[
+      !is.na(match_lat_geocodebr),
+      .(
+        local_id,
+        type = "geocodebr",
+        long = match_long_geocodebr,
+        lat = match_lat_geocodebr,
+        mindist = mindist_geocodebr, # Always 0 for geocodebr
+        # Add precision as a numeric score (higher = better)
+        precision_score = fcase(
+          precisao_geocodebr == "numero"     , 3 ,
+          precisao_geocodebr == "logradouro" , 2 ,
+          precisao_geocodebr == "municipio"  , 1 ,
+          default = 0
+        )
       )
-    )]
+    ]
     # Adjust mindist to reflect precision (lower = better in the model)
     # Since geocodebr returns exact matches (mindist=0), we use a synthetic distance
     # based on geocoding precision: number-level (best) < street-level < municipality-level (worst)
@@ -179,18 +182,15 @@ make_model_data <- function(
   ]
   addr_features[,
     zona_rural := fifelse(
-      grepl("\\brural\\b", ds_endereco, ignore.case = TRUE, useBytes = TRUE) ==
-        TRUE |
-        grepl("\\brural\\b", ds_bairro, ignore.case = TRUE, useBytes = TRUE) ==
-          TRUE,
+      grepl("\\brural\\b", ds_endereco, ignore.case = TRUE, useBytes = TRUE) == TRUE |
+        grepl("\\brural\\b", ds_bairro, ignore.case = TRUE, useBytes = TRUE) == TRUE,
       1,
       0
     )
   ]
   addr_features[,
     school := fifelse(
-      grepl(paste0("\\b", school_synonyms, "\\b", collapse = "|"), norm_name) ==
-        TRUE,
+      grepl(paste0("\\b", school_synonyms, "\\b", collapse = "|"), norm_name) == TRUE,
       1,
       0
     )
@@ -217,12 +217,12 @@ make_model_data <- function(
   )
   # Remove empty data.tables
   match_list <- match_list[sapply(match_list, function(x) !is.null(x) && nrow(x) > 0)]
-  
+
   if (length(match_list) == 0) {
     warning("No matching data available for model training")
     return(NULL)
   }
-  
+
   matching_data <- rbindlist(match_list, use.names = TRUE, fill = TRUE) |>
     merge(
       locais[, .(local_id, ano, cod_localidade_ibge)],
@@ -301,14 +301,14 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
   # Function to train a model using the provided data
 
   library(bonsai)
-  
+
   # Log training configuration
   if (dev_mode) {
     message("Training model in DEV MODE: using 4 CV folds and grid_n = ", grid_n)
   } else {
     message("Training model in PRODUCTION MODE: using 10 CV folds and grid_n = ", grid_n)
   }
-  
+
   # Check if model_data is NULL or empty
   if (is.null(model_data) || nrow(model_data) == 0) {
     warning("No data available for model training")
@@ -318,7 +318,7 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
   ## Remove data with missing outcome and covariate
   model_data <- model_data[!is.na(dist)]
   model_data <- model_data[!is.na(mindist)]
-  
+
   # Check if we have any data left after filtering
   if (nrow(model_data) == 0) {
     warning("No data left after filtering missing values")

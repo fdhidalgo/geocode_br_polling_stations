@@ -39,7 +39,7 @@ test_that("match_inep_muni links a station by school name and attaches coordinat
 test_that("match_inep_muni links a station by address when the name does not match", {
   out <- match_inep_muni(make_locais(), make_inep())
   r2 <- out[local_id == 2L]
-  expect_true(is.na(r2$match_inep_name))          # name shares no word -> no match
+  expect_true(is.na(r2$match_inep_name)) # name shares no word -> no match
   expect_true(is.infinite(r2$mindist_inep_name))
   expect_equal(r2$match_inep_addr, "avenida brasil")
   expect_equal(r2$match_long_inep_addr, -61)

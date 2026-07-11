@@ -7,7 +7,7 @@
 
 test_that("match_strings_memory_efficient finds exact matches at distance 0", {
   res <- match_strings_memory_efficient(
-    query_strings  = c("escola central", "hospital norte"),
+    query_strings = c("escola central", "hospital norte"),
     target_strings = c("hospital norte", "escola central")
   )
   expect_equal(res$best_match, c("escola central", "hospital norte"))
@@ -17,16 +17,16 @@ test_that("match_strings_memory_efficient finds exact matches at distance 0", {
 
 test_that("match_strings_memory_efficient picks the closest of several candidates", {
   res <- match_strings_memory_efficient(
-    query_strings  = "escola sao joao",
+    query_strings = "escola sao joao",
     target_strings = c("escola sao joao", "escola sao pedro")
   )
-  expect_equal(res$best_index, 1L)         # exact match beats the near one
+  expect_equal(res$best_index, 1L) # exact match beats the near one
   expect_equal(res$min_dist, 0)
 })
 
 test_that("match_strings_memory_efficient returns NA/Inf when the prefilter finds no candidate", {
   res <- match_strings_memory_efficient(
-    query_strings  = c("escola central", "zzz qqq"),
+    query_strings = c("escola central", "zzz qqq"),
     target_strings = c("escola municipal", "hospital norte")
   )
   # query 1 shares "escola"; query 2 shares nothing -> no candidate

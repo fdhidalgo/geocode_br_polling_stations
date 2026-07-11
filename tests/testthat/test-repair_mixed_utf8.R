@@ -18,7 +18,7 @@ test_that("repair_mixed_utf8 fixes a Latin-1 byte mislabeled as UTF-8", {
 
   fixed <- repair_mixed_utf8(bad)
   expect_true(stringi::stri_enc_isutf8(fixed))
-  expect_identical(charToRaw(fixed), as.raw(c(0x4e, 0xc2, 0xba)))  # proper UTF-8 'º'
+  expect_identical(charToRaw(fixed), as.raw(c(0x4e, 0xc2, 0xba))) # proper UTF-8 'º'
 })
 
 test_that("repair_mixed_utf8 leaves genuine UTF-8 unchanged", {

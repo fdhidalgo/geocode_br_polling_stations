@@ -13,32 +13,41 @@ library(knitr)
 # Functions to validate data at specific pipeline stages
 # Each returns structured results for tracking and reporting
 
-validate_merge_stage <- function(merged_data, left_data, right_data = NULL,
-                                stage_name, merge_keys, join_type = "left") {
+validate_merge_stage <- function(
+  merged_data,
+  left_data,
+  right_data = NULL,
+  stage_name,
+  merge_keys,
+  join_type = "left"
+) {
   # Validates data after merge operations
-  
+
   # Create merge-specific rules
   base_rules <- list(
     # Should have results
     has_rows = quote(nrow(.) > 0),
     no_complete_duplicates = quote(nrow(.) == nrow(unique(.)))
   )
-  
+
   # Add merge key checks
   if (!is.null(merge_keys)) {
     for (key in merge_keys) {
-      base_rules[[paste0("has_key_", key)]] <- parse(text = sprintf(
-        "'%s' %%in%% names(.)", key
-      ))[[1]]
+      base_rules[[paste0("has_key_", key)]] <- parse(
+        text = sprintf(
+          "'%s' %%in%% names(.)",
+          key
+        )
+      )[[1]]
     }
   }
-  
+
   # Create validator
   rules <- do.call(validator, base_rules)
-  
+
   # Run validation
   result <- confront(merged_data, rules)
-  
+
   # Create metadata
   metadata <- list(
     stage = stage_name,
@@ -47,7 +56,7 @@ validate_merge_stage <- function(merged_data, left_data, right_data = NULL,
     n_rows = nrow(merged_data),
     n_cols = ncol(merged_data)
   )
-  
+
   # Return structured result
   structure(
     list(
@@ -60,10 +69,9 @@ validate_merge_stage <- function(merged_data, left_data, right_data = NULL,
   )
 }
 
-validate_prediction_stage <- function(predictions, stage_name,
-                                     pred_col = "prediction", prob_col = NULL) {
+validate_prediction_stage <- function(predictions, stage_name, pred_col = "prediction", prob_col = NULL) {
   # Validates model prediction results
-  
+
   # Create prediction-specific rules
   base_rules <- list(
     # Should have predictions
@@ -71,36 +79,48 @@ validate_prediction_stage <- function(predictions, stage_name,
     # Check for prediction column
     has_pred_col = parse(text = sprintf("'%s' %%in%% names(.)", pred_col))[[1]]
   )
-  
+
   # Add prediction column validation
   if (pred_col %in% names(predictions)) {
-    base_rules$predictions_numeric <- parse(text = sprintf(
-      "is.numeric(.[[%s]])", deparse(pred_col)
-    ))[[1]]
-    base_rules$predictions_valid <- parse(text = sprintf(
-      "all(!is.na(.[[%s]]))", deparse(pred_col)
-    ))[[1]]
+    base_rules$predictions_numeric <- parse(
+      text = sprintf(
+        "is.numeric(.[[%s]])",
+        deparse(pred_col)
+      )
+    )[[1]]
+    base_rules$predictions_valid <- parse(
+      text = sprintf(
+        "all(!is.na(.[[%s]]))",
+        deparse(pred_col)
+      )
+    )[[1]]
   }
-  
+
   # Add probability column checks if specified
   if (!is.null(prob_col)) {
-    base_rules$has_prob_col <- parse(text = sprintf(
-      "'%s' %%in%% names(.)", prob_col
-    ))[[1]]
+    base_rules$has_prob_col <- parse(
+      text = sprintf(
+        "'%s' %%in%% names(.)",
+        prob_col
+      )
+    )[[1]]
     if (prob_col %in% names(predictions)) {
-      base_rules$probs_valid <- parse(text = sprintf(
-        "all(.[[%s]] >= 0 & .[[%s]] <= 1, na.rm = TRUE)", 
-        deparse(prob_col), deparse(prob_col)
-      ))[[1]]
+      base_rules$probs_valid <- parse(
+        text = sprintf(
+          "all(.[[%s]] >= 0 & .[[%s]] <= 1, na.rm = TRUE)",
+          deparse(prob_col),
+          deparse(prob_col)
+        )
+      )[[1]]
     }
   }
-  
+
   # Create validator
   rules <- do.call(validator, base_rules)
-  
+
   # Run validation
   result <- confront(predictions, rules)
-  
+
   # Calculate prediction statistics based on pred_col
   if (pred_col %in% names(predictions)) {
     n_predictions <- sum(!is.na(predictions[[pred_col]]))
@@ -113,7 +133,7 @@ validate_prediction_stage <- function(predictions, stage_name,
     n_predictions <- 0
     prediction_rate <- 0
   }
-  
+
   # Create metadata
   metadata <- list(
     stage = stage_name,
@@ -125,7 +145,7 @@ validate_prediction_stage <- function(predictions, stage_name,
     pred_col = pred_col,
     prob_col = prob_col
   )
-  
+
   # Return structured result
   structure(
     list(
@@ -140,41 +160,41 @@ validate_prediction_stage <- function(predictions, stage_name,
 
 validate_output_stage <- function(output_data, stage_name, required_cols = NULL, unique_keys = NULL) {
   # Validates final output data before export
-  
+
   # Default required columns for geocoded output
   if (is.null(required_cols)) {
     required_cols <- c("local_id", "ano", "nr_zona", "nr_locvot")
   }
-  
+
   # Create output-specific rules
   base_rules <- list(
     has_rows = quote(nrow(.) > 0),
     has_coordinates = quote(any(c("final_long", "final_lat", "pred_long", "pred_lat") %in% names(.)))
   )
-  
+
   # Add required column checks
   for (col in required_cols) {
     rule_name <- paste0("has_", col)
     base_rules[[rule_name]] <- substitute(col %in% names(.), list(col = col))
   }
-  
+
   rules <- do.call(validator, base_rules)
-  
+
   # Run validation
   result <- confront(output_data, rules)
-  
+
   # Calculate output statistics
   coord_cols <- intersect(c("final_long", "final_lat", "pred_long", "pred_lat"), names(output_data))
   n_geocoded <- 0
-  
+
   if ("final_long" %in% names(output_data) && "final_lat" %in% names(output_data)) {
     n_geocoded <- sum(!is.na(output_data$final_long) & !is.na(output_data$final_lat))
   } else if ("pred_long" %in% names(output_data) && "pred_lat" %in% names(output_data)) {
     n_geocoded <- sum(!is.na(output_data$pred_long) & !is.na(output_data$pred_lat))
   }
-  
+
   geocoding_rate <- n_geocoded / nrow(output_data)
-  
+
   # Create metadata
   metadata <- list(
     stage = stage_name,
@@ -186,27 +206,27 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
     geocoding_rate = geocoding_rate,
     coordinate_columns = coord_cols
   )
-  
+
   # Check uniqueness if keys specified
   if (!is.null(unique_keys) && all(unique_keys %in% names(output_data))) {
     n_unique <- nrow(unique(output_data[, ..unique_keys]))
     metadata$n_unique_keys <- n_unique
     metadata$duplicate_keys <- nrow(output_data) - n_unique
-    
+
     if (metadata$duplicate_keys > 0) {
       warning(paste("Found", metadata$duplicate_keys, "duplicate key combinations"))
     }
   }
-  
+
   # Check if all rules passed
   summary_df <- summary(result)
   passed <- all(summary_df$fails == 0, na.rm = TRUE)
-  
+
   # Additional check for duplicates
   if (!is.null(unique_keys) && metadata$duplicate_keys > 0) {
     passed <- FALSE
   }
-  
+
   # Return structured result
   structure(
     list(
@@ -221,81 +241,87 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
 
 # ===== VALIDATION TARGET FUNCTIONS =====
 
-validate_merge_simple <- function(merged_data,
-                                 left_data,
-                                 stage_name,
-                                 merge_keys,
-                                 join_type = "left_many",
-                                 warning_message = NULL) {
+validate_merge_simple <- function(
+  merged_data,
+  left_data,
+  stage_name,
+  merge_keys,
+  join_type = "left_many",
+  warning_message = NULL
+) {
   # Validate merge operation
-  
+
   result <- validate_merge_stage(
     merged_data = merged_data,
     left_data = left_data,
-    right_data = NULL,  # Multiple sources merged
+    right_data = NULL, # Multiple sources merged
     stage_name = stage_name,
     merge_keys = merge_keys,
     join_type = join_type
   )
-  
+
   if (!result$passed && !is.null(warning_message)) {
     warning(warning_message)
   }
-  
+
   return(result)
 }
 
-validate_predictions_simple <- function(predictions,
-                                       stage_name = "model_predictions",
-                                       pred_col = "pred_dist",
-                                       stop_on_failure = TRUE) {
+validate_predictions_simple <- function(
+  predictions,
+  stage_name = "model_predictions",
+  pred_col = "pred_dist",
+  stop_on_failure = TRUE
+) {
   # Validate predictions
-  
+
   result <- validate_prediction_stage(
     predictions = predictions,
     stage_name = stage_name,
     pred_col = pred_col,
-    prob_col = NULL  # No probability column
+    prob_col = NULL # No probability column
   )
-  
+
   if (!result$passed && stop_on_failure) {
     stop("Model predictions validation failed")
   }
-  
+
   return(result)
 }
 
-validate_final_output <- function(output_data,
-                                 stage_name = "geocoded_locais",
-                                 required_cols,
-                                 unique_keys,
-                                 stop_on_failure = TRUE) {
+validate_final_output <- function(
+  output_data,
+  stage_name = "geocoded_locais",
+  required_cols,
+  unique_keys,
+  stop_on_failure = TRUE
+) {
   # Validate final geocoded output
-  
+
   result <- validate_output_stage(
     output_data = output_data,
     stage_name = stage_name,
     required_cols = required_cols,
     unique_keys = unique_keys
   )
-  
+
   # Final quality check
   if (!result$passed && stop_on_failure) {
     stop("Final output validation failed - do not export!")
   }
-  
+
   message(sprintf(
     "Geocoding complete: %d polling stations geocoded",
     nrow(output_data)
   ))
-  
+
   return(result)
 }
 
 validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, pipeline_config) {
   # Validate all input datasets by checking their sizes against expected ranges
   # Size validation helps catch data loading issues early in the pipeline
-  
+
   # Define expected sizes based on mode, for the datasets that dev mode filters.
   expected_sizes <- if (pipeline_config$dev_mode) {
     list(
@@ -314,45 +340,51 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   # silently failed every run; now that the validator stops, that range must be
   # correct (cleanup phase 3, finding H4 wiring; Codex triage).
   expected_sizes$inep_codes <- list(min = 100000, max = 300000, name = "INEP schools")
-  
+
   # Collect validation results
   checks <- list()
   messages <- list()
   all_passed <- TRUE
-  
+
   # Check municipality data
   muni_count <- nrow(muni_ids)
-  checks$muni_ids_size <- muni_count >= expected_sizes$muni_ids$min && 
-                          muni_count <= expected_sizes$muni_ids$max
-  messages$muni_ids <- sprintf("%s: %d (expected %d-%d)", 
-                               expected_sizes$muni_ids$name,
-                               muni_count,
-                               expected_sizes$muni_ids$min,
-                               expected_sizes$muni_ids$max)
+  checks$muni_ids_size <- muni_count >= expected_sizes$muni_ids$min &&
+    muni_count <= expected_sizes$muni_ids$max
+  messages$muni_ids <- sprintf(
+    "%s: %d (expected %d-%d)",
+    expected_sizes$muni_ids$name,
+    muni_count,
+    expected_sizes$muni_ids$min,
+    expected_sizes$muni_ids$max
+  )
   all_passed <- all_passed && checks$muni_ids_size
-  
+
   # Check INEP codes
   inep_count <- nrow(inep_codes)
   checks$inep_codes_size <- inep_count >= expected_sizes$inep_codes$min &&
-                            inep_count <= expected_sizes$inep_codes$max
-  messages$inep_codes <- sprintf("%s: %d (expected %d-%d)",
-                                 expected_sizes$inep_codes$name,
-                                 inep_count,
-                                 expected_sizes$inep_codes$min,
-                                 expected_sizes$inep_codes$max)
+    inep_count <= expected_sizes$inep_codes$max
+  messages$inep_codes <- sprintf(
+    "%s: %d (expected %d-%d)",
+    expected_sizes$inep_codes$name,
+    inep_count,
+    expected_sizes$inep_codes$min,
+    expected_sizes$inep_codes$max
+  )
   all_passed <- all_passed && checks$inep_codes_size
-  
+
   # Check polling stations
   locais_count <- nrow(locais_filtered)
   checks$locais_size <- locais_count >= expected_sizes$locais$min &&
-                        locais_count <= expected_sizes$locais$max
-  messages$locais <- sprintf("%s: %d (expected %d-%d)",
-                             expected_sizes$locais$name,
-                             locais_count,
-                             expected_sizes$locais$min,
-                             expected_sizes$locais$max)
+    locais_count <= expected_sizes$locais$max
+  messages$locais <- sprintf(
+    "%s: %d (expected %d-%d)",
+    expected_sizes$locais$name,
+    locais_count,
+    expected_sizes$locais$min,
+    expected_sizes$locais$max
+  )
   all_passed <- all_passed && checks$locais_size
-  
+
   # Create metadata
   metadata <- list(
     stage = "input_validation",
@@ -366,7 +398,7 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
     ),
     messages = messages
   )
-  
+
   # Print summary
   cat("\n=== INPUT DATA VALIDATION ===\n")
   cat("Mode:", metadata$mode, "\n")
@@ -374,7 +406,7 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
     cat("-", msg, ifelse(grepl("expected", msg) && !all_passed, "❌", "✓"), "\n")
   }
   cat("=============================\n\n")
-  
+
   # Return validation result
   validation_output <- list(
     result = NULL, # No detailed rules, just size checks
@@ -382,7 +414,7 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
     passed = all_passed,
     checks = checks
   )
-  
+
   class(validation_output) <- "validation_result"
 
   # Fail loud on any failed size check (cleanup phase 3, finding H4): a warning
@@ -403,9 +435,9 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
 
 get_report_output_files <- function(base_name = "validation_report") {
   # Generate output file names for validation reports
-  
+
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-  
+
   list(
     rds = paste0(base_name, "_", timestamp, ".rds"),
     summary = paste0(base_name, "_", timestamp, "_summary.txt"),
@@ -415,30 +447,30 @@ get_report_output_files <- function(base_name = "validation_report") {
 
 create_validation_report_target <- function(validation_results, output_dir = "output/validation_reports") {
   # Create validation report as a targets object
-  
+
   # Ensure output directory exists
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-  
+
   # Get output file names
   files <- get_report_output_files()
-  
+
   # Save full results
   saveRDS(validation_results, file.path(output_dir, files$rds))
-  
+
   # Create summary
   summary_text <- capture.output({
     cat("Validation Report Summary\n")
     cat("========================\n")
     cat("Generated:", format(Sys.time()), "\n\n")
-    
+
     for (stage in names(validation_results)) {
       result <- validation_results[[stage]]
       cat(sprintf("Stage: %s - %s\n", stage, ifelse(result$passed, "PASSED", "FAILED")))
     }
   })
-  
+
   writeLines(summary_text, file.path(output_dir, files$summary))
-  
+
   # Return file paths
   list(
     rds = file.path(output_dir, files$rds),
@@ -448,9 +480,9 @@ create_validation_report_target <- function(validation_results, output_dir = "ou
 
 create_validation_report <- function(validation_results, output_dir = "output/validation_reports") {
   # Create comprehensive validation report
-  
+
   report <- create_validation_report_target(validation_results, output_dir)
-  
+
   # Add detailed analysis if needed
   if (length(validation_results) > 0) {
     # Extract key metrics
@@ -461,34 +493,43 @@ create_validation_report <- function(validation_results, output_dir = "output/va
         list(stage = "unknown", passed = x$passed)
       }
     })
-    
+
     # Save as CSV for easy analysis
-    metrics_df <- do.call(rbind, lapply(names(metrics), function(name) {
-      data.frame(
-        stage = name,
-        type = metrics[[name]]$type %||% NA,
-        passed = validation_results[[name]]$passed,
-        n_rows = metrics[[name]]$n_rows %||% NA,
-        stringsAsFactors = FALSE
-      )
-    }))
-    
+    metrics_df <- do.call(
+      rbind,
+      lapply(names(metrics), function(name) {
+        data.frame(
+          stage = name,
+          type = metrics[[name]]$type %||% NA,
+          passed = validation_results[[name]]$passed,
+          n_rows = metrics[[name]]$n_rows %||% NA,
+          stringsAsFactors = FALSE
+        )
+      })
+    )
+
     csv_file <- file.path(output_dir, gsub("_summary.txt", "_metrics.csv", basename(report$summary)))
     write.csv(metrics_df, csv_file, row.names = FALSE)
-    
+
     report$metrics <- csv_file
   }
-  
+
   return(report)
 }
 
 generate_validation_report_simplified <- function(
-  validate_inputs, validate_model_data, validate_predictions,
-  validate_geocoded_output, locais_filtered, model_data, 
-  model_predictions, geocoded_locais, pipeline_config
+  validate_inputs,
+  validate_model_data,
+  validate_predictions,
+  validate_geocoded_output,
+  locais_filtered,
+  model_data,
+  model_predictions,
+  geocoded_locais,
+  pipeline_config
 ) {
   # Simplified version focusing on critical validations only
-  
+
   # Collect critical validation results only
   validation_results <- list(
     inputs = validate_inputs,
@@ -496,7 +537,7 @@ generate_validation_report_simplified <- function(
     model_predictions = validate_predictions,
     geocoded_output = validate_geocoded_output
   )
-  
+
   # Create focused data source mapping
   data_sources <- list(
     inputs = NULL, # Input validation doesn't need data export
@@ -504,16 +545,16 @@ generate_validation_report_simplified <- function(
     model_predictions = model_predictions,
     geocoded_output = geocoded_locais
   )
-  
+
   # Generate comprehensive report
   summary_stats <- create_validation_report(
     validation_results,
     output_dir = "output/validation_reports"
   )
-  
+
   # Save summary
   saveRDS(summary_stats, "output/validation_summary.rds")
-  
+
   # Print focused summary to console
   cat("\n========== VALIDATION REPORT SUMMARY ==========\n")
   cat("Report generated:", summary_stats$rds, "\n")
@@ -525,32 +566,32 @@ generate_validation_report_simplified <- function(
     ifelse(pipeline_config$dev_mode, "DEVELOPMENT", "PRODUCTION"),
     "\n"
   )
-  
+
   # Print specific validation results
   cat("\nValidation Results:\n")
   cat("- Input data sizes:", ifelse(validation_results$inputs$passed, "✅", "❌"), "\n")
   cat("- Model data merge:", ifelse(validation_results$model_data_merge$passed, "✅", "❌"), "\n")
   cat("- Model predictions:", ifelse(validation_results$model_predictions$passed, "✅", "❌"), "\n")
   cat("- Final output:", ifelse(validation_results$geocoded_output$passed, "✅", "❌"), "\n")
-  
+
   cat(
     "\nOverall status:",
     ifelse(sum(sapply(validation_results, function(x) !x$passed)) == 0, "✅ SUCCESS", "❌ FAILURES DETECTED"),
     "\n"
   )
   cat("===============================================\n\n")
-  
+
   return(summary_stats)
 }
 
 # ===== DATA QUALITY MONITORING =====
 
 #' Create data quality monitor report
-#' 
+#'
 #' Monitors data quality with configurable thresholds
-#' 
+#'
 #' @param geocoded_export Path to geocoded export file
-#' @param panelid_export Path to panel ID export file  
+#' @param panelid_export Path to panel ID export file
 #' @param geocoded_locais Geocoded locations data
 #' @param panel_ids Panel IDs data
 #' @param expected_municipality_count Expected number of municipalities (default: 5570)
@@ -565,25 +606,28 @@ generate_validation_report_simplified <- function(
 #' @param alert_geocoding_coverage Minimum acceptable geocoding coverage percentage (default: 95)
 #' @param min_years_required Minimum years needed for comparison (default: 2)
 #' @return List with quality metrics and alerts
-create_data_quality_monitor <- function(geocoded_export, panelid_export, 
-                                      geocoded_locais, panel_ids,
-                                      expected_municipality_count = 5570,
-                                      muni_count_tolerance = 50,
-                                      extreme_change_threshold = 30,
-                                      duplicate_coord_threshold = 10,
-                                      near_duplicate_threshold = 50,
-                                      near_duplicate_distance = 100,
-                                      alert_muni_discrepancy = 100,
-                                      alert_extreme_changes = 50,
-                                      alert_panel_coverage = 90,
-                                      alert_geocoding_coverage = 95,
-                                      min_years_required = 2) {
-  
+create_data_quality_monitor <- function(
+  geocoded_export,
+  panelid_export,
+  geocoded_locais,
+  panel_ids,
+  expected_municipality_count = 5570,
+  muni_count_tolerance = 50,
+  extreme_change_threshold = 30,
+  duplicate_coord_threshold = 10,
+  near_duplicate_threshold = 50,
+  near_duplicate_distance = 100,
+  alert_muni_discrepancy = 100,
+  alert_extreme_changes = 50,
+  alert_panel_coverage = 90,
+  alert_geocoding_coverage = 95,
+  min_years_required = 2
+) {
   cat("Running data quality monitoring...\n")
-  
+
   # Initialize alerts list
   alerts <- list()
-  
+
   # Basic quality metrics
   results <- list(
     timestamp = Sys.time(),
@@ -611,29 +655,36 @@ create_data_quality_monitor <- function(geocoded_export, panelid_export,
     message = "Data quality monitoring completed",
     alerts = alerts
   )
-  
+
   # Check if export files exist
   if (!file.exists(geocoded_export)) {
     results$status <- "WARNING"
     results$message <- paste("Geocoded export file not found:", geocoded_export)
     alerts <- append(alerts, "Geocoded export file not found")
   }
-  
+
   if (!file.exists(panelid_export)) {
-    results$status <- "WARNING" 
+    results$status <- "WARNING"
     results$message <- paste(results$message, "\nPanel ID export file not found:", panelid_export)
     alerts <- append(alerts, "Panel ID export file not found")
   }
-  
+
   # Municipality count check
   if ("cd_localidade_tse" %in% names(geocoded_locais)) {
     n_municipalities <- length(unique(geocoded_locais$cd_localidade_tse))
     results$metrics$n_municipalities <- n_municipalities
-    
+
     muni_diff <- abs(n_municipalities - expected_municipality_count)
     if (muni_diff > muni_count_tolerance) {
-      alerts <- append(alerts, sprintf("Municipality count (%d) differs from expected (%d) by %d",
-                                     n_municipalities, expected_municipality_count, muni_diff))
+      alerts <- append(
+        alerts,
+        sprintf(
+          "Municipality count (%d) differs from expected (%d) by %d",
+          n_municipalities,
+          expected_municipality_count,
+          muni_diff
+        )
+      )
       if (muni_diff > alert_muni_discrepancy) {
         results$status <- "CRITICAL"
       } else if (results$status == "OK") {
@@ -641,55 +692,60 @@ create_data_quality_monitor <- function(geocoded_export, panelid_export,
       }
     }
   }
-  
+
   # Geocoding coverage check
   if (all(c("final_long", "final_lat") %in% names(geocoded_locais))) {
     geocoding_rate <- mean(!is.na(geocoded_locais$final_long) & !is.na(geocoded_locais$final_lat)) * 100
     results$metrics$geocoding_coverage <- geocoding_rate
-    
+
     if (geocoding_rate < alert_geocoding_coverage) {
-      alerts <- append(alerts, sprintf("Geocoding coverage (%.1f%%) below threshold (%.1f%%)",
-                                     geocoding_rate, alert_geocoding_coverage))
+      alerts <- append(
+        alerts,
+        sprintf("Geocoding coverage (%.1f%%) below threshold (%.1f%%)", geocoding_rate, alert_geocoding_coverage)
+      )
       if (results$status == "OK") {
         results$status <- "WARNING"
       }
     }
   }
-  
+
   # Panel coverage check (simplified - checking if panel_ids exist for geocoded locations)
   if ("local_id" %in% names(panel_ids) && "local_id" %in% names(geocoded_locais)) {
     n_with_panels <- sum(geocoded_locais$local_id %in% panel_ids$local_id)
     panel_coverage <- (n_with_panels / nrow(geocoded_locais)) * 100
     results$metrics$panel_coverage <- panel_coverage
-    
+
     if (panel_coverage < alert_panel_coverage) {
-      alerts <- append(alerts, sprintf("Panel coverage (%.1f%%) below threshold (%.1f%%)",
-                                     panel_coverage, alert_panel_coverage))
+      alerts <- append(
+        alerts,
+        sprintf("Panel coverage (%.1f%%) below threshold (%.1f%%)", panel_coverage, alert_panel_coverage)
+      )
       if (results$status == "OK") {
         results$status <- "WARNING"
       }
     }
   }
-  
+
   # Check for coordinate duplicates (simplified check)
   if (all(c("final_long", "final_lat") %in% names(geocoded_locais))) {
-    coords_dt <- geocoded_locais[!is.na(final_long) & !is.na(final_lat), 
-                                .(n = .N), by = .(final_long, final_lat)]
+    coords_dt <- geocoded_locais[!is.na(final_long) & !is.na(final_lat), .(n = .N), by = .(final_long, final_lat)]
     duplicate_groups <- nrow(coords_dt[n > 1])
     results$metrics$duplicate_coord_groups <- duplicate_groups
-    
+
     if (duplicate_groups > duplicate_coord_threshold) {
-      alerts <- append(alerts, sprintf("Found %d duplicate coordinate groups (threshold: %d)",
-                                     duplicate_groups, duplicate_coord_threshold))
+      alerts <- append(
+        alerts,
+        sprintf("Found %d duplicate coordinate groups (threshold: %d)", duplicate_groups, duplicate_coord_threshold)
+      )
       if (results$status == "OK") {
         results$status <- "WARNING"
       }
     }
   }
-  
+
   # Update alerts in results
   results$alerts <- alerts
-  
+
   # Print summary
   cat("Data quality monitoring completed.\n")
   cat("  Status:", results$status, "\n")
@@ -730,11 +786,25 @@ create_data_quality_monitor <- function(geocoded_export, panelid_export,
 # Provenance is derivable (tse_lat/tse_long non-NA, or pred_dist == 0), so no
 # coord_source column is added.
 RELEASE_EXPORT_COLS <- c(
-  "cd_localidade_tse", "ano", "nr_zona", "nr_locvot", "nr_cep", "sg_uf",
-  "nm_localidade", "nm_locvot", "ds_endereco", "ds_bairro",
-  "cod_localidade_ibge", "local_id",
-  "pred_long", "pred_lat", "pred_dist",
-  "tse_lat", "tse_long", "final_long", "final_lat"
+  "cd_localidade_tse",
+  "ano",
+  "nr_zona",
+  "nr_locvot",
+  "nr_cep",
+  "sg_uf",
+  "nm_localidade",
+  "nm_locvot",
+  "ds_endereco",
+  "ds_bairro",
+  "cod_localidade_ibge",
+  "local_id",
+  "pred_long",
+  "pred_lat",
+  "pred_dist",
+  "tse_lat",
+  "tse_long",
+  "final_long",
+  "final_lat"
 )
 
 # All election years the pipeline geocodes.
@@ -761,10 +831,7 @@ RELEASE_TSE_COVERAGE_GATE <- 92
 # run's per-year coverage becomes the frozen baseline future runs compare against.
 RELEASE_TSE_VINTAGE_FLOOR <- 85
 
-validate_release_gates <- function(geocoded_locais,
-                                   tse_coverage,
-                                   export_paths,
-                                   dev_mode) {
+validate_release_gates <- function(geocoded_locais, tse_coverage, export_paths, dev_mode) {
   # Read-only, so avoid a defensive deep copy of the ~945k-row national table
   # when it already arrives as a data.table (it does, from finalize_coords()).
   dt <- if (is.data.table(geocoded_locais)) {
@@ -779,8 +846,7 @@ validate_release_gates <- function(geocoded_locais,
   present_years <- sort(unique(dt$ano))
   missing_years <- setdiff(RELEASE_EXPECTED_YEARS, present_years)
   if (length(missing_years) > 0) {
-    add_fail("Gate 1 (all years): missing election years: %s",
-             paste(missing_years, collapse = ", "))
+    add_fail("Gate 1 (all years): missing election years: %s", paste(missing_years, collapse = ", "))
   }
   n_2024 <- dt[ano == 2024L, .N]
   if (n_2024 == 0L) {
@@ -791,23 +857,23 @@ validate_release_gates <- function(geocoded_locais,
   missing_cols <- setdiff(RELEASE_EXPORT_COLS, names(dt))
   extra_cols <- setdiff(names(dt), RELEASE_EXPORT_COLS)
   if (length(missing_cols) > 0) {
-    add_fail("Gate 2 (schema): missing columns: %s",
-             paste(missing_cols, collapse = ", "))
+    add_fail("Gate 2 (schema): missing columns: %s", paste(missing_cols, collapse = ", "))
   }
   if (length(extra_cols) > 0) {
-    add_fail("Gate 2 (schema): unexpected extra columns: %s",
-             paste(extra_cols, collapse = ", "))
+    add_fail("Gate 2 (schema): unexpected extra columns: %s", paste(extra_cols, collapse = ", "))
   }
 
   # Gate 3: coordinates not all-NA in any year.
-  coord_by_year <- dt[, .(
-    n = .N,
-    n_coord = sum(!is.na(final_lat) & !is.na(final_long))
-  ), by = ano][order(ano)]
+  coord_by_year <- dt[,
+    .(
+      n = .N,
+      n_coord = sum(!is.na(final_lat) & !is.na(final_long))
+    ),
+    by = ano
+  ][order(ano)]
   zero_coord_years <- coord_by_year[n_coord == 0L, ano]
   if (length(zero_coord_years) > 0) {
-    add_fail("Gate 3 (coords): years with zero non-NA coordinates: %s",
-             paste(zero_coord_years, collapse = ", "))
+    add_fail("Gate 3 (coords): years with zero non-NA coordinates: %s", paste(zero_coord_years, collapse = ", "))
   }
 
   # Gate 4: output files exist on disk.
@@ -822,8 +888,12 @@ validate_release_gates <- function(geocoded_locais,
   if (!isTRUE(dev_mode)) {
     # 2024 has a tight expected band (address count 93,337).
     if (n_2024 < RELEASE_N_2024_MIN || n_2024 > RELEASE_N_2024_MAX) {
-      add_fail("Gate 5 (counts): 2024 station count %d outside sane range [%d, %d]",
-               n_2024, RELEASE_N_2024_MIN, RELEASE_N_2024_MAX)
+      add_fail(
+        "Gate 5 (counts): 2024 station count %d outside sane range [%d, %d]",
+        n_2024,
+        RELEASE_N_2024_MIN,
+        RELEASE_N_2024_MAX
+      )
     }
     # Every other year must sit within the plausible national band, catching both
     # a collapse (too few) and an explosion (a merge doubling the year).
@@ -831,19 +901,25 @@ validate_release_gates <- function(geocoded_locais,
       ano != 2024L & (n < RELEASE_N_YEAR_MIN | n > RELEASE_N_YEAR_MAX)
     ]
     if (nrow(off) > 0) {
-      add_fail("Gate 5 (counts): years outside plausible national range [%d, %d]: %s",
-               RELEASE_N_YEAR_MIN, RELEASE_N_YEAR_MAX,
-               paste(sprintf("%d=%d", off$ano, off$n), collapse = ", "))
+      add_fail(
+        "Gate 5 (counts): years outside plausible national range [%d, %d]: %s",
+        RELEASE_N_YEAR_MIN,
+        RELEASE_N_YEAR_MAX,
+        paste(sprintf("%d=%d", off$ano, off$n), collapse = ", ")
+      )
     }
   }
 
   # Gates 6 & 7: landed TSE coverage, aggregated from the per-year x state
   # tse_coverage target to per-year landed coverage.
   cov <- as.data.table(tse_coverage)
-  cov_year <- cov[, .(
-    n_total = sum(n_total),
-    n_covered = sum(n_covered)
-  ), by = ano]
+  cov_year <- cov[,
+    .(
+      n_total = sum(n_total),
+      n_covered = sum(n_covered)
+    ),
+    by = ano
+  ]
   cov_year[, coverage_pct := 100 * n_covered / n_total]
   setorder(cov_year, ano)
 
@@ -852,8 +928,7 @@ validate_release_gates <- function(geocoded_locais,
   if (length(cov_2024) == 0) {
     add_fail("Gate 6 (2024 coverage): no 2024 rows in tse_coverage")
   } else if (cov_2024 < RELEASE_TSE_COVERAGE_GATE) {
-    add_fail("Gate 6 (2024 coverage): landed 2024 TSE coverage %.2f%% < %d%% gate",
-             cov_2024, RELEASE_TSE_COVERAGE_GATE)
+    add_fail("Gate 6 (2024 coverage): landed 2024 TSE coverage %.2f%% < %d%% gate", cov_2024, RELEASE_TSE_COVERAGE_GATE)
   }
 
   # Gate 7: per-year TSE-coverage regression tripwire. TSE coordinates begin with
@@ -863,9 +938,11 @@ validate_release_gates <- function(geocoded_locais,
   tse_vintages <- intersect(c(2018L, 2020L, 2022L, 2024L), cov_year$ano)
   low <- cov_year[ano %in% tse_vintages & coverage_pct < RELEASE_TSE_VINTAGE_FLOOR]
   if (nrow(low) > 0) {
-    add_fail("Gate 7 (coverage regression): TSE vintages below %d%% floor: %s",
-             RELEASE_TSE_VINTAGE_FLOOR,
-             paste(sprintf("%d=%.1f%%", low$ano, low$coverage_pct), collapse = ", "))
+    add_fail(
+      "Gate 7 (coverage regression): TSE vintages below %d%% floor: %s",
+      RELEASE_TSE_VINTAGE_FLOOR,
+      paste(sprintf("%d=%.1f%%", low$ano, low$coverage_pct), collapse = ", ")
+    )
   }
 
   summary <- list(
@@ -886,8 +963,10 @@ validate_release_gates <- function(geocoded_locais,
   }
   message(sprintf(
     "Release gates PASSED: %d years present (%s); 2024 n=%d; 2024 landed TSE coverage=%.2f%%",
-    length(present_years), paste(present_years, collapse = ","),
-    n_2024, cov_2024
+    length(present_years),
+    paste(present_years, collapse = ","),
+    n_2024,
+    cov_2024
   ))
   summary
 }

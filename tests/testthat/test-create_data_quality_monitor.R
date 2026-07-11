@@ -14,7 +14,11 @@ make_geocoded <- function(n_munis) {
 }
 
 test_that("create_data_quality_monitor stops on CRITICAL status", {
-  exports <- replicate(2, { f <- tempfile(); file.create(f); f })
+  exports <- replicate(2, {
+    f <- tempfile()
+    file.create(f)
+    f
+  })
   # One municipality vs an expected 5570 is a discrepancy far past the CRITICAL
   # alert threshold (100), so status becomes CRITICAL.
   geocoded <- make_geocoded(1)
@@ -28,14 +32,21 @@ test_that("create_data_quality_monitor stops on CRITICAL status", {
 })
 
 test_that("create_data_quality_monitor returns results when quality is acceptable", {
-  exports <- replicate(2, { f <- tempfile(); file.create(f); f })
+  exports <- replicate(2, {
+    f <- tempfile()
+    file.create(f)
+    f
+  })
   geocoded <- make_geocoded(5)
   panel <- data.table::data.table(panel_id = 1:5, local_id = 1:5)
   # expected_municipality_count = 5 matches the data exactly, so no CRITICAL.
   out <- NULL
   capture.output(
     out <- create_data_quality_monitor(
-      exports[1], exports[2], geocoded, panel,
+      exports[1],
+      exports[2],
+      geocoded,
+      panel,
       expected_municipality_count = 5
     )
   )

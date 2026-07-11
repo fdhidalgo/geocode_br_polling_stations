@@ -35,14 +35,19 @@ panel_path <- tar_read(panelid_export)
 
 # --- Small runner: run every check, report each, exit non-zero on any failure --
 run_check <- function(desc, code) {
-  ok <- tryCatch({
-    test_that(desc, code)
-    TRUE
-  }, error = function(e) {
-    cat(sprintf("✗ FAIL: %s\n       %s\n", desc, conditionMessage(e)))
-    FALSE
-  })
-  if (ok) cat(sprintf("✓ PASS: %s\n", desc))
+  ok <- tryCatch(
+    {
+      test_that(desc, code)
+      TRUE
+    },
+    error = function(e) {
+      cat(sprintf("✗ FAIL: %s\n       %s\n", desc, conditionMessage(e)))
+      FALSE
+    }
+  )
+  if (ok) {
+    cat(sprintf("✓ PASS: %s\n", desc))
+  }
   ok
 }
 
@@ -52,8 +57,14 @@ br_long <- c(-74, -34)
 
 # Columns validate_final_output requires on the geocoded output (_targets.R).
 geocoded_required_cols <- c(
-  "local_id", "final_lat", "final_long", "ano",
-  "nr_zona", "nr_locvot", "nm_locvot", "nm_localidade"
+  "local_id",
+  "final_lat",
+  "final_long",
+  "ano",
+  "nr_zona",
+  "nr_locvot",
+  "nm_locvot",
+  "nm_localidade"
 )
 panel_required_cols <- c("local_id", "panel_id", "long", "lat")
 
@@ -71,7 +82,8 @@ results <- c(
 geocoded <- fread(geocoded_path)
 panel <- fread(panel_path)
 
-results <- c(results,
+results <- c(
+  results,
   # 2. Required columns present on both outputs.
   run_check("2. required columns present", {
     expect_true(all(geocoded_required_cols %in% names(geocoded)))
@@ -127,7 +139,6 @@ results <- c(results,
 n_fail <- sum(!results)
 cat(sprintf("\n%d/%d integration checks passed.\n", sum(results), length(results)))
 if (n_fail > 0) {
-  stop(sprintf("Dev-mode integration check FAILED: %d of %d checks failed.",
-               n_fail, length(results)))
+  stop(sprintf("Dev-mode integration check FAILED: %d of %d checks failed.", n_fail, length(results)))
 }
 cat("Dev-mode integration check PASSED.\n")

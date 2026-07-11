@@ -52,17 +52,23 @@ snapshot_path <- "tests/integration/.equivalence_snapshot.rds"
 # model_data and no RNG in the matching/cleaning/panel code).
 compare_targets <- c(
   # six reference aggregates
-  "cnefe10_st", "cnefe10_bairro",
-  "cnefe22_st", "cnefe22_bairro",
-  "schools_cnefe10", "schools_cnefe22",
+  "cnefe10_st",
+  "cnefe10_bairro",
+  "cnefe22_st",
+  "cnefe22_bairro",
+  "schools_cnefe10",
+  "schools_cnefe22",
   # seven match outputs
   "inep_string_match",
-  "schools_cnefe10_match", "schools_cnefe22_match",
-  "cnefe10_stbairro_match", "cnefe22_stbairro_match",
+  "schools_cnefe10_match",
+  "schools_cnefe22_match",
+  "cnefe10_stbairro_match",
+  "cnefe22_stbairro_match",
   "agrocnefe_stbairro_match",
   "geocodebr_match",
   # modeling inputs / outputs
-  "model_data", "geocoded_locais"
+  "model_data",
+  "geocoded_locais"
 )
 
 # --- Helpers -------------------------------------------------------------------
@@ -89,7 +95,8 @@ first_diff_detail <- function(a, b) {
   if (length(a) != length(b)) {
     return(sprintf(
       "row count differs (snapshot %d vs current %d)",
-      length(a), length(b)
+      length(a),
+      length(b)
     ))
   }
   if (is.list(a) || is.list(b)) {
@@ -106,7 +113,9 @@ first_diff_detail <- function(a, b) {
   i <- idx[1]
   sprintf(
     "first differs at row %d (snapshot=%s, current=%s)",
-    i, format(a[[i]]), format(b[[i]])
+    i,
+    format(a[[i]]),
+    format(b[[i]])
   )
 }
 
@@ -135,11 +144,14 @@ compare_one <- function(name, snap, cur) {
   }
 
   if (!identical(names(snap_c), names(cur_c))) {
-    return(list(status = "diff", detail = sprintf(
-      "column set/order differs: snapshot=[%s] current=[%s]",
-      paste(names(snap_c), collapse = ", "),
-      paste(names(cur_c), collapse = ", ")
-    )))
+    return(list(
+      status = "diff",
+      detail = sprintf(
+        "column set/order differs: snapshot=[%s] current=[%s]",
+        paste(names(snap_c), collapse = ", "),
+        paste(names(cur_c), collapse = ", ")
+      )
+    ))
   }
 
   for (col in names(snap_c)) {
@@ -180,13 +192,16 @@ message("Building dev-mode compared targets (this takes minutes)...")
 # `names` expression; the default callr subprocess would not see it.
 read_all <- function(names) {
   vals <- lapply(names, function(nm) {
-    ok <- tryCatch({
-      tar_make(names = tidyselect::all_of(nm), callr_function = NULL)
-      TRUE
-    }, error = function(e) {
-      message(sprintf("BUILD FAILED for %s: %s", nm, conditionMessage(e)))
-      FALSE
-    })
+    ok <- tryCatch(
+      {
+        tar_make(names = tidyselect::all_of(nm), callr_function = NULL)
+        TRUE
+      },
+      error = function(e) {
+        message(sprintf("BUILD FAILED for %s: %s", nm, conditionMessage(e)))
+        FALSE
+      }
+    )
     if (!ok) {
       return(NULL)
     }
@@ -204,7 +219,8 @@ if (mode == "snapshot") {
   saveRDS(current, snapshot_path)
   cat(sprintf(
     "Snapshot written to %s (%d targets).\n",
-    snapshot_path, length(current)
+    snapshot_path,
+    length(current)
   ))
   quit(status = 0)
 }
@@ -220,27 +236,30 @@ if (!file.exists(snapshot_path)) {
 snapshot <- readRDS(snapshot_path)
 
 cat("\n=== Equivalence comparison (identical() strictness) ===\n")
-statuses <- vapply(compare_targets, function(nm) {
-  res <- compare_one(nm, snapshot[[nm]], current[[nm]])
-  label <- switch(res$status,
-    pass = "PASS ",
-    diff = "DIFF ",
-    unavailable = "UNAVL"
-  )
-  if (nzchar(res$detail)) {
-    cat(sprintf("%s %s -- %s\n", label, nm, res$detail))
-  } else {
-    cat(sprintf("%s %s\n", label, nm))
-  }
-  res$status
-}, character(1))
+statuses <- vapply(
+  compare_targets,
+  function(nm) {
+    res <- compare_one(nm, snapshot[[nm]], current[[nm]])
+    label <- switch(res$status, pass = "PASS ", diff = "DIFF ", unavailable = "UNAVL")
+    if (nzchar(res$detail)) {
+      cat(sprintf("%s %s -- %s\n", label, nm, res$detail))
+    } else {
+      cat(sprintf("%s %s\n", label, nm))
+    }
+    res$status
+  },
+  character(1)
+)
 
 n_pass <- sum(statuses == "pass")
 n_diff <- sum(statuses == "diff")
 n_unavail <- sum(statuses == "unavailable")
 cat(sprintf(
   "\n%d identical, %d differ, %d unavailable (of %d).\n",
-  n_pass, n_diff, n_unavail, length(statuses)
+  n_pass,
+  n_diff,
+  n_unavail,
+  length(statuses)
 ))
 if (n_unavail > 0) {
   cat(sprintf(

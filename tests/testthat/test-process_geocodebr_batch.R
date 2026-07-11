@@ -38,7 +38,8 @@ test_that("process_geocodebr_batch returns an empty table when a batch has no mu
   # Batch 42 has no assigned municipalities, so there is nothing to geocode and
   # nothing to fail: an empty data.table, no error.
   out <- process_geocodebr_batch(
-    42L, assignments,
+    42L,
+    assignments,
     data.table::data.table(cod_localidade_ibge = integer(), local_id = integer()),
     data.table::data.table(id_munic_7 = integer())
   )

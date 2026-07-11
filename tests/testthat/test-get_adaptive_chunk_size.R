@@ -6,8 +6,8 @@
 
 test_that("get_adaptive_chunk_size clamps the memory-based size to [100, 10000]", {
   # n_items large enough not to bind, so the memory clamp is what shows through.
-  expect_equal(get_adaptive_chunk_size(1e6, available_memory_gb = 4), 10000)     # hits upper clamp
-  expect_equal(get_adaptive_chunk_size(1e6, available_memory_gb = 1e-5), 100)    # hits lower clamp
+  expect_equal(get_adaptive_chunk_size(1e6, available_memory_gb = 4), 10000) # hits upper clamp
+  expect_equal(get_adaptive_chunk_size(1e6, available_memory_gb = 1e-5), 100) # hits lower clamp
 })
 
 test_that("get_adaptive_chunk_size grows with the memory budget", {

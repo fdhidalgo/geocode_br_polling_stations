@@ -53,7 +53,7 @@ test_that("local_id is invariant to input row order", {
 
 test_that("import_locais stops loudly on a duplicated station-year key", {
   rows <- station_rows()
-  dup <- rbind(rows, rows[1L])  # exact duplicate natural key
+  dup <- rbind(rows, rows[1L]) # exact duplicate natural key
   expect_error(
     import_locais(write_locais_csv(dup), muni_fixture),
     "local_id key not unique"

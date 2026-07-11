@@ -93,3 +93,7 @@ reports/*_files/
 
 # Project backup folder
 project_backup/
+
+# Codex review outputs (transient artifacts from `codex exec review`)
+codex-findings.txt
+codex-full.log

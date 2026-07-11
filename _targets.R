@@ -578,12 +578,19 @@ list(
     },
     pattern = map(panel_batch_ids),
     iteration = "list",
-    deployment = "worker",
-    storage = "worker",
-    retrieval = "worker",
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "standard")
-    )
+    # deployment = "main": run panel linkage in the local process, NOT on crew
+    # workers. The mega-city batches (Sao Paulo ~19.5k station-records, Rio ~14.6k)
+    # run 25+ min single-threaded, and crew 1.3.1's launcher GC-kills any worker
+    # that stays alive long enough for the main process to garbage-collect its
+    # (bug-pruned) launch handle -- so these long batches were killed every run,
+    # deterministically, on the standard controller (issue #48, #82). The batches
+    # are proven correct in isolation; crew (latest on CRAN, no upstream fix) is
+    # the only thing that kills them. Running on main sidesteps the crew launcher
+    # entirely. Cost: the panel stage is sequential (~1-1.5 h), dominated by the
+    # two mega cities which are the critical path at any width anyway.
+    deployment = "main",
+    storage = "main",
+    retrieval = "main"
   ),
 
   ## Combine panel IDs from all batches

@@ -47,12 +47,22 @@ Ubuntu 24.04, local `crew_controller_local` workers.
 
 ## Workarounds applied in this repo
 
-1. `get_crew_controllers()` in `R/config.R`: `seconds_idle = Inf` and
-   `seconds_wall = Inf` on both controllers (stops idle/wall churn). Necessary
-   but not sufficient on its own.
-2. `panel_ids_by_batch` in `_targets.R`: `deployment = "main"` so the long
-   mega-city linkage batches never touch the crew launcher. This is the change
-   that actually unblocked the release run.
+1. **Handle keeper (primary)** — `keep_crew_launch_handles()` in `R/config.R`,
+   applied to both controllers: wraps the launcher's `launch_worker()` so every
+   processx handle it creates is also retained in a keeper list. The SIGKILL
+   finalizer can then never fire on a live worker, no matter which launch rows
+   crew prunes. Verified against `minimal_repro.R`: with the keeper the long
+   task survives churn + main-process `gc()`, and `terminate()` still reaps all
+   workers (no orphans). This made it safe to move `panel_ids_by_batch` back to
+   crew workers (it was pinned to `deployment = "main"` during the v0.15
+   release run).
+2. `get_crew_controllers()` in `R/config.R`: `seconds_idle = Inf` and
+   `seconds_wall = Inf` on both controllers (stops idle/wall churn).
+   Belt-and-braces; necessary but not sufficient on its own.
+
+Filed upstream as [wlandau/crew#253](https://github.com/wlandau/crew/issues/253).
+On any crew upgrade, re-run `minimal_repro.R`; once it stops reproducing, the
+handle keeper and the `Inf` timers can be dropped.
 
 See issue #82 for the full history, including the initial (wrong) memory
 diagnosis and how it was corrected.

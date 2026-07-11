@@ -195,6 +195,48 @@ get_expected_municipality_count_for_config <- function(pipeline_config) {
 
 # ===== CREW CONTROLLER CONFIGURATION =====
 
+keep_crew_launch_handles <- function(controller) {
+  # Defend against the crew 1.3.1 launcher GC-kill bug (issue #82; upstream
+  # report wlandau/crew#253) by retaining a strong reference to every processx
+  # handle the launcher ever creates.
+  #
+  # Mechanism of the bug: crew's local launcher starts workers with
+  # processx::process$new(..., cleanup = TRUE), so a worker is SIGKILLed when
+  # its handle object is garbage-collected in the main process. Under churn or
+  # relaunch waves, launcher$scale() prunes launch-handle rows that can still
+  # reference LIVE, BUSY workers; the next gc() in the main tar_make() process
+  # then kills them mid-task ("worker crashed N consecutive times", silent
+  # death, victim is the longest-running batch). Holding our own reference to
+  # each handle makes the finalizer unreachable for the life of the run, so
+  # pruning becomes harmless. Verified against the minimal reproduction in
+  # docs/crew_bug_82/: with the keeper the long task survives churn + gc, and
+  # controller$terminate() still reaps all workers (no orphans).
+  #
+  # Implementation notes (crew internals, re-verify on any crew upgrade by
+  # running docs/crew_bug_82/minimal_repro.R):
+  # - launch_worker(call) is the public launcher method that creates and
+  #   returns the processx handle (crew_launcher_local); we wrap it so every
+  #   handle is also appended to `keeper`, which lives in the wrapper's
+  #   closure and stays reachable as long as the launcher itself.
+  # - The wrapper must be installed with assign() into the launcher
+  #   environment: `controller$launcher$launch_worker <- ...` fails because
+  #   R's compound assignment writes the launcher back through the
+  #   controller's read-only `launcher` active binding.
+  launcher <- controller$launcher
+  keeper <- new.env(parent = emptyenv())
+  keeper$handles <- list()
+  orig_launch_worker <- launcher$launch_worker
+  wrapper <- function(call) {
+    handle <- orig_launch_worker(call)
+    keeper$handles[[length(keeper$handles) + 1L]] <- handle
+    handle
+  }
+  unlockBinding("launch_worker", launcher)
+  assign("launch_worker", wrapper, envir = launcher)
+  lockBinding("launch_worker", launcher)
+  invisible(controller)
+}
+
 get_crew_controllers <- function() {
   # Create crew controller group for parallel processing
   # Uses same configuration for both dev and production modes
@@ -207,22 +249,18 @@ get_crew_controllers <- function() {
   crew_log_dir <- "crew_logs"
   dir.create(crew_log_dir, showWarnings = FALSE, recursive = TRUE)
 
-  # IMPORTANT (issue #48): both controllers use seconds_idle = Inf and
-  # seconds_wall = Inf to disable worker churn. crew 1.3.1's local launcher
-  # spawns workers with processx::process$new(..., cleanup = TRUE), so a worker
-  # is SIGKILLed when its launch handle is garbage-collected in the main process.
-  # When a worker idle-exits (seconds_idle) or wall-retires (seconds_wall) and a
-  # replacement connects, the launcher prunes the old launch-handle rows -- but
-  # those rows can still reference LIVE, BUSY workers, and the next gc() in the
-  # main tar_make() process (targets sets garbage_collection = TRUE) then kills
-  # them mid-task. The symptom is "worker crashed N consecutive times" with a
-  # silent death: no R error, no segfault banner, and no kernel/oomd OOM entry
-  # (the victim is always the longest-running batch of the active stage). Setting
-  # both timers to Inf keeps workers persistent so their rows are never pruned
-  # while in use. Reproduced minimally: churn + main-process gc() kills a live
-  # worker with 3 workers and zero memory pressure; seconds_idle = Inf fixes it.
-  # crew only spawns workers on demand, so persistent workers cost nothing until
-  # used. File upstream at wlandau/crew.
+  # IMPORTANT (issues #48/#82, upstream wlandau/crew#253): two-layer defense
+  # against the crew 1.3.1 launcher GC-kill bug (see keep_crew_launch_handles()
+  # above for the mechanism):
+  # 1. keep_crew_launch_handles() on both controllers -- the primary fix.
+  #    Retains every launch handle so the SIGKILL finalizer can never fire on a
+  #    live worker, no matter what the launcher prunes.
+  # 2. seconds_idle = Inf and seconds_wall = Inf -- belt-and-braces. Persistent
+  #    workers minimize the churn that triggers pruning in the first place, and
+  #    crew only spawns workers on demand, so they cost nothing until used.
+  # Do not restore finite idle/wall timers or remove the keeper without
+  # confirming upstream is fixed (re-run docs/crew_bug_82/minimal_repro.R on
+  # any crew upgrade).
 
   # Standard controller for most tasks - optimized for 32-core machine
   controller_standard <- crew::crew_controller_local(
@@ -250,6 +288,9 @@ get_crew_controllers <- function() {
     garbage_collection = TRUE,
     options_local = crew::crew_options_local(log_directory = crew_log_dir)
   )
+
+  keep_crew_launch_handles(controller_standard)
+  keep_crew_launch_handles(controller_memory)
 
   # Return controller group
   controller_group <- crew::crew_controller_group(

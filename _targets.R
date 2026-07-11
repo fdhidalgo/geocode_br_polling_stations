@@ -684,20 +684,92 @@ list(
     command = unique(municipality_batch_assignments$batch_id)
   ),
 
+  # ---- Reference slices (Option A, issue #68) --------------------------------
+  # One grouped stem per CNEFE-family match target: each reference table is
+  # inner-joined to its batch_id and split into per-batch groups so the match
+  # targets can `pattern = map()` over the groups with `retrieval = "main"` and
+  # receive only their batch's slice (megabytes) instead of the whole national
+  # table (hundreds of megabytes). Built on the main process and held in
+  # persistent memory so the stem is not re-read for every branch dispatch
+  # (spike #66 settings). The stbairro stems union the street + neighborhood
+  # aggregates into one table (tagged by `component`) so the pair can never fall
+  # out of group alignment.
+  # inep_data is ~61 MB in production (measured, issue #68 / spec D3), so it clears
+  # the "non-trivially large" bar and is sliced like the CNEFE-family references.
+  tar_target(
+    name = inep_grouped,
+    command = make_ref_batch_groups(inep_data, municipality_batch_assignments),
+    iteration = "group",
+    deployment = "main",
+    memory = "persistent",
+    format = "qs"
+  ),
+  tar_target(
+    name = schools_cnefe10_grouped,
+    command = make_ref_batch_groups(schools_cnefe10, municipality_batch_assignments),
+    iteration = "group",
+    deployment = "main",
+    memory = "persistent",
+    format = "qs"
+  ),
+  tar_target(
+    name = schools_cnefe22_grouped,
+    command = make_ref_batch_groups(schools_cnefe22, municipality_batch_assignments),
+    iteration = "group",
+    deployment = "main",
+    memory = "persistent",
+    format = "qs"
+  ),
+  tar_target(
+    name = cnefe10_stbairro_grouped,
+    command = make_stbairro_batch_groups(
+      cnefe10_st,
+      cnefe10_bairro,
+      municipality_batch_assignments
+    ),
+    iteration = "group",
+    deployment = "main",
+    memory = "persistent",
+    format = "qs"
+  ),
+  tar_target(
+    name = cnefe22_stbairro_grouped,
+    command = make_stbairro_batch_groups(
+      cnefe22_st,
+      cnefe22_bairro,
+      municipality_batch_assignments
+    ),
+    iteration = "group",
+    deployment = "main",
+    memory = "persistent",
+    format = "qs"
+  ),
+  tar_target(
+    name = agrocnefe_stbairro_grouped,
+    command = make_stbairro_batch_groups(
+      agrocnefe_st,
+      agrocnefe_bairro,
+      municipality_batch_assignments
+    ),
+    iteration = "group",
+    deployment = "main",
+    memory = "persistent",
+    format = "qs"
+  ),
+
   # INEP string matching - process municipalities in batches
   tar_target(
     name = inep_string_match_batch,
     command = process_inep_batch(
-      batch_ids = batch_ids,
       municipality_batch_assignments = municipality_batch_assignments,
       locais_filtered = locais_filtered,
-      inep_data = inep_data
+      inep_data = inep_grouped
     ),
-    pattern = map(batch_ids),
+    pattern = map(inep_grouped),
     iteration = "list",
     deployment = "worker",
     storage = "worker",
-    retrieval = "worker",
+    retrieval = "main",
     resources = tar_resources(
       crew = tar_resources_crew(controller = "standard")
     )
@@ -711,18 +783,17 @@ list(
   tar_target(
     name = schools_cnefe10_match_batch,
     command = process_schools_cnefe_batch(
-      batch_ids = batch_ids,
       municipality_batch_assignments = municipality_batch_assignments,
       locais_filtered = locais_filtered,
-      schools_cnefe = schools_cnefe10
+      schools_cnefe = schools_cnefe10_grouped
     ),
-    pattern = map(batch_ids),
+    pattern = map(schools_cnefe10_grouped),
     iteration = "list",
     deployment = "worker",
     storage = "worker",
-    retrieval = "worker",
+    retrieval = "main",
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "memory_limited")
+      crew = tar_resources_crew(controller = "standard")
     )
   ),
   tar_target(
@@ -735,18 +806,17 @@ list(
   tar_target(
     name = schools_cnefe22_match_batch,
     command = process_schools_cnefe_batch(
-      batch_ids = batch_ids,
       municipality_batch_assignments = municipality_batch_assignments,
       locais_filtered = locais_filtered,
-      schools_cnefe = schools_cnefe22
+      schools_cnefe = schools_cnefe22_grouped
     ),
-    pattern = map(batch_ids),
+    pattern = map(schools_cnefe22_grouped),
     iteration = "list",
     deployment = "worker",
     storage = "worker",
-    retrieval = "worker",
+    retrieval = "main",
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "memory_limited")
+      crew = tar_resources_crew(controller = "standard")
     )
   ),
   tar_target(
@@ -758,21 +828,28 @@ list(
     ),
     deployment = "main"
   ),
-  # CNEFE 2010 street/neighborhood matching with batched dynamic branching
+  # CNEFE 2010 street/neighborhood matching with batched dynamic branching.
+  # Controller stays `memory_limited` (8 workers), NOT promoted to `standard`
+  # (issue #68, D2, data-driven decision). Slicing removes the ~350 MB whole-
+  # reference residency per worker, but the street/neighborhood matcher's peak is
+  # the per-municipality distance matrix -- min(10000, n_locais) x n_ref_streets x
+  # 8 bytes -- which reaches multiple GB for the largest cities (Sao Paulo has
+  # tens of thousands of unique streets) and is unchanged by this reshape. At 28
+  # workers that risks exceeding the 50 GB machine; at 8 workers it is safe and
+  # still benefits from the slimmer reference. See the measurements recorded on
+  # the issue.
   tar_target(
     name = cnefe10_stbairro_match_batch,
     command = process_cnefe_stbairro_batch(
-      batch_ids = batch_ids,
       municipality_batch_assignments = municipality_batch_assignments,
       locais_filtered = locais_filtered,
-      cnefe_st = cnefe10_st,
-      cnefe_bairro = cnefe10_bairro
+      cnefe_stbairro = cnefe10_stbairro_grouped
     ),
-    pattern = map(batch_ids),
+    pattern = map(cnefe10_stbairro_grouped),
     iteration = "list",
     deployment = "worker",
     storage = "worker",
-    retrieval = "worker",
+    retrieval = "main",
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
     )
@@ -783,21 +860,21 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  # CNEFE 2022 street/neighborhood matching with batched dynamic branching
+  # CNEFE 2022 street/neighborhood matching with batched dynamic branching.
+  # Controller stays `memory_limited` for the same reason as the 2010 target
+  # above (issue #68, D2): multi-GB per-branch distance matrix for large cities.
   tar_target(
     name = cnefe22_stbairro_match_batch,
     command = process_cnefe_stbairro_batch(
-      batch_ids = batch_ids,
       municipality_batch_assignments = municipality_batch_assignments,
       locais_filtered = locais_filtered,
-      cnefe_st = cnefe22_st,
-      cnefe_bairro = cnefe22_bairro
+      cnefe_stbairro = cnefe22_stbairro_grouped
     ),
-    pattern = map(batch_ids),
+    pattern = map(cnefe22_stbairro_grouped),
     iteration = "list",
     deployment = "worker",
     storage = "worker",
-    retrieval = "worker",
+    retrieval = "main",
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
     )
@@ -808,21 +885,25 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  # Agro CNEFE street/neighborhood matching with batched dynamic branching
+  # Agro CNEFE street/neighborhood matching with batched dynamic branching.
+  # Controller stays `memory_limited` (issue #68, D2): this is a street/
+  # neighborhood matcher of the same class as the CNEFE stbairro targets, so once
+  # its code-scheme bug (#75) is fixed and it matches against the full rural
+  # reference, its per-branch peak is the same multi-GB matrix. Keeping it here
+  # avoids a latent OOM when #75 lands. (It currently produces an empty match --
+  # see #75 -- so it is trivially safe today either way.)
   tar_target(
     name = agrocnefe_stbairro_match_batch,
     command = process_agrocnefe_stbairro_batch(
-      batch_ids = batch_ids,
       municipality_batch_assignments = municipality_batch_assignments,
       locais_filtered = locais_filtered,
-      agrocnefe_st = agrocnefe_st,
-      agrocnefe_bairro = agrocnefe_bairro
+      agrocnefe_stbairro = agrocnefe_stbairro_grouped
     ),
-    pattern = map(batch_ids),
+    pattern = map(agrocnefe_stbairro_grouped),
     iteration = "list",
     deployment = "worker",
     storage = "worker",
-    retrieval = "worker",
+    retrieval = "main",
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
     )

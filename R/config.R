@@ -208,33 +208,40 @@ keep_crew_launch_handles <- function(controller) {
   # then kills them mid-task ("worker crashed N consecutive times", silent
   # death, victim is the longest-running batch). Holding our own reference to
   # each handle makes the finalizer unreachable for the life of the run, so
-  # pruning becomes harmless. Verified against the minimal reproduction in
-  # docs/crew_bug_82/: with the keeper the long task survives churn + gc, and
-  # controller$terminate() still reaps all workers (no orphans).
+  # pruning becomes harmless. docs/crew_bug_82/keeper_check.R re-runs the
+  # bug scenario through this function: with the keeper the long task survives
+  # churn + gc, and controller$terminate() still reaps all workers (no
+  # orphans).
   #
   # Implementation notes (crew internals, re-verify on any crew upgrade by
   # running docs/crew_bug_82/minimal_repro.R):
   # - launch_worker(call) is the public launcher method that creates and
   #   returns the processx handle (crew_launcher_local); we wrap it so every
-  #   handle is also appended to `keeper`, which lives in the wrapper's
+  #   handle is also appended to `handles`, which lives in the wrapper's
   #   closure and stays reachable as long as the launcher itself.
   # - The wrapper must be installed with assign() into the launcher
   #   environment: `controller$launcher$launch_worker <- ...` fails because
   #   R's compound assignment writes the launcher back through the
   #   controller's read-only `launcher` active binding.
   launcher <- controller$launcher
-  keeper <- new.env(parent = emptyenv())
-  keeper$handles <- list()
+  handles <- list()
   orig_launch_worker <- launcher$launch_worker
   wrapper <- function(call) {
     handle <- orig_launch_worker(call)
-    keeper$handles[[length(keeper$handles) + 1L]] <- handle
+    handles[[length(handles) + 1L]] <<- handle
     handle
   }
   unlockBinding("launch_worker", launcher)
   assign("launch_worker", wrapper, envir = launcher)
   lockBinding("launch_worker", launcher)
   invisible(controller)
+}
+
+crew_controller_local_kept <- function(...) {
+  # The only sanctioned way to build a local crew controller in this pipeline:
+  # constructing and installing the handle keeper are inseparable, so a future
+  # controller cannot silently skip the GC-kill protection (issue #82).
+  keep_crew_launch_handles(crew::crew_controller_local(...))
 }
 
 get_crew_controllers <- function() {
@@ -252,18 +259,19 @@ get_crew_controllers <- function() {
   # IMPORTANT (issues #48/#82, upstream wlandau/crew#253): two-layer defense
   # against the crew 1.3.1 launcher GC-kill bug (see keep_crew_launch_handles()
   # above for the mechanism):
-  # 1. keep_crew_launch_handles() on both controllers -- the primary fix.
-  #    Retains every launch handle so the SIGKILL finalizer can never fire on a
-  #    live worker, no matter what the launcher prunes.
+  # 1. crew_controller_local_kept() -- the primary fix. Every controller is
+  #    built with the handle keeper installed, so the SIGKILL finalizer can
+  #    never fire on a live worker, no matter what the launcher prunes.
   # 2. seconds_idle = Inf and seconds_wall = Inf -- belt-and-braces. Persistent
   #    workers minimize the churn that triggers pruning in the first place, and
   #    crew only spawns workers on demand, so they cost nothing until used.
   # Do not restore finite idle/wall timers or remove the keeper without
-  # confirming upstream is fixed (re-run docs/crew_bug_82/minimal_repro.R on
-  # any crew upgrade).
+  # confirming upstream is fixed: on any crew upgrade re-run
+  # docs/crew_bug_82/minimal_repro.R (does the bug still exist?) and
+  # docs/crew_bug_82/keeper_check.R (does the keeper still defeat it?).
 
   # Standard controller for most tasks - optimized for 32-core machine
-  controller_standard <- crew::crew_controller_local(
+  controller_standard <- crew_controller_local_kept(
     name = "standard",
     workers = 28, # Max workers - crew only spawns as needed
     seconds_idle = Inf, # no idle churn (see issue #48 note above)
@@ -277,7 +285,7 @@ get_crew_controllers <- function() {
 
   # Memory-limited controller for CNEFE operations: fewer workers but more memory
   # per worker.
-  controller_memory <- crew::crew_controller_local(
+  controller_memory <- crew_controller_local_kept(
     name = "memory_limited",
     workers = 8, # Max workers for memory-intensive tasks
     seconds_idle = Inf, # no idle churn (see issue #48 note above)
@@ -288,9 +296,6 @@ get_crew_controllers <- function() {
     garbage_collection = TRUE,
     options_local = crew::crew_options_local(log_directory = crew_log_dir)
   )
-
-  keep_crew_launch_handles(controller_standard)
-  keep_crew_launch_handles(controller_memory)
 
   # Return controller group
   controller_group <- crew::crew_controller_group(

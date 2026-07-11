@@ -33,9 +33,14 @@ batch, 25+ min).
   was insufficient for the real pipeline: the production cascade needs a *first*
   kill (from scale-up / heavy-task timing) that trivial sleep tasks don't
   produce. Left here as a documented dead-end.
+- `keeper_check.R` — the same scenario as `minimal_repro.R` but run through the
+  shipped workaround, `keep_crew_launch_handles()` from `R/config.R`. The long
+  task must **succeed**; exits non-zero if the keeper stops working. This is
+  the positive control that gates the workaround (run from the repo root).
 
 ```sh
 Rscript docs/crew_bug_82/minimal_repro.R          # reproduces (churn + gc)
+Rscript docs/crew_bug_82/keeper_check.R           # keeper defeats it (must PASS)
 Rscript docs/crew_bug_82/scaled_repro.R yes       # 28 workers, Inf idle, WITH main gc  (did not repro)
 Rscript docs/crew_bug_82/scaled_repro.R no         # WITHOUT main gc
 ```
@@ -48,21 +53,24 @@ Ubuntu 24.04, local `crew_controller_local` workers.
 ## Workarounds applied in this repo
 
 1. **Handle keeper (primary)** — `keep_crew_launch_handles()` in `R/config.R`,
-   applied to both controllers: wraps the launcher's `launch_worker()` so every
-   processx handle it creates is also retained in a keeper list. The SIGKILL
-   finalizer can then never fire on a live worker, no matter which launch rows
-   crew prunes. Verified against `minimal_repro.R`: with the keeper the long
-   task survives churn + main-process `gc()`, and `terminate()` still reaps all
-   workers (no orphans). This made it safe to move `panel_ids_by_batch` back to
-   crew workers (it was pinned to `deployment = "main"` during the v0.15
-   release run).
+   installed on every controller via `crew_controller_local_kept()` (the only
+   sanctioned local-controller constructor in the pipeline): wraps the
+   launcher's `launch_worker()` so every processx handle it creates is also
+   retained in a keeper list. The SIGKILL finalizer can then never fire on a
+   live worker, no matter which launch rows crew prunes. `keeper_check.R`
+   verifies this end-to-end: with the keeper the long task survives churn +
+   main-process `gc()`, and `terminate()` still reaps all workers (no
+   orphans). This made it safe to move `panel_ids_by_batch` back to crew
+   workers (it was pinned to `deployment = "main"` during the v0.15 release
+   run).
 2. `get_crew_controllers()` in `R/config.R`: `seconds_idle = Inf` and
    `seconds_wall = Inf` on both controllers (stops idle/wall churn).
    Belt-and-braces; necessary but not sufficient on its own.
 
 Filed upstream as [wlandau/crew#253](https://github.com/wlandau/crew/issues/253).
-On any crew upgrade, re-run `minimal_repro.R`; once it stops reproducing, the
-handle keeper and the `Inf` timers can be dropped.
+On any crew upgrade, re-run `minimal_repro.R` (does the bug still exist?) and
+`keeper_check.R` (does the keeper still defeat it?). Once `minimal_repro.R`
+stops reproducing, the handle keeper and the `Inf` timers can be dropped.
 
 See issue #82 for the full history, including the initial (wrong) memory
 diagnosis and how it was corrected.

@@ -47,7 +47,7 @@ R -e "targets::tar_make()"
 
 ### Testing
 
-The test layer has two tiers plus a commit-time lint gate (see
+The test layer has two tiers plus a commit-time formatting gate (see
 [docs/specs/2026-07-testing-spec.md](docs/specs/2026-07-testing-spec.md)).
 
 ```bash
@@ -70,26 +70,31 @@ transforms, matching core, panel identity); the rest are deferred to later
 tranches. Behavior-changing fail-loud tests land alongside their fixes in the
 cleanup work, not here.
 
-#### Lint gate (staged-files ratchet)
+#### Formatting gate (air)
 
-Linting gates at commit time via a committed git hook, as a ratchet: only the
-`.R` files **staged** for a commit must lint clean (using the repo `.lintr`), so
-the legacy backlog never blocks work and is paid down as files are edited.
+Formatting is handled by [air](https://posit-dev.github.io/air/), an idempotent
+R formatter configured in `air.toml` (`line-width = 120`, `indent-width = 2`).
+The whole repo was formatted once, so there is no legacy backlog — a committed
+git hook just keeps it formatted: at commit time it runs `air format --check`
+against the staged `.R` files and blocks the commit if any would be reformatted.
 
 ```bash
 # Activate the hook once per clone:
 git config core.hooksPath .githooks
 
-# The hook needs lintr (a lint-only dev tool; it skips with a message if absent):
-R -e 'renv::install("lintr")'
+# The hook needs the air binary (it skips with a message if absent):
+# https://posit-dev.github.io/air/cli.html#installation
 
-# One-time informational baseline over R/ (2026-07): 632 lint violations.
-# This gates nothing; it sizes a possible future "pay down lint debt" cleanup.
-Rscript -e 'length(lintr::lint_dir("R"))'
+# Format everything (or configure format-on-save in your editor):
+air format .
+
+# Check without writing (what the hook runs, over the whole repo):
+air format --check .
 ```
 
-Lint style is never a `testthat` failure — the correctness suite stays
-style-agnostic; style is gated separately at commit time.
+Formatting is never a `testthat` failure — the correctness suite stays
+style-agnostic; formatting is gated separately at commit time. air formats
+layout only; it does not enforce semantic rules (naming, banned functions).
 
 ## Architecture
 

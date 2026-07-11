@@ -183,10 +183,8 @@ testthat::test_file("tests/testthat/test-string_matching.R")
 
 *Note: Pre-commit hooks are being implemented*
 
-The project will use pre-commit hooks for:
-- Code formatting with `styler`
-- Linting with `lintr`
-- Spell checking documentation
+The project uses a committed pre-commit hook for:
+- Code formatting with [`air`](https://posit-dev.github.io/air/) (`air format --check` on staged `.R` files)
 
 ### Best Practices
 

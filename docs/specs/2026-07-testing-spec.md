@@ -187,7 +187,7 @@ No GitHub Actions is built. Recorded finding (the map asked the testing spec to 
 
 - `Rscript tests/testthat.R`
 - `Rscript tests/integration/dev_pipeline_check.R`
-- `Rscript -e 'lintr::lint_dir("R")'`
+- `air format --check .`
 
 — so a future CI job, *if* it graduates from fog, is a thin wrapper needing no restructuring. Note the
 split: the **unit runner** is CI-cheap (seconds, no data) and is the natural first CI candidate; the
@@ -195,25 +195,33 @@ split: the **unit runner** is CI-cheap (seconds, no data) and is the natural fir
 
 ---
 
-## 7. Lint gating
+## 7. Formatting gating
 
-Linting **gates at commit time** via a committed git hook — but as a **ratchet**, so the existing lint
-backlog (nothing has ever run the linter over `R/`) does not block work.
+> **Amendment 2026-07-11 (#58):** the original ratchet below used `lintr` + a staged-files ratchet to
+> pay down a formatting backlog gradually. That was replaced by [air](https://posit-dev.github.io/air/),
+> a whole-repo formatter: the repo was formatted once (`air.toml`, `line-width = 120`), which eliminates
+> the backlog entirely, so there is no longer a ratchet to maintain. `lintr` and `.lintr` were removed;
+> air formats layout only and does not carry over lintr's semantic checks (naming, banned functions).
+> The rest of this section is retained for history and describes the superseded lintr ratchet.
+
+Formatting **gates at commit time** via a committed git hook. The whole repo is kept air-formatted, so
+the gate is simply "stay formatted" — there is no backlog to ratchet down.
 
 **Decisions:**
 
-- **Mechanism:** a plain shell hook committed at `.githooks/pre-commit` (no new R-package dependency,
-  version-controlled, shared). Activated per-clone with `git config core.hooksPath .githooks`; document
-  this in CLAUDE.md / AWS_SETUP.md.
-- **Scope — staged-files-only ratchet:** the hook runs `lintr::lint()` against only the staged `.R`
-  files, using the existing `.lintr` config, and blocks the commit if any *staged* file lints dirty.
-  A file you touch must be clean before it commits; the untouched legacy backlog is never blocked and
-  gets paid down naturally as files are edited.
-- **Correctness suite stays style-agnostic:** a lint violation is never a `testthat` failure. Style is
-  gated at commit time, at the right altitude.
-- **One-time informational step:** run `lintr::lint_dir("R")` once and record the current violation
-  count (here, and/or in #21). This is **informational only** — it gates nothing now, but sizes a
-  possible future "pay down lint debt" cleanup item.
+- **Mechanism:** a plain shell hook committed at `.githooks/pre-commit` (no new R-package dependency —
+  air is a standalone binary — version-controlled, shared). Activated per-clone with
+  `git config core.hooksPath .githooks`; documented in CLAUDE.md / AWS_SETUP.md.
+- **Scope — staged `.R` files:** the hook runs `air format --check` against the staged `.R` files and
+  blocks the commit if any would be reformatted. Because the repo was formatted up front, this stays
+  green as long as edits are formatted (editor format-on-save, or `air format .`).
+- **Correctness suite stays style-agnostic:** a formatting difference is never a `testthat` failure.
+  Formatting is gated at commit time, at the right altitude.
+
+_Superseded (lintr ratchet):_ the hook formerly ran `lintr::lint()` against only the staged `.R` files
+using a `.lintr` config, blocking the commit if any staged file linted dirty, so the legacy backlog was
+paid down gradually. A one-time `lintr::lint_dir("R")` baseline (632 violations, 2026-07) sized that
+paydown. Both are retired by the air migration.
 
 ---
 
@@ -228,4 +236,4 @@ backlog (nothing has ever run the linter over `R/`) does not block work.
 | 5 | Seven structural assertions as H2/C5/H5/2024 tripwires; plain testthat; no `validate`-DSL. |
 | 6 | #20 = stable-behavior tests + conventions; #21 = behavior-changing tests alongside fixes; `master` always green. |
 | 7 | CI out of scope (fog); "single-command" cheap-path note recorded. |
-| 8 | Lint gates via committed `.githooks/pre-commit`, staged-files ratchet against `.lintr`; suite stays style-agnostic. |
+| 8 | Formatting gates via committed `.githooks/pre-commit` running `air format --check` on staged `.R` files; suite stays style-agnostic. _(Amended 2026-07-11, #58: air replaced the lintr ratchet — see §7.)_ |

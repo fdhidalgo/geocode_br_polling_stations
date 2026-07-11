@@ -849,8 +849,13 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
     schools <- addr[especie_lab == "estabelecimento de ensino"]
     
     if (nrow(schools) > 0) {
-      # Normalize school descriptions
+      # Normalize school descriptions, then drop rows with an empty normalized
+      # description. This harmonizes 2010 with get_cnefe22_schools(), which
+      # already filters norm_desc != "" (spec 2026-07-partition-reference-data,
+      # D7: a deliberate, accepted behavior change). An empty norm_desc carries
+      # no name to match against, so such rows never contribute a school match.
       schools[, norm_desc := normalize_school(desc)]
+      schools <- schools[norm_desc != ""]
       message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
     } else {
       message("No schools found in this dataset")

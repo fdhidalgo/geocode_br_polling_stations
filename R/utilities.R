@@ -351,18 +351,18 @@ make_ref_batch_groups <- function(ref, municipality_batch_assignments, copy = TR
   ref <- ref[!is.na(batch_id)]
   if (nrow(ref) == 0L) {
     # Degenerate case: no reference municipality overlaps the batch assignments,
-    # so this reference contributes no matches at all. (Dev mode hits this for
-    # Agro CNEFE, whose municipality codes do not intersect the AC/RR polling
-    # municipalities -- bug #75.) `pattern = map()` cannot branch over an empty
-    # target, so emit one placeholder group carrying no real municipality
-    # (id_munic_7 = NA). The match batch then runs once, every per-municipality
-    # lookup misses, and the combined result is the same empty data.table the
-    # whole-table path produced -- equivalence preserved, no crash. The warning
-    # keeps a genuinely unexpected empty reference from passing silently.
+    # so this reference contributes no matches at all. `pattern = map()` cannot
+    # branch over an empty target, so emit one placeholder group carrying no real
+    # municipality (id_munic_7 = NA). The match batch then runs once, every
+    # per-municipality lookup misses, and the combined result is the same empty
+    # data.table the whole-table path produced -- no crash. This is not expected
+    # for any reference in normal operation (Agro CNEFE used to hit it in dev via
+    # bug #75, now fixed), so the warning keeps a genuinely empty reference from
+    # passing silently.
     warning(
       "make_ref_batch_groups(): reference has no municipality overlap with the ",
       "batch assignments; emitting one empty placeholder group (no matches). ",
-      "Expected in dev mode for Agro CNEFE (#75); investigate otherwise."
+      "Not expected in normal operation -- investigate."
     )
     ref <- ref[NA_integer_]
     ref[, batch_id := municipality_batch_assignments$batch_id[1]]

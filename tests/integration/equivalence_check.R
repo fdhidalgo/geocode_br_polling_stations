@@ -14,21 +14,25 @@
 ## `schools_cnefe10`'s row count (and possibly a few downstream match rows).
 ##
 ## Usage:
-##   # On master (baseline):
-##   git checkout master
-##   Rscript tests/integration/equivalence_check.R snapshot
+##   # This script reads target VALUES from the store, so it runs correctly
+##   # against any checked-out code -- but the file itself lives only on the
+##   # reshape branch. Copy it somewhere stable first so it survives the checkout
+##   # onto master (where it does not exist):
+##   cp tests/integration/equivalence_check.R /tmp/equivalence_check.R
 ##
-##   # On the reshape branch:
-##   git checkout <branch>
-##   Rscript tests/integration/equivalence_check.R compare
+##   # Baseline snapshot on master:
+##   git checkout master && Rscript /tmp/equivalence_check.R snapshot
+##
+##   # Rebuild + compare on the reshape branch:
+##   git checkout <branch> && Rscript /tmp/equivalence_check.R compare
 ##
 ## Each mode runs tar_make() in dev mode first, so the compared targets are
 ## rebuilt from the checked-out code before they are read. Both modes use the
 ## isolated dev store (_targets_dev/); the snapshot itself is written to a
 ## gitignored path (see snapshot_path) so it survives the branch switch.
 ##
-## Exit code is non-zero if any target FAILs the comparison, so a run can gate
-## CI once every accepted diff is encoded as an exception.
+## Exit code is non-zero if any target DIFFs or is UNAVAILABLE, so a run can gate
+## CI once every accepted diff is reviewed.
 
 Sys.setenv(TAR_PROJECT = "dev")
 suppressPackageStartupMessages({

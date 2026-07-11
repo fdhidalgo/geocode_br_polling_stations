@@ -216,17 +216,21 @@ process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL) {
 #' Aggregate CNEFE coordinates to per-municipality group medians
 #'
 #' Collapses cleaned CNEFE rows to one row per `(id_munic_7, <group_col>)` group,
-#' taking the median coordinate and the group size, and keeps only groups seen
-#' more than once (`n > 1`). This is the aggregation formerly applied to the
-#' combined national `cnefe10`/`cnefe22` tables; because each municipality lives
-#' in exactly one state file, computing it per state and row-binding the results
-#' is equivalent to aggregating the national table.
+#' taking the median coordinate and the group size `n`. This is the aggregation
+#' formerly applied to the combined national `cnefe10`/`cnefe22` tables; because
+#' each municipality lives in exactly one state file, computing it per state and
+#' row-binding the results is equivalent to aggregating the national table.
+#'
+#' Singleton groups (`n == 1`) are intentionally NOT dropped here: the singleton
+#' drop happens in [combine_cnefe_state_component()], *after* the cross-slice
+#' duplicate check, so that a key accidentally split one-and-one across two state
+#' files is caught by the D6 invariant instead of being filtered away unseen.
 #'
 #' @param addr Cleaned CNEFE address data.table with `id_munic_7`,
 #'   `cnefe_long`, `cnefe_lat`, and the grouping column
 #' @param group_col Grouping column name (`"norm_street"` or `"norm_bairro"`)
 #' @return A data.table with columns `id_munic_7`, `<group_col>`, `long`, `lat`,
-#'   `n`
+#'   `n` (one row per group, including `n == 1` groups)
 #' @export
 aggregate_cnefe_coords <- function(addr, group_col) {
   addr[
@@ -237,7 +241,7 @@ aggregate_cnefe_coords <- function(addr, group_col) {
       n = .N
     ),
     by = c("id_munic_7", group_col)
-  ][n > 1]
+  ]
 }
 
 #' Combine one component of the per-state CNEFE results
@@ -249,12 +253,19 @@ aggregate_cnefe_coords <- function(addr, group_col) {
 #' exactly what a municipality spanning two state files, or a mis-assigned state
 #' file, would produce, so it is a hard error rather than a silently merged row.
 #'
+#' The duplicate check runs on the un-thinned aggregates (singleton `n == 1`
+#' groups still present), so a key split one-and-one across two state files is
+#' detected here; only afterwards are singleton groups dropped (`n > 1`), matching
+#' the national aggregation's `[n > 1]` filter. `schools` has no `n` column and is
+#' returned in full.
+#'
 #' @param state_results List of per-state result lists
 #' @param component Component name to extract from each per-state list
 #' @param unique_key Optional key columns whose uniqueness across slices is
 #'   asserted; `NULL` (the default) skips the check (used for `schools`, which is
 #'   legitimately many-per-municipality)
-#' @return The row-bound data.table for the requested component
+#' @return The row-bound data.table for the requested component (aggregate
+#'   components thinned to `n > 1` groups)
 #' @export
 combine_cnefe_state_component <- function(state_results, component,
                                           unique_key = NULL) {
@@ -281,6 +292,13 @@ combine_cnefe_state_component <- function(state_results, component,
       ),
       nrow(dup_keys), component, example
     ))
+  }
+
+  # Drop singleton groups only now, after the cross-slice duplicate check, so a
+  # 1+1 split cannot be filtered away before the invariant sees it. Aggregate
+  # components carry an `n` column; `schools` does not and passes through whole.
+  if ("n" %in% names(combined)) {
+    combined <- combined[n > 1]
   }
 
   combined

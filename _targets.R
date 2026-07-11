@@ -587,8 +587,15 @@ list(
     deployment = "worker",
     storage = "worker",
     retrieval = "worker",
+    # Record linkage (reclin2) is memory- and compute-heavy, and batches are
+    # wildly uneven: the two mega-city batches (Sao Paulo ~19.5k station-records,
+    # Rio ~14.6k) cost O(stations^2) and each grind single-threaded for tens of
+    # minutes. On the 28-wide standard pool these ran alongside ~27 other workers
+    # and a worker was killed (issue #48); the batch itself is fine in isolation.
+    # The mega batches are the stage's critical path regardless of width, so the
+    # memory_limited (4-worker) pool caps concurrency at almost no wall-clock cost.
     resources = tar_resources(
-      crew = tar_resources_crew(controller = "standard")
+      crew = tar_resources_crew(controller = "memory_limited")
     )
   ),
 

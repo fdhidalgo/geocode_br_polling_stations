@@ -330,11 +330,17 @@ combine_cnefe_state_component <- function(state_results, component, unique_key =
 #' @param ref data.table reference table (must have `id_munic_7`).
 #' @param municipality_batch_assignments data.table with `cod_localidade_ibge`,
 #'   `batch_id`.
+#' @param copy Copy `ref` before the in-place update-join? Defaults to `TRUE` so a
+#'   real target's cached value is never mutated. Callers that already hand in a
+#'   freshly allocated table (e.g. [make_stbairro_batch_groups()] via `rbindlist`)
+#'   pass `FALSE` to avoid a redundant copy of a large reference.
 #' @return `ref` (inner-joined to the assignments) with added `batch_id` and
 #'   `tar_group` columns, intended for `iteration = "group"`.
 #' @export
-make_ref_batch_groups <- function(ref, municipality_batch_assignments) {
-  ref <- data.table::copy(ref)
+make_ref_batch_groups <- function(ref, municipality_batch_assignments, copy = TRUE) {
+  if (copy) {
+    ref <- data.table::copy(ref)
+  }
   ref[
     municipality_batch_assignments,
     batch_id := i.batch_id,
@@ -347,11 +353,17 @@ make_ref_batch_groups <- function(ref, municipality_batch_assignments) {
     # Degenerate case: no reference municipality overlaps the batch assignments,
     # so this reference contributes no matches at all. (Dev mode hits this for
     # Agro CNEFE, whose municipality codes do not intersect the AC/RR polling
-    # municipalities.) `pattern = map()` cannot branch over an empty target, so
-    # emit one placeholder group carrying no real municipality (id_munic_7 = NA).
-    # The match batch then runs once, every per-municipality lookup misses, and
-    # the combined result is the same empty data.table the whole-table path
-    # produced -- equivalence preserved, no crash.
+    # municipalities -- bug #75.) `pattern = map()` cannot branch over an empty
+    # target, so emit one placeholder group carrying no real municipality
+    # (id_munic_7 = NA). The match batch then runs once, every per-municipality
+    # lookup misses, and the combined result is the same empty data.table the
+    # whole-table path produced -- equivalence preserved, no crash. The warning
+    # keeps a genuinely unexpected empty reference from passing silently.
+    warning(
+      "make_ref_batch_groups(): reference has no municipality overlap with the ",
+      "batch assignments; emitting one empty placeholder group (no matches). ",
+      "Expected in dev mode for Agro CNEFE (#75); investigate otherwise."
+    )
     ref <- ref[NA_integer_]
     ref[, batch_id := municipality_batch_assignments$batch_id[1]]
   }
@@ -377,10 +389,16 @@ make_ref_batch_groups <- function(ref, municipality_batch_assignments) {
 #'   `batch_id`/`tar_group`, intended for `iteration = "group"`.
 #' @export
 make_stbairro_batch_groups <- function(ref_st, ref_bairro, municipality_batch_assignments) {
-  st <- data.table::copy(ref_st)[, component := "st"]
-  bairro <- data.table::copy(ref_bairro)[, component := "bairro"]
-  ref <- data.table::rbindlist(list(st, bairro), use.names = TRUE, fill = TRUE)
-  make_ref_batch_groups(ref, municipality_batch_assignments)
+  # rbindlist(idcol=) tags each source with its `component` and returns a fresh
+  # table, so neither input is copied or mutated. The union is already fresh,
+  # hence copy = FALSE below.
+  ref <- data.table::rbindlist(
+    list(st = ref_st, bairro = ref_bairro),
+    use.names = TRUE,
+    fill = TRUE,
+    idcol = "component"
+  )
+  make_ref_batch_groups(ref, municipality_batch_assignments, copy = FALSE)
 }
 
 #' Process INEP string matching in batches
@@ -494,49 +512,56 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
   }
 }
 
-#' Process CNEFE street/neighborhood matching in batches
+#' Process street/neighborhood matching for one batch slice
 #'
-#' `cnefe_stbairro` is a per-batch grouped-stem slice (Option A, issue #68): the
-#' union of the street and neighborhood aggregates for this batch's
-#' municipalities, tagged by `component` and carrying a constant `batch_id`. The
-#' whole national tables never cross to the worker; municipalities are still
-#' taken from `municipality_batch_assignments` so the combined row order is
-#' byte-identical to the pre-reshape pipeline.
+#' Shared engine for the CNEFE and Agro CNEFE street/neighborhood match batches,
+#' which differ only in the per-municipality matcher and the log label. `stbairro`
+#' is a per-batch grouped-stem slice (Option A, issue #68): the union of the
+#' street and neighborhood aggregates for this batch's municipalities, tagged by
+#' `component` and carrying a constant `batch_id`. The whole national tables never
+#' cross to the worker; municipalities are still taken from
+#' `municipality_batch_assignments` so the combined row order is byte-identical to
+#' the pre-reshape pipeline.
 #'
 #' @param municipality_batch_assignments Batch assignments
 #' @param locais_filtered Filtered polling stations
-#' @param cnefe_stbairro Per-batch slice: union of street + neighborhood CNEFE
-#'   aggregates, tagged by `component`
+#' @param stbairro Per-batch slice: union of street + neighborhood aggregates,
+#'   tagged by `component`
+#' @param match_fn Per-municipality matcher called positionally as
+#'   `match_fn(locais_muni, st_muni, bairro_muni)`
+#' @param label Human-readable source label for the log lines (e.g. `"CNEFE"`)
 #' @return Combined match results
 #' @export
-process_cnefe_stbairro_batch <- function(
+process_stbairro_batch <- function(
   municipality_batch_assignments,
   locais_filtered,
-  cnefe_stbairro
+  stbairro,
+  match_fn,
+  label
 ) {
-  this_batch <- cnefe_stbairro$batch_id[1]
+  this_batch <- stbairro$batch_id[1]
   batch_munis <- municipality_batch_assignments[
     batch_id == this_batch
   ]$cod_localidade_ibge
 
-  cnefe_st <- cnefe_stbairro[component == "st"]
-  cnefe_bairro <- cnefe_stbairro[component == "bairro"]
-  data.table::setkey(cnefe_st, id_munic_7)
-  data.table::setkey(cnefe_bairro, id_munic_7)
+  st <- stbairro[component == "st"]
+  bairro <- stbairro[component == "bairro"]
+  data.table::setkey(st, id_munic_7)
+  data.table::setkey(bairro, id_munic_7)
 
-  # Log batch start
   message(sprintf(
-    "[Batch %d] Starting CNEFE street/neighborhood matching for %d municipalities",
+    "[Batch %d] Starting %s street/neighborhood matching for %d municipalities",
     this_batch,
+    label,
     length(batch_munis)
   ))
 
-  # Process all municipalities in this batch with progress tracking
   batch_results <- lapply(seq_along(batch_munis), function(i) {
     muni_code <- batch_munis[i]
 
-    cnefe_st_muni <- cnefe_st[.(muni_code), nomatch = NULL]
-    cnefe_bairro_muni <- cnefe_bairro[.(muni_code), nomatch = NULL]
+    locais_muni <- locais_filtered[cod_localidade_ibge == muni_code]
+    st_muni <- st[.(muni_code), nomatch = NULL]
+    bairro_muni <- bairro[.(muni_code), nomatch = NULL]
 
     message(sprintf(
       "[Batch %d - %d/%d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
@@ -544,19 +569,13 @@ process_cnefe_stbairro_batch <- function(
       i,
       length(batch_munis),
       muni_code,
-      nrow(locais_filtered[cod_localidade_ibge == muni_code]),
-      nrow(cnefe_st_muni),
-      nrow(cnefe_bairro_muni)
+      nrow(locais_muni),
+      nrow(st_muni),
+      nrow(bairro_muni)
     ))
 
-    # Perform matching
-    result <- match_stbairro_cnefe_muni(
-      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
-      cnefe_st_muni = cnefe_st_muni,
-      cnefe_bairro_muni = cnefe_bairro_muni
-    )
+    result <- match_fn(locais_muni, st_muni, bairro_muni)
 
-    # Log completion
     if (!is.null(result)) {
       message(sprintf(
         "[Batch %d - %d/%d] Completed municipality %s: %d matches",
@@ -571,10 +590,8 @@ process_cnefe_stbairro_batch <- function(
     result
   })
 
-  # Remove NULL results and combine
   batch_results <- batch_results[!sapply(batch_results, is.null)]
 
-  # Log batch completion
   total_matches <- if (length(batch_results) > 0) {
     sum(sapply(batch_results, nrow))
   } else {
@@ -595,13 +612,33 @@ process_cnefe_stbairro_batch <- function(
   }
 }
 
+#' Process CNEFE street/neighborhood matching in batches
+#'
+#' Thin wrapper over [process_stbairro_batch()] with the CNEFE matcher.
+#'
+#' @param municipality_batch_assignments Batch assignments
+#' @param locais_filtered Filtered polling stations
+#' @param cnefe_stbairro Per-batch slice: union of street + neighborhood CNEFE
+#'   aggregates, tagged by `component`
+#' @return Combined match results
+#' @export
+process_cnefe_stbairro_batch <- function(
+  municipality_batch_assignments,
+  locais_filtered,
+  cnefe_stbairro
+) {
+  process_stbairro_batch(
+    municipality_batch_assignments,
+    locais_filtered,
+    cnefe_stbairro,
+    match_fn = match_stbairro_cnefe_muni,
+    label = "CNEFE"
+  )
+}
+
 #' Process Agro CNEFE street/neighborhood matching in batches
 #'
-#' `agrocnefe_stbairro` is a per-batch grouped-stem slice (Option A, issue #68):
-#' the union of the street and neighborhood aggregates for this batch's
-#' municipalities, tagged by `component` and carrying a constant `batch_id`.
-#' Municipalities are still taken from `municipality_batch_assignments` so the
-#' combined row order is byte-identical to the pre-reshape pipeline.
+#' Thin wrapper over [process_stbairro_batch()] with the Agro CNEFE matcher.
 #'
 #' @param municipality_batch_assignments Batch assignments
 #' @param locais_filtered Filtered polling stations
@@ -614,85 +651,13 @@ process_agrocnefe_stbairro_batch <- function(
   locais_filtered,
   agrocnefe_stbairro
 ) {
-  this_batch <- agrocnefe_stbairro$batch_id[1]
-  batch_munis <- municipality_batch_assignments[
-    batch_id == this_batch
-  ]$cod_localidade_ibge
-
-  agrocnefe_st <- agrocnefe_stbairro[component == "st"]
-  agrocnefe_bairro <- agrocnefe_stbairro[component == "bairro"]
-  data.table::setkey(agrocnefe_st, id_munic_7)
-  data.table::setkey(agrocnefe_bairro, id_munic_7)
-
-  # Log batch start
-  message(sprintf(
-    "[Batch %d] Starting Agro CNEFE street/neighborhood matching for %d municipalities",
-    this_batch,
-    length(batch_munis)
-  ))
-
-  # Process all municipalities in this batch with progress tracking
-  batch_results <- lapply(seq_along(batch_munis), function(i) {
-    muni_code <- batch_munis[i]
-
-    agrocnefe_st_muni <- agrocnefe_st[.(muni_code), nomatch = NULL]
-    agrocnefe_bairro_muni <- agrocnefe_bairro[.(muni_code), nomatch = NULL]
-
-    message(sprintf(
-      "[Batch %d - %d/%d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
-      this_batch,
-      i,
-      length(batch_munis),
-      muni_code,
-      nrow(locais_filtered[cod_localidade_ibge == muni_code]),
-      nrow(agrocnefe_st_muni),
-      nrow(agrocnefe_bairro_muni)
-    ))
-
-    # Perform matching
-    result <- match_stbairro_agrocnefe_muni(
-      locais_muni = locais_filtered[cod_localidade_ibge == muni_code],
-      agrocnefe_st_muni = agrocnefe_st_muni,
-      agrocnefe_bairro_muni = agrocnefe_bairro_muni
-    )
-
-    # Log completion
-    if (!is.null(result)) {
-      message(sprintf(
-        "[Batch %d - %d/%d] Completed municipality %s: %d matches",
-        this_batch,
-        i,
-        length(batch_munis),
-        muni_code,
-        nrow(result)
-      ))
-    }
-
-    result
-  })
-
-  # Remove NULL results and combine
-  batch_results <- batch_results[!sapply(batch_results, is.null)]
-
-  # Log batch completion
-  total_matches <- if (length(batch_results) > 0) {
-    sum(sapply(batch_results, nrow))
-  } else {
-    0
-  }
-
-  message(sprintf(
-    "[Batch %d] Completed with %d total matches from %d municipalities",
-    this_batch,
-    total_matches,
-    length(batch_results)
-  ))
-
-  if (length(batch_results) > 0) {
-    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
-  } else {
-    data.table()
-  }
+  process_stbairro_batch(
+    municipality_batch_assignments,
+    locais_filtered,
+    agrocnefe_stbairro,
+    match_fn = match_stbairro_agrocnefe_muni,
+    label = "Agro CNEFE"
+  )
 }
 # ===== PARALLEL PROCESSING =====
 

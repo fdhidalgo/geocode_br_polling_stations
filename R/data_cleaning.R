@@ -200,6 +200,18 @@ clean_cnefe22 <- function(cnefe22_file, muni_ids) {
   addr
 }
 
+# Read one TSE geocoded polling-station file to a lowercased data.table with
+# out-of-country (sg_uf == "ZZ") rows dropped. `cols` optionally restricts the
+# columns read (NULL reads all). Latin-1 encoding and surfaced (not suppressed)
+# parse warnings are the TSE file contract, kept in one place so the raw-read
+# convention cannot drift between clean_tsegeocoded_locais() and
+# compute_tse_raw_availability().
+read_tse_locais_file <- function(f, cols = NULL) {
+  d <- fread(f, encoding = "Latin-1", select = cols)
+  setnames(d, tolower(names(d)))
+  d[sg_uf != "ZZ"]
+}
+
 clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
   # tse_files lists the TSE geocoded ground-truth files (2018, 2020, 2022, 2024).
   # The 2024 file was re-wired in for the 2006-2024 re-release (#48); assert the
@@ -215,9 +227,8 @@ clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
     ))
   }
 
-  # Read each year. Encoding/parse warnings are allowed to surface once rather
-  # than being masked by a suppressWarnings() re-read (Medium: TSE reads).
-  loc_list <- lapply(tse_files, function(f) fread(f, encoding = "Latin-1"))
+  # Read each year (lowercased, out-of-country rows dropped by the shared reader).
+  loc_list <- lapply(tse_files, read_tse_locais_file)
 
   # Keep only the columns present in every year (a schema change in any year is
   # not papered over by rbindlist(fill = TRUE)); assert the survivors are
@@ -229,12 +240,8 @@ clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
   loc_list <- lapply(loc_list, function(x) x[, common_cols, with = FALSE])
   locs <- rbindlist(loc_list, use.names = TRUE)
 
-  # Convert column names to lowercase
-  setnames(locs, names(locs), tolower(names(locs)))
-
-  # Remove duplicate rows and filter out polling stations out of the country
-  locs <- unique(locs[
-    sg_uf != "ZZ",
+  # Remove duplicate rows (out-of-country rows already dropped on read).
+  locs <- unique(locs[,
     .(
       aa_eleicao,
       sg_uf,

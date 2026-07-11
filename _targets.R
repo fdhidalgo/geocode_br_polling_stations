@@ -1049,6 +1049,13 @@ list(
     command = compute_tse_coverage(locais_filtered, tsegeocoded_locais)
   ),
 
+  ## Raw per-year TSE coordinate availability - the ceiling landed coverage is
+  ## read against in release Gate 7 (near-lossless join tripwire). See R/evaluation.R.
+  tar_target(
+    name = tse_raw_availability,
+    command = compute_tse_raw_availability(tse_files, locais_filtered)
+  ),
+
   ## Station-grouped fold assignment, created once upstream of any refit so a
   ## fold never leaks its TSE target (spec section 3).
   tar_target(
@@ -1189,6 +1196,7 @@ list(
     command = validate_release_gates(
       geocoded_locais = geocoded_locais,
       tse_coverage = tse_coverage,
+      tse_raw_availability = tse_raw_availability,
       export_paths = c(geocoded_export, panelid_export),
       dev_mode = pipeline_config$dev_mode
     ),

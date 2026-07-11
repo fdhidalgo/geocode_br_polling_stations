@@ -825,13 +825,21 @@ RELEASE_N_YEAR_MAX <- 120000L
 # Landed 2024 TSE-coverage hard gate (decision 2).
 RELEASE_TSE_COVERAGE_GATE <- 92
 
-# Per-year TSE-coverage regression floor for the TSE-bearing vintages (2018+).
-# Raw TSE availability is ~90-94% and the identity join is near-lossless, so a
-# vintage landing below this floor signals a merge regression (decision 2). This
-# run's per-year coverage becomes the frozen baseline future runs compare against.
-RELEASE_TSE_VINTAGE_FLOOR <- 85
+# Election years for which TSE publishes field-collected coordinates. Coverage
+# begins with the 2018 vintage; earlier years carry no TSE ground truth.
+RELEASE_TSE_VINTAGES <- c(2018L, 2020L, 2022L, 2024L)
 
-validate_release_gates <- function(geocoded_locais, tse_coverage, export_paths, dev_mode) {
+# Gate 7 regression tolerance, in percentage points. Each TSE-bearing vintage's
+# landed coverage must come within this slack of what its raw TSE file actually
+# offers (raw availability), because the identity join is near-lossless. Raw
+# availability itself ramps from ~51% (2018) to ~94% (2024), so the gate compares
+# against each vintage's own availability rather than a flat floor. Observed
+# legitimate join loss is <=1.6 pt; the merge bug this gate exists to catch (the
+# stale 2 Aug 2024 run) dropped ~36 pt, so 5 pt cleanly separates noise from a
+# real regression (decision 2).
+RELEASE_TSE_JOIN_SLACK <- 5L
+
+validate_release_gates <- function(geocoded_locais, tse_coverage, tse_raw_availability, export_paths, dev_mode) {
   # Read-only, so avoid a defensive deep copy of the ~945k-row national table
   # when it already arrives as a data.table (it does, from finalize_coords()).
   dt <- if (is.data.table(geocoded_locais)) {
@@ -932,16 +940,34 @@ validate_release_gates <- function(geocoded_locais, tse_coverage, export_paths, 
   }
 
   # Gate 7: per-year TSE-coverage regression tripwire. TSE coordinates begin with
-  # the 2018 vintage; each TSE-bearing vintage must clear the floor so the
-  # merge-gap fix / deterministic local_id did not silently drop earlier-year
-  # coverage.
-  tse_vintages <- intersect(c(2018L, 2020L, 2022L, 2024L), cov_year$ano)
-  low <- cov_year[ano %in% tse_vintages & coverage_pct < RELEASE_TSE_VINTAGE_FLOOR]
-  if (nrow(low) > 0) {
+  # the 2018 vintage; each TSE-bearing vintage's landed coverage must come within
+  # RELEASE_TSE_JOIN_SLACK points of that vintage's raw TSE availability, so the
+  # merge-gap fix / deterministic local_id did not silently drop coverage the raw
+  # file actually offers. Comparing against per-vintage raw availability (not a
+  # flat floor) is what lets the gate hold for years TSE geocoded sparsely.
+  raw <- as.data.table(tse_raw_availability)
+  cov_vs_raw <- merge(
+    cov_year[, .(ano, coverage_pct)],
+    raw[, .(ano, raw_avail_pct)],
+    by = "ano"
+  )
+  missing_vintages <- setdiff(RELEASE_TSE_VINTAGES, cov_vs_raw$ano)
+  if (length(missing_vintages) > 0) {
     add_fail(
-      "Gate 7 (coverage regression): TSE vintages below %d%% floor: %s",
-      RELEASE_TSE_VINTAGE_FLOOR,
-      paste(sprintf("%d=%.1f%%", low$ano, low$coverage_pct), collapse = ", ")
+      "Gate 7 (coverage regression): TSE vintages absent from coverage/availability: %s",
+      paste(missing_vintages, collapse = ", ")
+    )
+  }
+  cov_vs_raw[, shortfall := raw_avail_pct - coverage_pct]
+  regressed <- cov_vs_raw[shortfall > RELEASE_TSE_JOIN_SLACK]
+  if (nrow(regressed) > 0) {
+    add_fail(
+      "Gate 7 (coverage regression): landed TSE coverage falls >%d pts below raw availability: %s",
+      RELEASE_TSE_JOIN_SLACK,
+      paste(
+        sprintf("%d=%.1f%% landed vs %.1f%% raw", regressed$ano, regressed$coverage_pct, regressed$raw_avail_pct),
+        collapse = ", "
+      )
     )
   }
 
@@ -952,6 +978,7 @@ validate_release_gates <- function(geocoded_locais, tse_coverage, export_paths, 
     years_present = present_years,
     n_2024 = n_2024,
     coverage_by_year = cov_year[],
+    coverage_vs_raw = cov_vs_raw[],
     coord_by_year = coord_by_year[]
   )
 

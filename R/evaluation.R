@@ -278,6 +278,39 @@ compute_tse_coverage <- function(
   cov[]
 }
 
+# Per-election-year share of polling stations for which the raw TSE file carries
+# a usable coordinate. This is the ceiling the pipeline's landed TSE coverage is
+# read against: TSE progressively geocoded stations over the vintages, so raw
+# availability ramps from ~51% (2018) to ~94% (2024). The release regression
+# tripwire (validate_release_gates() Gate 7) therefore compares each year's
+# landed coverage to that year's own raw availability, not to a flat floor a
+# pre-2024 vintage could never clear. A station counts as available if ANY of
+# its rows carries a valid latitude (TSE encodes "no coordinate" as -1 or NA).
+# Station identity mirrors clean_tsegeocoded_locais(): unique (cd_municipio,
+# nr_zona, nr_local_votacao) within an election year.
+#
+# Availability is scoped to the states present in `locais` (the same universe
+# compute_tse_coverage() aggregates over) so Gate 7 compares like with like in
+# dev mode, where locais is the AC/RR subset but tse_files stay national. The
+# scope is by state (a pre-join geography), so this stays the pre-join ceiling.
+compute_tse_raw_availability <- function(tse_files, locais) {
+  cols <- c("AA_ELEICAO", "SG_UF", "CD_MUNICIPIO", "NR_ZONA", "NR_LOCAL_VOTACAO", "NR_LATITUDE")
+  locs <- rbindlist(lapply(tse_files, function(f) read_tse_locais_file(f, cols)), use.names = TRUE)
+  locs <- locs[sg_uf %in% unique(locais$sg_uf)]
+  locs[, has_coord := !is.na(nr_latitude) & nr_latitude != -1]
+  by_station <- locs[,
+    .(any_coord = any(has_coord)),
+    by = .(ano = aa_eleicao, cd_municipio, nr_zona, nr_local_votacao)
+  ]
+  avail <- by_station[,
+    .(n_stations = .N, n_with_coord = sum(any_coord)),
+    by = ano
+  ]
+  avail[, raw_avail_pct := 100 * n_with_coord / n_stations]
+  setorder(avail, ano)
+  avail[]
+}
+
 # ============================================================================
 # Accuracy tables (spec section 4)
 # ============================================================================

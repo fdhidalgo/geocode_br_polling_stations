@@ -124,8 +124,12 @@ checks (#20) to the full run:
 5. **Sane per-year row counts** — no year collapses or explodes vs its known scale
    (2024 station count ≈ 93,339, matching the address count 93,337).
 6. **Landed 2024 TSE coverage ≥ 92%** (decision 2).
-7. **Per-year TSE-coverage regression tripwire** — no year's landed coverage drops
-   unexpectedly (decision 2).
+7. **Per-year TSE-coverage regression tripwire** — no TSE-bearing vintage's landed
+   coverage falls more than `RELEASE_TSE_JOIN_SLACK` (5 pt) below that vintage's own
+   *raw* TSE availability (decision 2). Raw availability ramps from ~51% (2018) to ~94%
+   (2024) as TSE progressively geocoded stations, so the gate compares each year against
+   its own availability ceiling (`compute_tse_raw_availability()`), not a flat floor a
+   sparse pre-2024 vintage could never clear.
 
 Accuracy is reported, not gated (decision 4).
 

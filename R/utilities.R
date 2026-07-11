@@ -264,22 +264,23 @@ combine_cnefe_state_component <- function(state_results, component,
     fill = TRUE
   )
 
-  if (!is.null(unique_key)) {
+  # anyDuplicated() is a single pass with a 0L fast path, so the expensive
+  # per-key count table is only materialized on the rare error path (to build
+  # the diagnostic), not on every combine.
+  if (!is.null(unique_key) && anyDuplicated(combined, by = unique_key) > 0L) {
     dup_keys <- combined[, .N, by = unique_key][N > 1]
-    if (nrow(dup_keys) > 0) {
-      example <- paste(
-        unlist(dup_keys[1, ..unique_key]),
-        collapse = ", "
-      )
-      stop(sprintf(
-        paste0(
-          "combine_cnefe_state_component(): %d '%s' key(s) duplicated across ",
-          "state slices (e.g. %s). A municipality spanning two state files or ",
-          "a mis-assigned state file produces this."
-        ),
-        nrow(dup_keys), component, example
-      ))
-    }
+    example <- paste(
+      unlist(dup_keys[1, ..unique_key]),
+      collapse = ", "
+    )
+    stop(sprintf(
+      paste0(
+        "combine_cnefe_state_component(): %d '%s' key(s) duplicated across ",
+        "state slices (e.g. %s). A municipality spanning two state files or ",
+        "a mis-assigned state file produces this."
+      ),
+      nrow(dup_keys), component, example
+    ))
   }
 
   combined

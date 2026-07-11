@@ -70,12 +70,11 @@ compare_targets <- c(
 # external pointer and sort/index attributes that identical() would otherwise
 # trip on.
 as_canonical <- function(x) {
+  # as.list() on a data.table returns a plain named list of the column vectors,
+  # dropping the key/index/selfref attributes that identical() would otherwise
+  # trip on -- so no explicit attribute stripping is needed.
   if (is.data.frame(x)) {
-    x <- data.table::as.data.table(x)
-    x <- data.table::copy(x)
-    data.table::setattr(x, "sorted", NULL)
-    data.table::setattr(x, "index", NULL)
-    return(as.list(x))
+    return(as.list(data.table::as.data.table(x)))
   }
   x
 }
@@ -93,10 +92,8 @@ first_diff_detail <- function(a, b) {
     # list-columns: fall back to a coarse index scan
     neq <- !mapply(identical, a, b)
   } else {
-    neq <- (a != b)
-    neq[is.na(a) & is.na(b)] <- FALSE
-    neq[xor(is.na(a), is.na(b))] <- TRUE
-    neq[is.na(neq)] <- FALSE
+    # differ iff exactly one side is NA, or both are non-NA and unequal
+    neq <- xor(is.na(a), is.na(b)) | (!is.na(a) & !is.na(b) & a != b)
   }
   idx <- which(neq)
   if (!length(idx)) {

@@ -305,9 +305,18 @@ clean_tsegeocoded_locais <- function(tse_files, muni_ids, locais) {
 }
 
 clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
-  # Read and combine all agro census files
+  # Read and combine all agro census files.
+  # COD_UF/COD_MUNICIPIO are zero-padded numeric strings in the source files
+  # (e.g. "12" + "00401"). Read them as character so fread does not infer them
+  # as integers and strip the leading zeros; the padding is what makes
+  # paste0(cod_uf, cod_municipio) a valid 7-digit IBGE code (#75).
   agro_list <- lapply(agro_cnefe_files, function(file) {
-    fread(file, encoding = "UTF-8", sep = ";")
+    fread(
+      file,
+      encoding = "UTF-8",
+      sep = ";",
+      colClasses = list(character = c("COD_UF", "COD_MUNICIPIO"))
+    )
   })
   agro_cnefe <- rbindlist(agro_list, fill = TRUE)
 
@@ -325,6 +334,19 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
 
   # Create id_munic_7 from cod_uf and cod_municipio BEFORE standardization
   agro_cnefe[, id_munic_7 := as.numeric(paste0(cod_uf, cod_municipio))]
+
+  # Fail loud if the municipality key does not line up with the polling-station
+  # municipalities. Zero overlap means the leading-zero padding was lost on read
+  # (the #75 regression) and every downstream agrocnefe_stbairro lookup would
+  # silently match nothing.
+  if (!any(unique(agro_cnefe$id_munic_7) %in% muni_ids$id_munic_7)) {
+    stop(
+      "clean_agro_cnefe(): id_munic_7 has zero overlap with muni_ids$id_munic_7. ",
+      "COD_UF/COD_MUNICIPIO likely lost their leading zeros on read (see #75). ",
+      "Sample agro id_munic_7: ",
+      paste(utils::head(sort(unique(agro_cnefe$id_munic_7))), collapse = ", ")
+    )
+  }
 
   # Now standardize column names
   standardize_column_names(agro_cnefe, inplace = TRUE)

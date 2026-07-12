@@ -1,11 +1,11 @@
 # Geocoding Brazilian Polling Stations with Administrative Data Sets
 
-This repository contains the code to geocode polling stations in Brazil. We leverage administrative datasets to geocode all polling stations used in elections from 2006 to 2022.
+This repository contains the code to geocode polling stations in Brazil. We leverage administrative datasets to geocode all polling stations used in elections from 2006 to 2024.
 
 ## Overview
 
 This project provides:
-- **Geocoded coordinates** for ~400,000 Brazilian polling stations (2006-2022)
+- **Geocoded coordinates** for over 944,000 Brazilian polling station records across ten elections (2006-2024)
 - **Panel identifiers** to track polling stations across elections
 - **Reproducible pipeline** using R and the `targets` package
 - **Fuzzy string matching** algorithms that often outperform commercial geocoding services
@@ -18,7 +18,7 @@ The latest dataset of geocoded polling stations can be found in the compressed c
 
 The dataset (`geocoded_polling_stations.csv.gz`) contains the following variables:
 
-- `local_id`: Unique identifier for the polling station in a given election. This will vary across time, even for polling stations that are active in multiple elections.
+- `local_id`: Unique identifier for the polling station in a given election. This will vary across time, even for polling stations that are active in multiple elections. **Note:** `local_id` values are stable within a single release but are **not comparable across releases** — do not use them to join data from different releases. Use `panel_id` (see below) to track a station across elections.
 
 - `ano`: Election year
 
@@ -26,7 +26,7 @@ The dataset (`geocoded_polling_stations.csv.gz`) contains the following variable
 
 - `cd_localidade_tse`: Municipal identifier used by the TSE.
 
-- `cd_localidade_ibge`: Municipal identifier used by the IBGE
+- `cod_localidade_ibge`: Municipal identifier used by the IBGE
 
 - `nr_zona`: Electoral zone number
 
@@ -52,9 +52,9 @@ The dataset (`geocoded_polling_stations.csv.gz`) contains the following variable
 
 - `tse_long`: Longitude provided by the TSE. This is only available for a subset of data.
 
-- `long`: Longitude as predicted by the model or provided by the TSE.
+- `final_long`: Longitude to use for analysis. This is the coordinate provided by the TSE when available (`tse_long`), and otherwise the coordinate selected by our model (`pred_long`). In releases prior to 0.15 this column was named `long`.
 
-- `lat`: Latitude as predicted by the model or provided by the TSE.
+- `final_lat`: Latitude to use for analysis. This is the coordinate provided by the TSE when available (`tse_lat`), and otherwise the coordinate selected by our model (`pred_lat`). In releases prior to 0.15 this column was named `lat`.
 
 ### Panel Identifiers
 We also created panel identifiers that track a given polling station over time. Because panel identifiers provided by the electoral authorities can change over time, we must use a fuzzy matching procedure to create our own panel identifiers. The process implemented to generate the panel identifiers consists of six stages. First, we subset the data at the state level for each electoral year. Then, we generate every possible pair of polling stations at the municipality level for every consecutive electoral year. This can be as few as three possible pairs for the least populous municipality in Brazil, Serra da Saudade-MG, which had one polling station in 2006 and three in 2008, or as many as millions of pairs for the most populous municipality, São Paulo-SP, which has over 1,500 polling stations in each electoral year. The next step is to calculate the [Jaro-Winkler](https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance) string similarity for each possible pair on two strings: the normalized name and the normalized address of the location. 
@@ -63,9 +63,8 @@ Subsequently, we use the Fellegi-Sunter framework for record linkage to choose t
 
  The dataset `panel_ids.csv.gz` has the following variables:
 
-- `ano`: year
 - `panel_id`: unique panel identifier. Units with the same `panel_id` are classified to be the same polling station in two different election years according to our fuzzy matching procedure. 
-- `local_id`: polling station identifier. Use this variable to merge with the coordinates data. 
+- `local_id`: polling station identifier. Use this variable to merge with the coordinates data (one `local_id` per polling-station-election, so it also identifies the election year via that join). 
 - `long`: This is a longitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest predicted distance to the true location. Ties are broken by selecting the longitude from the latest year.
 - `lat`: This is a latitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest predicted distance to the true location. Ties are broken by selecting the latitude from the latest year.
 

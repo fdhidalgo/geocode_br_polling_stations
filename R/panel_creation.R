@@ -91,10 +91,13 @@ process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
 #' @return Data table with panel IDs and coordinates
 #' @export
 make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
-  # Standardize column names
+  # Standardize the panel-id tables' column names. geocoded_locais is deliberately
+  # NOT standardized: it is the shared canonical target, so an inplace rename here
+  # would corrupt the columns other consumers (export, release gates) read from
+  # the same in-memory object - and the columns used below (local_id, ano,
+  # final_long, final_lat, pred_dist) are already in their final form anyway.
   standardize_column_names(panel_ids_df, inplace = TRUE)
   standardize_column_names(panel_ids_states, inplace = TRUE)
-  standardize_column_names(geocoded_locais, inplace = TRUE)
 
   panel_ids <- rbindlist(list(panel_ids_df, panel_ids_states))
 

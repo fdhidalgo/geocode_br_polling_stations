@@ -1000,6 +1000,25 @@ validate_release_gates <- function(
     }
   }
 
+  # Gate 9: the PUBLISHED geocoded schema is exactly the 0.141 column set and
+  # order. Gates 2-3 check the internal final_* table, but the file is written
+  # through to_geocoded_export_schema() (final_long/final_lat -> long/lat, 0.141
+  # order); this gate runs that mapper and checks its output, so a regression in
+  # the mapper - a dropped/reordered published column - is caught here instead of
+  # shipping a broken header. A one-row sample suffices: the schema is
+  # data-independent.
+  published_cols <- tryCatch(
+    names(to_geocoded_export_schema(head(dt, 1L))),
+    error = function(e) character(0)
+  )
+  if (!identical(published_cols, GEOCODED_EXPORT_SCHEMA)) {
+    add_fail(
+      "Gate 9 (published schema): export mapper output does not match the 0.141 schema.\n    expected: %s\n    got: %s",
+      paste(GEOCODED_EXPORT_SCHEMA, collapse = ", "),
+      paste(published_cols, collapse = ", ")
+    )
+  }
+
   summary <- list(
     passed = length(failures) == 0,
     failures = failures,

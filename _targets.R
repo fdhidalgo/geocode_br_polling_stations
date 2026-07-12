@@ -289,40 +289,49 @@ list(
   # full cleaned address rows are never persisted (spec D5). The national
   # `cnefe10` combine and the duplicate schools read/clean pass are deleted; the
   # small aggregates are row-bound from the per-state results below.
-  tar_target(
-    name = cnefe10_states,
-    command = get_states_for_processing("cnefe10", pipeline_config)
+  # Track each 2010 CNEFE state file's content (cleanup phase 5, C2) so a
+  # re-downloaded or added file invalidates exactly its branch. tar_files_input
+  # enumerates the files at definition time via the DEV_MODE-aware helper;
+  # repository = "local" keeps file tracking off S3, matching the other input
+  # file targets.
+  tarchetypes::tar_files_input(
+    cnefe10_files,
+    get_cnefe_state_files(2010, DEV_MODE),
+    format = "file",
+    repository = "local"
   ),
   # Clean each state and aggregate in-memory (streets, neighborhoods, schools)
   tar_target(
     name = cnefe10_by_state,
     command = process_cnefe_state(
-      state = cnefe10_states,
+      state_file = cnefe10_files,
       year = 2010,
       muni_ids = muni_ids,
       tract_centroids = tract_centroids
     ),
-    pattern = map(cnefe10_states),
+    pattern = map(cnefe10_files),
     format = "qs",
     iteration = "list",
     resources = tar_resources(
       crew = tar_resources_crew(controller = "memory_limited")
     )
   ),
-  # Get list of states to process based on mode
-  tar_target(
-    name = cnefe22_states,
-    command = get_states_for_processing("cnefe22", pipeline_config)
+  # Track each 2022 CNEFE state file's content (cleanup phase 5, C2).
+  tarchetypes::tar_files_input(
+    cnefe22_files,
+    get_cnefe_state_files(2022, DEV_MODE),
+    format = "file",
+    repository = "local"
   ),
   # Clean each state and aggregate in-memory (streets, neighborhoods, schools)
   tar_target(
     name = cnefe22_by_state,
     command = process_cnefe_state(
-      state = cnefe22_states,
+      state_file = cnefe22_files,
       year = 2022,
       muni_ids = muni_ids
     ),
-    pattern = map(cnefe22_states),
+    pattern = map(cnefe22_files),
     format = "qs",
     iteration = "list",
     resources = tar_resources(
@@ -363,9 +372,14 @@ list(
     retrieval = "worker"
   ),
   ## Import and clean 2017 CNEFE
-  tar_target(
-    name = agro_cnefe_files,
-    command = get_agro_cnefe_files(pipeline_config)
+  # Track each agro-CNEFE state file's content (cleanup phase 5, C2). clean_agro_cnefe
+  # consumes the aggregated branch paths (a non-mapped consumer of a branched file
+  # target receives the full vector of paths), so a changed file rebuilds agro_cnefe.
+  tarchetypes::tar_files_input(
+    agro_cnefe_files,
+    get_agro_cnefe_files(DEV_MODE),
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = agro_cnefe,
@@ -975,8 +989,11 @@ list(
       dir.create("output", showWarnings = FALSE)
       writeLines(report_text, "output/string_match_diagnostics.txt")
       "output/string_match_diagnostics.txt"
-    }
-    # Now a data target that returns the file path (stored in S3)
+    },
+    # Real tracked file target (cleanup phase 5, H5): if the written report is
+    # deleted, targets rebuilds it. repository = "local" matches the input files.
+    format = "file",
+    repository = "local"
   ),
 
   # ========================================
@@ -1169,18 +1186,24 @@ list(
   # DATA EXPORT
   # ========================================
 
+  # The three exports are real tracked file targets (cleanup phase 5, H5): each
+  # command writes its file and returns the path, and format = "file" makes
+  # targets rebuild it if the output file is deleted. repository = "local" keeps
+  # the outputs off S3, matching the input-file policy.
   tar_target(
     name = geocoded_export,
     command = export_geocoded_with_validation(
       geocoded_locais,
       validation_report
-    )
-    # Now a data target that returns the file path (stored in S3)
+    ),
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = panelid_export,
-    command = export_panel_ids_with_validation(panel_ids, validation_report)
-    # Now a data target that returns the file path (stored in S3)
+    command = export_panel_ids_with_validation(panel_ids, validation_report),
+    format = "file",
+    repository = "local"
   ),
   tar_target(
     name = section_panel_export,
@@ -1188,8 +1211,9 @@ list(
       dir.create("output", showWarnings = FALSE)
       fwrite(section_panel_mapping, "output/section_panel_mapping.csv.gz")
       "output/section_panel_mapping.csv.gz"
-    }
-    # Now a data target that returns the file path (stored in S3)
+    },
+    format = "file",
+    repository = "local"
   ),
   ## Release gates: fail-loud structural tripwires on the production rebuild
   ## before it can be shipped as v0.15 (release spec, #48). Depends on the export

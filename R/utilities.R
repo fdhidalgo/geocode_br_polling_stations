@@ -163,16 +163,22 @@ apply_brasilia_filters <- function(data, remove_brasilia = TRUE, state_col = "sg
 #' @return A list with `st` (street aggregates), `bairro` (neighborhood
 #'   aggregates), and `schools` (school rows) for this state
 #' @export
-process_cnefe_state <- function(state, year, muni_ids, tract_centroids = NULL) {
-  # Construct file path
-  state_file <- file.path(
-    "data",
-    paste0("cnefe_", year),
-    paste0("cnefe_", year, "_", state, ".csv.gz")
-  )
+process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NULL) {
+  # state_file is the tracked per-state CNEFE path (cleanup phase 5, C2), e.g.
+  # "data/cnefe_2010/cnefe_2010_AC.csv.gz". Deriving the state from the filename
+  # (rather than passing it separately) keeps the file content the single tracked
+  # dependency, so a re-downloaded state file invalidates exactly its branch.
+  state <- cnefe_state_from_file(state_file, year)
 
   # Get municipality IDs for this state
   state_muni_ids <- muni_ids[estado_abrev == state]
+  if (nrow(state_muni_ids) == 0L) {
+    stop(sprintf(
+      "process_cnefe_state(): no muni_ids rows for state '%s' derived from %s",
+      state,
+      state_file
+    ))
+  }
 
   if (year == 2010) {
     # Read state data

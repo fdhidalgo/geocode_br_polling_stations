@@ -168,11 +168,7 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
   # "data/cnefe_2010/cnefe_2010_AC.csv.gz". Deriving the state from the filename
   # (rather than passing it separately) keeps the file content the single tracked
   # dependency, so a re-downloaded state file invalidates exactly its branch.
-  state <- sub(
-    paste0("^cnefe_", year, "_(.+)\\.csv\\.gz$"),
-    "\\1",
-    basename(state_file)
-  )
+  state <- cnefe_state_from_file(state_file, year)
 
   # Get municipality IDs for this state
   state_muni_ids <- muni_ids[estado_abrev == state]

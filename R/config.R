@@ -73,13 +73,6 @@ get_pipeline_config <- function(dev_mode = FALSE) {
   # Kept at 0; whether ~0.5 is intended is an evaluation question (ticket #25).
   config$panel_weight_threshold <- 0
 
-  # Add computed values
-  config$states <- if (is.null(config$dev_states)) {
-    BRAZIL_STATES
-  } else {
-    config$dev_states
-  }
-
   return(config)
 }
 
@@ -92,6 +85,15 @@ get_pipeline_config <- function(dev_mode = FALSE) {
 # yields no matching files, so a missing/misnamed input surfaces at definition
 # time instead of silently producing an empty branch set.
 
+cnefe_state_from_file <- function(file, year) {
+  # Extract the state abbreviation from a CNEFE filename, e.g.
+  # "cnefe_2010_AC.csv.gz" -> "AC". The naming convention
+  # cnefe_<year>_<STATE>.csv.gz is encoded here as the single source of truth so
+  # get_cnefe_state_files() (dev filtering) and process_cnefe_state() (per-branch
+  # state derivation) cannot drift apart.
+  sub(paste0("^cnefe_", year, "_(.+)\\.csv\\.gz$"), "\\1", basename(file))
+}
+
 get_cnefe_state_files <- function(year, dev_mode = FALSE, dev_states = DEV_STATES) {
   # Per-state CNEFE .csv.gz paths for the given year (2010 or 2022), restricted
   # to the dev subset in dev mode. One tracked branch per returned file.
@@ -99,8 +101,7 @@ get_cnefe_state_files <- function(year, dev_mode = FALSE, dev_states = DEV_STATE
   pattern <- paste0("^cnefe_", year, "_.*\\.csv\\.gz$")
   files <- list.files(dir, pattern = pattern, full.names = TRUE)
   if (dev_mode) {
-    states <- sub(paste0("^cnefe_", year, "_(.+)\\.csv\\.gz$"), "\\1", basename(files))
-    files <- files[states %in% dev_states]
+    files <- files[cnefe_state_from_file(files, year) %in% dev_states]
   }
   if (length(files) == 0L) {
     stop(sprintf("No CNEFE %d state files found under %s/", year, dir))
@@ -110,19 +111,23 @@ get_cnefe_state_files <- function(year, dev_mode = FALSE, dev_states = DEV_STATE
 
 get_agro_cnefe_files <- function(dev_mode = FALSE, dev_states = DEV_STATES) {
   # 2017 agro-CNEFE state file paths, restricted to the dev subset in dev mode.
-  # Source files are named by IBGE UF code + name (e.g. "12_ACRE.csv.gz"), so the
-  # dev subset maps state abbreviations to those filenames.
+  # Always glob the directory (single source for the file list); dev mode then
+  # filters that list. Agro filenames encode the IBGE UF code + name (e.g.
+  # "12_ACRE.csv.gz"), not the state abbreviation, so the dev filter needs an
+  # explicit abbreviation -> filename map. A fail-loud guard requires every
+  # dev_states entry to appear in the map, so the map can never silently drift
+  # from DEV_STATES.
+  files <- list.files("data/agro_censo", pattern = "\\.csv\\.gz$", full.names = TRUE)
   if (dev_mode) {
-    state_file_map <- c(
-      "AC" = "12_ACRE.csv.gz",
-      "RR" = "14_RORAIMA.csv.gz",
-      "AP" = "16_AMAPA.csv.gz",
-      "RO" = "11_RONDONIA.csv.gz"
-    )
-    dev_files <- state_file_map[dev_states]
-    files <- file.path("data/agro_censo", dev_files[!is.na(dev_files)])
-  } else {
-    files <- list.files("data/agro_censo", pattern = "\\.csv\\.gz$", full.names = TRUE)
+    state_file_map <- c("AC" = "12_ACRE.csv.gz", "RR" = "14_RORAIMA.csv.gz")
+    missing <- setdiff(dev_states, names(state_file_map))
+    if (length(missing) > 0L) {
+      stop(
+        "get_agro_cnefe_files(): no agro filename mapping for dev state(s): ",
+        paste(missing, collapse = ", ")
+      )
+    }
+    files <- files[basename(files) %in% state_file_map[dev_states]]
   }
   if (length(files) == 0L) {
     stop("No agro-CNEFE files found under data/agro_censo/")

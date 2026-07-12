@@ -1201,12 +1201,15 @@ list(
       tse_coverage = tse_coverage,
       tse_raw_availability = tse_raw_availability,
       export_paths = c(geocoded_export, panelid_export),
-      dev_mode = pipeline_config$dev_mode
+      dev_mode = pipeline_config$dev_mode,
+      panel_gate = panel_release_gates
     ),
     cue = tar_cue(mode = "always")
   ),
   ## Panel-output release gate: guards panel_ids.csv.gz (accuracy column present,
-  ## coordinates assigned to essentially every panel). Sibling to release_gates.
+  ## coordinates assigned to essentially every panel). Sibling to release_gates,
+  ## and a dependency of it (via panel_gate) so the canonical release check
+  ## can't be built without also running this one.
   tar_target(
     name = panel_release_gates,
     command = validate_panel_release(panel_ids),

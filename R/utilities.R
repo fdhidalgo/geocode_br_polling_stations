@@ -751,13 +751,78 @@ create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, m
 # ===== DATA EXPORT FUNCTIONS =====
 # These functions were moved from data_export.R
 
+# Column names and order of the published geocoded file, preserved from the
+# 0.141 release so downstream code that reads it keeps working. Internally the
+# pipeline names the recommended coordinate final_long/final_lat (to
+# disambiguate from pred_*/tse_*); the published file calls them long/lat.
+GEOCODED_EXPORT_SCHEMA <- c(
+  "local_id",
+  "ano",
+  "sg_uf",
+  "cd_localidade_tse",
+  "cod_localidade_ibge",
+  "nr_zona",
+  "nr_locvot",
+  "nr_cep",
+  "nm_localidade",
+  "nm_locvot",
+  "ds_endereco",
+  "ds_bairro",
+  "pred_long",
+  "pred_lat",
+  "pred_dist",
+  "tse_long",
+  "tse_lat",
+  "long",
+  "lat"
+)
+
+#' Map the internal geocoded table to the published 0.141-compatible schema.
+#'
+#' Renames final_long/final_lat to long/lat and reorders columns to
+#' GEOCODED_EXPORT_SCHEMA. Pure (returns a new table; does not mutate the input),
+#' so it is unit-testable and safe to call on a shared target object. Fails loud
+#' if the expected columns are absent.
+#'
+#' @param geocoded_locais Internal geocoded table (with final_long/final_lat).
+#' @return A data.table with exactly the published columns, in 0.141 order.
+#' @export
+to_geocoded_export_schema <- function(geocoded_locais) {
+  # Read-only select: renames final_long/final_lat inline and fixes column order
+  # in one pass, returning a new data.table without mutating the input.
+  as.data.table(geocoded_locais)[, .(
+    local_id,
+    ano,
+    sg_uf,
+    cd_localidade_tse,
+    cod_localidade_ibge,
+    nr_zona,
+    nr_locvot,
+    nr_cep,
+    nm_localidade,
+    nm_locvot,
+    ds_endereco,
+    ds_bairro,
+    pred_long,
+    pred_lat,
+    pred_dist,
+    tse_long,
+    tse_lat,
+    long = final_long,
+    lat = final_lat
+  )]
+}
+
 #' Export geocoded locations to file
 #'
 #' @param geocoded_locais Geocoded locations data
 #' @return Path to exported file
 #' @export
 export_geocoded_locais <- function(geocoded_locais) {
-  fwrite(geocoded_locais, "./output/geocoded_polling_stations.csv.gz")
+  fwrite(
+    to_geocoded_export_schema(geocoded_locais),
+    "./output/geocoded_polling_stations.csv.gz"
+  )
   "./output/geocoded_polling_stations.csv.gz"
 }
 

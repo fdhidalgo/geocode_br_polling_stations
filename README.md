@@ -52,9 +52,9 @@ The dataset (`geocoded_polling_stations.csv.gz`) contains the following variable
 
 - `tse_long`: Longitude provided by the TSE. This is only available for a subset of data.
 
-- `final_long`: Longitude to use for analysis. This is the coordinate provided by the TSE when available (`tse_long`), and otherwise the coordinate selected by our model (`pred_long`). In releases prior to 0.15 this column was named `long`.
+- `long`: Longitude to use for analysis. This is the coordinate provided by the TSE when available (`tse_long`), and otherwise the coordinate selected by our model (`pred_long`).
 
-- `final_lat`: Latitude to use for analysis. This is the coordinate provided by the TSE when available (`tse_lat`), and otherwise the coordinate selected by our model (`pred_lat`). In releases prior to 0.15 this column was named `lat`.
+- `lat`: Latitude to use for analysis. This is the coordinate provided by the TSE when available (`tse_lat`), and otherwise the coordinate selected by our model (`pred_lat`).
 
 ### Panel Identifiers
 We also created panel identifiers that track a given polling station over time. Because panel identifiers provided by the electoral authorities can change over time, we must use a fuzzy matching procedure to create our own panel identifiers. The process implemented to generate the panel identifiers consists of six stages. First, we subset the data at the state level for each electoral year. Then, we generate every possible pair of polling stations at the municipality level for every consecutive electoral year. This can be as few as three possible pairs for the least populous municipality in Brazil, Serra da Saudade-MG, which had one polling station in 2006 and three in 2008, or as many as millions of pairs for the most populous municipality, São Paulo-SP, which has over 1,500 polling stations in each electoral year. The next step is to calculate the [Jaro-Winkler](https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance) string similarity for each possible pair on two strings: the normalized name and the normalized address of the location. 

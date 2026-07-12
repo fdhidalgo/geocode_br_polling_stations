@@ -839,7 +839,18 @@ RELEASE_TSE_VINTAGES <- c(2018L, 2020L, 2022L, 2024L)
 # real regression (decision 2).
 RELEASE_TSE_JOIN_SLACK <- 5L
 
-validate_release_gates <- function(geocoded_locais, tse_coverage, tse_raw_availability, export_paths, dev_mode) {
+validate_release_gates <- function(
+  geocoded_locais,
+  tse_coverage,
+  tse_raw_availability,
+  export_paths,
+  dev_mode,
+  panel_gate = NULL
+) {
+  # panel_gate is a dependency-only argument: passing the panel_release_gates
+  # target makes this canonical release check depend on the panel gate, so
+  # building release_gates also runs validate_panel_release() (which stops the
+  # build itself on failure). It is not otherwise read here.
   # Read-only, so avoid a defensive deep copy of the ~945k-row national table
   # when it already arrives as a data.table (it does, from finalize_coords()).
   dt <- if (is.data.table(geocoded_locais)) {

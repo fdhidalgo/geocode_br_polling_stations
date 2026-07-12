@@ -55,11 +55,13 @@ run_check <- function(desc, code) {
 br_lat <- c(-34, 6)
 br_long <- c(-74, -34)
 
-# Columns validate_final_output requires on the geocoded output (_targets.R).
+# Columns required on the *published* geocoded file. The recommended coordinate
+# ships as long/lat (0.141-compatible names); the internal table calls it
+# final_long/final_lat and is remapped at export by to_geocoded_export_schema().
 geocoded_required_cols <- c(
   "local_id",
-  "final_lat",
-  "final_long",
+  "lat",
+  "long",
   "ano",
   "nr_zona",
   "nr_locvot",
@@ -105,10 +107,10 @@ results <- c(
 
   # 4. Coordinate sanity + not-all-NA. (tripwire: C5 geocodebr silent-vanish.)
   run_check("4. coordinates are within Brazil and not entirely NA", {
-    expect_false(all(is.na(geocoded$final_lat)))
-    expect_false(all(is.na(geocoded$final_long)))
-    lat <- geocoded$final_lat[!is.na(geocoded$final_lat)]
-    long <- geocoded$final_long[!is.na(geocoded$final_long)]
+    expect_false(all(is.na(geocoded$lat)))
+    expect_false(all(is.na(geocoded$long)))
+    lat <- geocoded$lat[!is.na(geocoded$lat)]
+    long <- geocoded$long[!is.na(geocoded$long)]
     expect_true(all(lat >= br_lat[1] & lat <= br_lat[2]))
     expect_true(all(long >= br_long[1] & long <= br_long[2]))
     expect_false(all(is.na(panel$lat)))

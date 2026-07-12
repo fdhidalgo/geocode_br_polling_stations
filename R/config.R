@@ -101,7 +101,19 @@ get_cnefe_state_files <- function(year, dev_mode = FALSE, dev_states = DEV_STATE
   pattern <- paste0("^cnefe_", year, "_.*\\.csv\\.gz$")
   files <- list.files(dir, pattern = pattern, full.names = TRUE)
   if (dev_mode) {
-    files <- files[cnefe_state_from_file(files, year) %in% dev_states]
+    states <- cnefe_state_from_file(files, year)
+    # Fail loud if a requested dev state has no file on disk: silently dropping
+    # it would run a partial dev pipeline that looks complete (Codex triage).
+    missing <- setdiff(dev_states, states)
+    if (length(missing) > 0L) {
+      stop(sprintf(
+        "Missing CNEFE %d file(s) for dev state(s): %s (under %s/)",
+        year,
+        paste(missing, collapse = ", "),
+        dir
+      ))
+    }
+    files <- files[states %in% dev_states]
   }
   if (length(files) == 0L) {
     stop(sprintf("No CNEFE %d state files found under %s/", year, dir))
@@ -127,7 +139,17 @@ get_agro_cnefe_files <- function(dev_mode = FALSE, dev_states = DEV_STATES) {
         paste(missing, collapse = ", ")
       )
     }
-    files <- files[basename(files) %in% state_file_map[dev_states]]
+    wanted <- state_file_map[dev_states]
+    # Fail loud if a mapped dev file is absent on disk: silently dropping it
+    # would run a partial dev pipeline that looks complete (Codex triage).
+    absent <- setdiff(wanted, basename(files))
+    if (length(absent) > 0L) {
+      stop(
+        "Missing agro-CNEFE file(s) for dev run under data/agro_censo/: ",
+        paste(absent, collapse = ", ")
+      )
+    }
+    files <- files[basename(files) %in% wanted]
   }
   if (length(files) == 0L) {
     stop("No agro-CNEFE files found under data/agro_censo/")

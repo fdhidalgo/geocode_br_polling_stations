@@ -977,8 +977,10 @@ validate_release_gates <- function(geocoded_locais, tse_coverage, tse_raw_availa
   # accuracy filtering and the panel coordinate picker (both order by pred_dist).
   # Guarded on schema so a missing column stays Gate 2's failure, not a raw error.
   if (all(c("tse_long", "tse_lat", "pred_dist") %in% names(dt))) {
-    tse_rows <- dt[!is.na(tse_long) & !is.na(tse_lat)]
-    n_bad_preddist <- tse_rows[is.na(pred_dist) | pred_dist != 0, .N]
+    n_bad_preddist <- dt[
+      !is.na(tse_long) & !is.na(tse_lat) & (is.na(pred_dist) | pred_dist != 0),
+      .N
+    ]
     if (n_bad_preddist > 0) {
       add_fail(
         "Gate 8 (pred_dist): %d TSE-covered rows have non-zero pred_dist (expected 0 for ground-truth coordinates)",

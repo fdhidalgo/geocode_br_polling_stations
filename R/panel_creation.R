@@ -115,11 +115,13 @@ make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
   # when every one of its years failed to geocode (rare). This is why the model
   # coordinates matter here: without them, panels whose years predate TSE ground
   # truth (2018) would all come out blank.
-  panel_ids_best <- panel_ids[
-    !is.na(long) & !is.na(lat)
-  ][
-    order(panel_id, pred_dist, -ano)
-  ][, .SD[1], by = .(panel_id)][, .(panel_id, long, lat, pred_dist)]
+  # unique(by=) keeps the first row per panel on the already-sorted table, which
+  # is the smallest-pred_dist / most-recent row - the same pick as .SD[1] by
+  # group, without the per-group allocation.
+  panel_ids_best <- unique(
+    panel_ids[!is.na(long) & !is.na(lat)][order(panel_id, pred_dist, -ano)],
+    by = "panel_id"
+  )[, .(panel_id, long, lat, pred_dist)]
 
   # Replace the per-station coordinates with the chosen panel-level coordinate.
   panel_ids[, c("long", "lat", "pred_dist", "ano") := NULL]
@@ -128,8 +130,8 @@ make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
     on = .(panel_id),
     nomatch = NA
   ]
-
-  panel_ids[, .(panel_id, local_id, long, lat, pred_dist)]
+  setcolorder(panel_ids, c("panel_id", "local_id", "long", "lat", "pred_dist"))
+  panel_ids[]
 }
 
 #' Create panel dataset from matched pairs

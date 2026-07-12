@@ -91,37 +91,50 @@ process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
 #' @return Data table with panel IDs and coordinates
 #' @export
 make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
-  # Standardize column names
+  # Standardize the panel-id tables' column names. geocoded_locais is deliberately
+  # NOT standardized: it is the shared canonical target, so an inplace rename here
+  # would corrupt the columns other consumers (export, release gates) read from
+  # the same in-memory object - and the columns used below (local_id, ano,
+  # final_long, final_lat, pred_dist) are already in their final form anyway.
   standardize_column_names(panel_ids_df, inplace = TRUE)
   standardize_column_names(panel_ids_states, inplace = TRUE)
-  standardize_column_names(geocoded_locais, inplace = TRUE)
 
   panel_ids <- rbindlist(list(panel_ids_df, panel_ids_states))
 
-  # Join with geocoded locais using data.table syntax
+  # Attach each station-year's final coordinate (the TSE official coordinate when
+  # available, otherwise the model's selection) and its predicted error. pred_dist
+  # is 0 for TSE-covered rows and the model's predicted distance otherwise, so
+  # ordering a panel's years by pred_dist puts ground-truth coordinates first and
+  # the most confident model coordinate next.
   panel_ids <- geocoded_locais[
     panel_ids,
     on = .(local_id),
     nomatch = NA
-  ][, .(local_id, panel_id, ano, long = tse_long, lat = tse_lat)]
+  ][, .(local_id, panel_id, ano, long = final_long, lat = final_lat, pred_dist)]
 
-  # For each panel_id, get coordinates from most recent year
-  # (TSE data doesn't have pred_dist)
-  panel_ids_best <- panel_ids[
-    order(panel_id, -ano)
-  ][, .SD[1], by = .(panel_id)][, .(panel_id, long, lat)]
+  # For each panel, choose the single most accurate coordinate: smallest
+  # pred_dist, ties broken toward the most recent year. Only station-years that
+  # actually carry a coordinate compete, so a panel is left uncoordinated only
+  # when every one of its years failed to geocode (rare). This is why the model
+  # coordinates matter here: without them, panels whose years predate TSE ground
+  # truth (2018) would all come out blank.
+  # unique(by=) keeps the first row per panel on the already-sorted table, which
+  # is the smallest-pred_dist / most-recent row - the same pick as .SD[1] by
+  # group, without the per-group allocation.
+  panel_ids_best <- unique(
+    panel_ids[!is.na(long) & !is.na(lat)][order(panel_id, pred_dist, -ano)],
+    by = "panel_id"
+  )[, .(panel_id, long, lat, pred_dist)]
 
-  # Remove coordinates from panel_ids
-  panel_ids[, c("long", "lat", "ano") := NULL]
-
-  # Join with best coordinates using data.table syntax
+  # Replace the per-station coordinates with the chosen panel-level coordinate.
+  panel_ids[, c("long", "lat", "pred_dist", "ano") := NULL]
   panel_ids <- panel_ids_best[
     panel_ids,
     on = .(panel_id),
     nomatch = NA
   ]
-
-  return(panel_ids)
+  setcolorder(panel_ids, c("panel_id", "local_id", "long", "lat", "pred_dist"))
+  panel_ids[]
 }
 
 #' Create panel dataset from matched pairs

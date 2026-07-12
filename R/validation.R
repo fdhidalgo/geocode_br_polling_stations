@@ -839,7 +839,18 @@ RELEASE_TSE_VINTAGES <- c(2018L, 2020L, 2022L, 2024L)
 # real regression (decision 2).
 RELEASE_TSE_JOIN_SLACK <- 5L
 
-validate_release_gates <- function(geocoded_locais, tse_coverage, tse_raw_availability, export_paths, dev_mode) {
+validate_release_gates <- function(
+  geocoded_locais,
+  tse_coverage,
+  tse_raw_availability,
+  export_paths,
+  dev_mode,
+  panel_gate = NULL
+) {
+  # panel_gate is a dependency-only argument: passing the panel_release_gates
+  # target makes this canonical release check depend on the panel gate, so
+  # building release_gates also runs validate_panel_release() (which stops the
+  # build itself on failure). It is not otherwise read here.
   # Read-only, so avoid a defensive deep copy of the ~945k-row national table
   # when it already arrives as a data.table (it does, from finalize_coords()).
   dt <- if (is.data.table(geocoded_locais)) {
@@ -971,6 +982,43 @@ validate_release_gates <- function(geocoded_locais, tse_coverage, tse_raw_availa
     )
   }
 
+  # Gate 8: pred_dist is 0 for TSE-covered stations. Their shipped coordinate is
+  # TSE ground truth, so its predicted error must be 0 (documented behavior). A
+  # non-zero value means finalize_coords stopped zeroing it, which breaks
+  # accuracy filtering and the panel coordinate picker (both order by pred_dist).
+  # Guarded on schema so a missing column stays Gate 2's failure, not a raw error.
+  if (all(c("tse_long", "tse_lat", "pred_dist") %in% names(dt))) {
+    n_bad_preddist <- dt[
+      !is.na(tse_long) & !is.na(tse_lat) & (is.na(pred_dist) | pred_dist != 0),
+      .N
+    ]
+    if (n_bad_preddist > 0) {
+      add_fail(
+        "Gate 8 (pred_dist): %d TSE-covered rows have non-zero pred_dist (expected 0 for ground-truth coordinates)",
+        n_bad_preddist
+      )
+    }
+  }
+
+  # Gate 9: the PUBLISHED geocoded schema is exactly the 0.141 column set and
+  # order. Gates 2-3 check the internal final_* table, but the file is written
+  # through to_geocoded_export_schema() (final_long/final_lat -> long/lat, 0.141
+  # order); this gate runs that mapper and checks its output, so a regression in
+  # the mapper - a dropped/reordered published column - is caught here instead of
+  # shipping a broken header. A one-row sample suffices: the schema is
+  # data-independent.
+  published_cols <- tryCatch(
+    names(to_geocoded_export_schema(head(dt, 1L))),
+    error = function(e) character(0)
+  )
+  if (!identical(published_cols, GEOCODED_EXPORT_SCHEMA)) {
+    add_fail(
+      "Gate 9 (published schema): export mapper output does not match the 0.141 schema.\n    expected: %s\n    got: %s",
+      paste(GEOCODED_EXPORT_SCHEMA, collapse = ", "),
+      paste(published_cols, collapse = ", ")
+    )
+  }
+
   summary <- list(
     passed = length(failures) == 0,
     failures = failures,
@@ -994,6 +1042,67 @@ validate_release_gates <- function(geocoded_locais, tse_coverage, tse_raw_availa
     paste(present_years, collapse = ","),
     n_2024,
     cov_2024
+  ))
+  summary
+}
+
+# Maximum share of panel rows allowed to ship without a coordinate. The panel
+# file assigns each panel its single most accurate coordinate, and a panel is
+# uncoordinated only when every one of its station-years failed to geocode -
+# which is rare, so the real rate sits well under 1%. A larger rate means the
+# panel step stopped consulting the model coordinates (the regression that read
+# tse_long/tse_lat only left ~13% of panels blank).
+RELEASE_PANEL_COORD_NA_MAX_PCT <- 1
+
+#' Fail-loud release gate for the panel-id output.
+#'
+#' Sibling to validate_release_gates(): that gate guards the geocoded export;
+#' this one guards panel_ids.csv.gz. Stops the build if the panel file drops its
+#' accuracy column or leaves too many panels without a coordinate.
+#'
+#' @param panel_ids The panel_ids target (panel_id, local_id, long, lat, pred_dist).
+#' @return A summary list; stop()s with the specific failures otherwise.
+#' @export
+validate_panel_release <- function(panel_ids) {
+  dt <- if (is.data.table(panel_ids)) panel_ids else as.data.table(panel_ids)
+  failures <- character(0)
+  add_fail <- function(...) failures <<- c(failures, sprintf(...))
+
+  # Gate P1: the accuracy-filter column must reach the output.
+  if (!("pred_dist" %in% names(dt))) {
+    add_fail("Gate P1 (schema): panel_ids is missing the pred_dist column")
+  }
+
+  # Gate P2: coordinates present for essentially every panel.
+  has_coords <- all(c("long", "lat") %in% names(dt))
+  coord_na_pct <- if (has_coords) 100 * mean(is.na(dt$long) | is.na(dt$lat)) else NA_real_
+  if (!has_coords) {
+    add_fail("Gate P2 (coords): panel_ids is missing long/lat columns")
+  } else if (coord_na_pct > RELEASE_PANEL_COORD_NA_MAX_PCT) {
+    add_fail(
+      "Gate P2 (coords): %.2f%% of panel rows lack a coordinate (> %g%% max) - the panel step is likely ignoring model coordinates",
+      coord_na_pct,
+      RELEASE_PANEL_COORD_NA_MAX_PCT
+    )
+  }
+
+  summary <- list(
+    passed = length(failures) == 0,
+    failures = failures,
+    n_rows = nrow(dt),
+    coord_na_pct = coord_na_pct
+  )
+
+  if (length(failures) > 0) {
+    stop(sprintf(
+      "Panel release gates FAILED (do not ship):\n  - %s",
+      paste(failures, collapse = "\n  - ")
+    ))
+  }
+  message(sprintf(
+    "Panel release gates PASSED: %d rows; %.2f%% without a coordinate",
+    summary$n_rows,
+    coord_na_pct
   ))
   summary
 }

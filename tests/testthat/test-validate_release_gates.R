@@ -204,6 +204,17 @@ test_that("Gate 5 (absolute counts) is enforced only in production mode", {
   )
 })
 
+test_that("Gate 8 fails when a TSE-covered row has non-zero pred_dist", {
+  # TSE-covered stations ship the ground-truth coordinate, so pred_dist must be
+  # 0. A non-zero value is the finalize_coords regression this gate guards.
+  g <- make_geocoded_fixture()
+  g[ano == 2020L & tse_long == -67.8, pred_dist := 0.05]
+  expect_error(
+    validate_release_gates(g, make_coverage_fixture(), make_raw_avail_fixture(), make_export_paths(), dev_mode = TRUE),
+    "Gate 8.*pred_dist"
+  )
+})
+
 test_that("Gate 5 catches an exploded non-2024 year in production mode", {
   # Build a fixture at plausible national scale so only the exploded year trips.
   years <- seq(2006L, 2024L, by = 2L)

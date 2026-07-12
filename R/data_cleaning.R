@@ -527,6 +527,12 @@ finalize_coords <- function(locais, model_predictions, tsegeocoded_locais) {
   geocoded_locais[, final_long := ifelse(is.na(tse_long), pred_long, tse_long)]
   geocoded_locais[, final_lat := ifelse(is.na(tse_lat), pred_lat, tse_lat)]
 
+  # pred_dist is the predicted error of the CHOSEN (final) coordinate. When the
+  # TSE supplies it, the chosen coordinate is ground truth, so its predicted
+  # error is 0. This is the documented behavior and also lets downstream accuracy
+  # filters and the panel coordinate picker treat TSE-covered rows as exact.
+  geocoded_locais[!is.na(tse_long) & !is.na(tse_lat), pred_dist := 0]
+
   return(geocoded_locais)
 }
 

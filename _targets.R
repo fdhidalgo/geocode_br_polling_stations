@@ -605,10 +605,13 @@ list(
   tar_target(
     name = panel_ids,
     command = {
-      # The combined panel IDs are already properly formatted
-      # Just need to add coordinates using the existing function
-      # Pass empty data.table for df_panels since all states are now combined
-      make_panel_ids(data.table(), panel_ids_combined, tsegeocoded_locais)
+      # The combined panel IDs are already properly formatted; make_panel_ids()
+      # attaches each panel's best coordinate. Pass the full geocoded output
+      # (geocoded_locais) - not the TSE-only table - so panels whose years
+      # predate TSE ground truth still get the model's coordinate, and pred_dist
+      # is available to pick the most accurate one. Empty df_panels because all
+      # states are already combined.
+      make_panel_ids(data.table(), panel_ids_combined, geocoded_locais)
     },
     format = "qs"
   ),
@@ -1200,6 +1203,13 @@ list(
       export_paths = c(geocoded_export, panelid_export),
       dev_mode = pipeline_config$dev_mode
     ),
+    cue = tar_cue(mode = "always")
+  ),
+  ## Panel-output release gate: guards panel_ids.csv.gz (accuracy column present,
+  ## coordinates assigned to essentially every panel). Sibling to release_gates.
+  tar_target(
+    name = panel_release_gates,
+    command = validate_panel_release(panel_ids),
     cue = tar_cue(mode = "always")
   ),
   ## Data Quality Monitoring

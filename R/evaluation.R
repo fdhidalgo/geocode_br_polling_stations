@@ -101,9 +101,19 @@ get_station_zone <- function(tse_points, tract_shp) {
   # Reproject to the tract CRS so the join is valid regardless of the tract
   # layer's stored CRS.
   pts_sf <- sf::st_transform(pts_sf, sf::st_crs(tract_shp))
-  joined <- sf::st_join(pts_sf, tract_shp, left = TRUE, largest = TRUE)
+  # Point-in-polygon over the ~316k-tract national layer. A station falls in one
+  # tract, so the default st_intersects join (spatial-index-backed) is correct
+  # and far cheaper than largest = TRUE, which computes intersection areas that
+  # are degenerate for points. s2 is disabled for the join because spherical
+  # predicates over the geographic tract layer are the dominant cost; planar
+  # GEOS with the index is exact enough for containment. A boundary point can
+  # hit >1 tract, so keep the first tract per station (the largest = TRUE
+  # one-row-per-point guarantee) via unique(by = "local_id").
+  old_s2 <- sf::sf_use_s2(FALSE)
+  on.exit(sf::sf_use_s2(old_s2), add = TRUE)
+  joined <- sf::st_join(pts_sf, tract_shp, left = TRUE)
   joined <- sf::st_drop_geometry(joined)
-  unique(data.table(local_id = joined$local_id, zone = joined$zone))
+  unique(data.table(local_id = joined$local_id, zone = joined$zone), by = "local_id")
 }
 
 # ============================================================================

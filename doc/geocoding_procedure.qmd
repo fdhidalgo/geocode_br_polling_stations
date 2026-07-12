@@ -9,6 +9,7 @@ format:
     toc-location: left
     code-fold: true
     theme: cosmo
+    embed-resources: true
     fig-width: 10
     fig-height: 6
 execute:
@@ -152,128 +153,91 @@ geocoded_locais <- inner_join(locais, best_prediction) |>
   )
 ```
 
-To illustrate the string matching procedure, the table below shows shows the string matching procedure for one polling station where the coordinates are known.
+To illustrate the string matching procedure, the table below shows the string matching procedure for one polling station where the coordinates are known.
 "String distance" is the normalized Levenshtein string distance between the address component and its potential match.
-"Predicted distance" is the distance from the truth predicted by the Random forest model.
+"Predicted distance" is the distance from the truth predicted by the gradient-boosted tree model.
 The blue row shows the selected match, which is the potential match with the smallest predicted distance.
 The last column labeled "Error (km)" is the difference between the known geocoded coordinates and the coordinates from the selected match.
 
 ```{r}
 #| label: string-match-example
-example_id <- sample(geocoded_locais$local_id[is.na(geocoded_locais$tse_lat) == FALSE], 1)
+# One randomly chosen TSE-covered station, illustrating how each administrative
+# data source proposes a candidate coordinate and how the model ranks them. The
+# seed keeps the rendered example stable across builds.
+set.seed(1)
+example_id <- sample(geocoded_locais$local_id[!is.na(geocoded_locais$tse_lat)], 1)
+example_ps <- as.data.frame(geocoded_locais[geocoded_locais$local_id == example_id, ])
 
-# Convert data.table objects to work with dplyr if needed
-# Filter data.tables and convert to data.frames
-example_polling_station <- as.data.frame(geocoded_locais[geocoded_locais$local_id == example_id, ])
-example_inep <- as.data.frame(inep_string_match[inep_string_match$local_id == example_id, ])
-example_cnefe10_schools <- as.data.frame(schools_cnefe10_match[schools_cnefe10_match$local_id == example_id, ])
-example_cnefe22_schools <- as.data.frame(schools_cnefe22_match[schools_cnefe22_match$local_id == example_id, ])
-example_agrocnefe <- as.data.frame(agrocnefe_stbairro_match[agrocnefe_stbairro_match$local_id == example_id, ])
-example_cnefe10 <- as.data.frame(cnefe10_stbairro_match[cnefe10_stbairro_match$local_id == example_id, ])
-example_cnefe22 <- as.data.frame(cnefe22_stbairro_match[cnefe22_stbairro_match$local_id == example_id, ])
-example_string_match <- tibble(match_type = c(
-  "schools_inep_name", "schools_inep_addr",
-  "schools_cnefe_name_2010", "schools_cnefe_addr_2010",
-  "schools_cnefe_name_2022", "schools_cnefe_addr_2022",
-  "st_cnefe_2017", "st_cnefe_2010", "st_cnefe_2022", "bairro_cnefe_2017",
-  "bairro_cnefe_2010", "bairro_cnefe_2022"
-)) |>
-  left_join(as.data.frame(model_predictions[model_predictions$local_id == example_id, ]))
+# Per-source match tables, filtered to the example station (0 or 1 row each).
+frames <- list(
+  inep = as.data.frame(inep_string_match[inep_string_match$local_id == example_id, ]),
+  cnefe10_sch = as.data.frame(schools_cnefe10_match[schools_cnefe10_match$local_id == example_id, ]),
+  cnefe22_sch = as.data.frame(schools_cnefe22_match[schools_cnefe22_match$local_id == example_id, ]),
+  cnefe10 = as.data.frame(cnefe10_stbairro_match[cnefe10_stbairro_match$local_id == example_id, ]),
+  cnefe22 = as.data.frame(cnefe22_stbairro_match[cnefe22_stbairro_match$local_id == example_id, ]),
+  agrocnefe = as.data.frame(agrocnefe_stbairro_match[agrocnefe_stbairro_match$local_id == example_id, ])
+)
 
+# Each model match_type maps to the reference dataset it came from: the normalized
+# polling-station field that was matched, and where the matched string lives.
+# Fail loud if a match table's columns drift rather than silently dropping a row.
+match_spec <- tibble::tribble(
+  ~match_type, ~Data, ~query_field, ~frame, ~match_col,
+  "schools_inep_name", "INEP School Name", "normalized_name", "inep", "match_inep_name",
+  "schools_inep_addr", "INEP School Address", "normalized_addr", "inep", "match_inep_addr",
+  "schools_cnefe_name_2010", "2010 CNEFE School", "normalized_name", "cnefe10_sch", "match_schools_cnefe",
+  "schools_cnefe_name_2022", "2022 CNEFE School", "normalized_name", "cnefe22_sch", "match_schools_cnefe",
+  "st_cnefe_2010", "2010 CNEFE Street", "normalized_st", "cnefe10", "match_cnefe_st",
+  "st_cnefe_2022", "2022 CNEFE Street", "normalized_st", "cnefe22", "match_cnefe_st",
+  "bairro_cnefe_2010", "2010 CNEFE Neighborhood", "normalized_bairro", "cnefe10", "match_cnefe_bairro",
+  "bairro_cnefe_2022", "2022 CNEFE Neighborhood", "normalized_bairro", "cnefe22", "match_cnefe_bairro",
+  "bairro_cnefe_2017", "2017 CNEFE Neighborhood", "normalized_bairro", "agrocnefe", "match_agrocnefe_bairro",
+  "geocodebr", "geocodebr", NA, NA, NA
+)
 
-table_data <- tibble(
-  Data = c(
-    "INEP School Name", "INEP School Address",
-    "2010 CNEFE School Name", "2010 CNEFE School Address",
-    "2022 CNEFE School Name", "2022 CNEFE School Address",
-    "2017 CNEFE Street", "2010 CNEFE Street", "2022 CNEFE Street",
-    "2017 CNEFE Neighborhood", "2010 CNEFE Neighborhood", "2022 CNEFE Neighborhood"
-  ),
-  `Polling Station String` = c(
-    example_polling_station$normalized_name,
-    example_polling_station$normalized_addr,
-    example_polling_station$normalized_name,
-    example_polling_station$normalized_addr,
-    example_polling_station$normalized_name,
-    example_polling_station$normalized_addr,
-    example_polling_station$normalized_st,
-    example_polling_station$normalized_st,
-    example_polling_station$normalized_st,
-    example_polling_station$normalized_bairro,
-    example_polling_station$normalized_bairro,
-    example_polling_station$normalized_bairro
-  ),
-  Match = c(
-    if(nrow(example_inep) > 0) example_inep$match_inep_name[1] else NA,
-    if(nrow(example_inep) > 0) example_inep$match_inep_addr[1] else NA,
-    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_schools_cnefe_name[1] else NA,
-    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_schools_cnefe_addr[1] else NA,
-    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_schools_cnefe_name[1] else NA,
-    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_schools_cnefe_addr[1] else NA,
-    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_st_cnefe[1] else NA,
-    if(nrow(example_cnefe10) > 0) example_cnefe10$match_st_cnefe[1] else NA,
-    if(nrow(example_cnefe22) > 0) example_cnefe22$match_st_cnefe[1] else NA,
-    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_bairro_cnefe[1] else NA,
-    if(nrow(example_cnefe10) > 0) example_cnefe10$match_bairro_cnefe[1] else NA,
-    if(nrow(example_cnefe22) > 0) example_cnefe22$match_bairro_cnefe[1] else NA
-  ),
-  `String Distance` = c(
-    if(nrow(example_inep) > 0) example_inep$mindist_name_inep[1] else NA,
-    if(nrow(example_inep) > 0) example_inep$mindist_addr_inep[1] else NA,
-    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$mindist_name_schools_cnefe[1] else NA,
-    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$mindist_addr_schools_cnefe[1] else NA,
-    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$mindist_name_schools_cnefe[1] else NA,
-    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$mindist_addr_schools_cnefe[1] else NA,
-    if(nrow(example_agrocnefe) > 0) example_agrocnefe$mindist_st_cnefe[1] else NA,
-    if(nrow(example_cnefe10) > 0) example_cnefe10$mindist_st_cnefe[1] else NA,
-    if(nrow(example_cnefe22) > 0) example_cnefe22$mindist_st_cnefe[1] else NA,
-    if(nrow(example_agrocnefe) > 0) example_agrocnefe$mindist_bairro_cnefe[1] else NA,
-    if(nrow(example_cnefe10) > 0) example_cnefe10$mindist_bairro_cnefe[1] else NA,
-    if(nrow(example_cnefe22) > 0) example_cnefe22$mindist_bairro_cnefe[1] else NA
-  ),
-  `Predicted Error (km)` = example_string_match$pred_dist,
-  long = c(
-    if(nrow(example_inep) > 0) example_inep$match_long_inep_name[1] else NA,
-    if(nrow(example_inep) > 0) example_inep$match_long_inep_addr[1] else NA,
-    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_long_schools_cnefe_name[1] else NA,
-    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_long_schools_cnefe_addr[1] else NA,
-    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_long_schools_cnefe_name[1] else NA,
-    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_long_schools_cnefe_addr[1] else NA,
-    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_long_st_cnefe[1] else NA,
-    if(nrow(example_cnefe10) > 0) example_cnefe10$match_long_st_cnefe[1] else NA,
-    if(nrow(example_cnefe22) > 0) example_cnefe22$match_long_st_cnefe[1] else NA,
-    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_long_bairro_cnefe[1] else NA,
-    if(nrow(example_cnefe10) > 0) example_cnefe10$match_long_bairro_cnefe[1] else NA,
-    if(nrow(example_cnefe22) > 0) example_cnefe22$match_long_bairro_cnefe[1] else NA
-  ),
-  lat = c(
-    if(nrow(example_inep) > 0) example_inep$match_lat_inep_name[1] else NA,
-    if(nrow(example_inep) > 0) example_inep$match_lat_inep_addr[1] else NA,
-    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_lat_schools_cnefe_name[1] else NA,
-    if(nrow(example_cnefe10_schools) > 0) example_cnefe10_schools$match_lat_schools_cnefe_addr[1] else NA,
-    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_lat_schools_cnefe_name[1] else NA,
-    if(nrow(example_cnefe22_schools) > 0) example_cnefe22_schools$match_lat_schools_cnefe_addr[1] else NA,
-    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_lat_st_cnefe[1] else NA,
-    if(nrow(example_cnefe10) > 0) example_cnefe10$match_lat_st_cnefe[1] else NA,
-    if(nrow(example_cnefe22) > 0) example_cnefe22$match_lat_st_cnefe[1] else NA,
-    if(nrow(example_agrocnefe) > 0) example_agrocnefe$match_lat_bairro_cnefe[1] else NA,
-    if(nrow(example_cnefe10) > 0) example_cnefe10$match_lat_bairro_cnefe[1] else NA,
-    if(nrow(example_cnefe22) > 0) example_cnefe22$match_lat_bairro_cnefe[1] else NA
-  )
-) |>
-  mutate(rank = rank(`Predicted Error (km)`, ties.method = "first")) |>
+pick_string <- function(frame_key, col) {
+  if (is.na(frame_key)) {
+    return(NA_character_) # geocodebr returns coordinates directly, no fuzzy string
+  }
+  df <- frames[[frame_key]]
+  if (is.null(df)) stop("Unknown frame key in match_spec: ", frame_key)
+  if (!col %in% names(df)) {
+    stop(
+      "Column '", col, "' missing from '", frame_key,
+      "' match table -- schema drifted; update match_spec."
+    )
+  }
+  if (nrow(df) == 0) NA_character_ else as.character(df[[col]][1])
+}
+
+# model_predictions is the authoritative per-station candidate set: one row per
+# match_type, already carrying the string distance (mindist), coordinates, the
+# model's predicted error (pred_dist) and, for TSE-covered stations, the true
+# error (dist). Everything but the matched string text comes from here.
+ex_pred <- as.data.table(model_predictions)[local_id == example_id]
+stopifnot(all(ex_pred$match_type %in% match_spec$match_type))
+
+table_data <- ex_pred[, .(
+  match_type,
+  `String Distance` = mindist,
+  `Predicted Error (km)` = pred_dist,
+  `True Error (km)` = dist
+)] |>
+  inner_join(match_spec, by = "match_type") |>
   rowwise() |>
   mutate(
-    `True Error (km)` = geosphere::distHaversine(
-      p1 = c(
-        example_polling_station$long,
-        example_polling_station$lat
-      ),
-      p2 = c(long, lat),
-      r = 6378.137
-    )
+    # Non-string sources (geocodebr) contribute a coordinate but no string comparison.
+    `Polling Station String` = if (is.na(query_field)) NA_character_ else example_ps[[query_field]],
+    Match = pick_string(frame, match_col),
+    `String Distance` = if (is.na(query_field)) NA_real_ else `String Distance`
   ) |>
-  select(-long, -lat)
+  ungroup() |>
+  arrange(`Predicted Error (km)`) |>
+  mutate(rank = row_number()) |>
+  select(
+    Data, `Polling Station String`, Match, `String Distance`,
+    `Predicted Error (km)`, `True Error (km)`, rank
+  )
 
 
 table_data |>
@@ -285,15 +249,15 @@ table_data |>
   tab_header(
     title = "Example of String Matching",
     subtitle = paste0(
-      "Polling Station Name is ", example_polling_station$nm_locvot,
-      ". Polling Station Address is ", example_polling_station$ds_endereco
+      "Polling Station Name is ", example_ps$nm_locvot,
+      ". Polling Station Address is ", example_ps$ds_endereco
     )
   ) |>
   tab_style(
     style = cell_fill(color = "lightcyan"),
     locations = cells_body(rows = (rank == 1))
   ) |>
-  tab_source_note("Highlighted row is selected match.")
+  tab_source_note("Highlighted row is the selected match (lowest predicted error).")
 ```
 
 ## Estimating Geocoding Error

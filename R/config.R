@@ -45,28 +45,27 @@ BRAZIL_STATES <- c(
   "TO"
 )
 
-get_pipeline_config <- function(dev_mode = FALSE) {
-  # Get pipeline configuration based on development mode
+# The two smallest states by population, processed in dev mode for fast testing
+# (Acre and Roraima). Defined once and reused by both get_pipeline_config() and
+# the tracked-input file helpers below so the dev subset can never disagree.
+DEV_STATES <- c("AC", "RR")
 
-  if (dev_mode) {
-    config <- list(
-      dev_mode = TRUE,
-      dev_states = c("AC", "RR"), # Acre and Roraima - smallest states by population for fast testing
-      batch_size = 10,
-      max_workers = 2,
-      cache_dir = "_targets/cache",
-      log_level = "DEBUG"
-    )
-  } else {
-    config <- list(
-      dev_mode = FALSE,
-      dev_states = NULL, # Process all states
-      batch_size = 100,
-      max_workers = parallel::detectCores() - 1,
-      cache_dir = "_targets/cache",
-      log_level = "INFO"
-    )
-  }
+get_pipeline_config <- function(dev_mode = FALSE) {
+  # Get pipeline configuration based on development mode.
+  #
+  # This object is stored as the `pipeline_config` target, so every field it
+  # carries becomes part of that target's hash and cascades invalidation to the
+  # whole pipeline when it changes. It therefore holds ONLY machine-independent,
+  # behavior-affecting settings. Machine-derived or unused fields (max_workers /
+  # n_cores from detectCores(), batch_size, cache_dir, log_level) were dropped
+  # (cleanup phase 5, H9) so a rerun on a different machine does not needlessly
+  # recompute everything. Worker counts live in get_crew_controllers().
+
+  config <- list(
+    dev_mode = dev_mode,
+    # Process the dev subset in dev mode, all states (NULL) in production.
+    dev_states = if (dev_mode) DEV_STATES else NULL
+  )
 
   # Panel record-linkage weight threshold (Fellegi-Sunter). An explicit,
   # tracked config field replaces the former untracked
@@ -75,7 +74,6 @@ get_pipeline_config <- function(dev_mode = FALSE) {
   config$panel_weight_threshold <- 0
 
   # Add computed values
-  config$n_cores <- config$max_workers
   config$states <- if (is.null(config$dev_states)) {
     BRAZIL_STATES
   } else {
@@ -85,52 +83,51 @@ get_pipeline_config <- function(dev_mode = FALSE) {
   return(config)
 }
 
-get_states_for_processing <- function(context, pipeline_config, custom_states = NULL) {
-  # Get states to process based on context and mode
-  # Centralized function to determine which states to process based on the
-  # pipeline context and development mode setting
+# ===== TRACKED INPUT FILE ENUMERATION =====
+# These helpers list the real input files on disk at pipeline-definition time so
+# tar_files_input() can track each file's content (cleanup phase 5, C2). They are
+# evaluated when _targets.R is sourced -- once per tar_make() -- and take the
+# dev_mode flag directly (not the pipeline_config target) because tar_files_input
+# needs its file vector before any target has run. They fail loud if a directory
+# yields no matching files, so a missing/misnamed input surfaces at definition
+# time instead of silently producing an empty branch set.
 
-  if (pipeline_config$dev_mode) {
-    return(pipeline_config$dev_states)
+get_cnefe_state_files <- function(year, dev_mode = FALSE, dev_states = DEV_STATES) {
+  # Per-state CNEFE .csv.gz paths for the given year (2010 or 2022), restricted
+  # to the dev subset in dev mode. One tracked branch per returned file.
+  dir <- file.path("data", paste0("cnefe_", year))
+  pattern <- paste0("^cnefe_", year, "_.*\\.csv\\.gz$")
+  files <- list.files(dir, pattern = pattern, full.names = TRUE)
+  if (dev_mode) {
+    states <- sub(paste0("^cnefe_", year, "_(.+)\\.csv\\.gz$"), "\\1", basename(files))
+    files <- files[states %in% dev_states]
   }
-
-  # Production mode - determine states based on context
-  switch(
-    context,
-    cnefe10 = {
-      state_files <- list.files("data/cnefe_2010", pattern = "cnefe_2010_.*\\.csv\\.gz$")
-      gsub("cnefe_2010_(.+)\\.csv\\.gz", "\\1", state_files)
-    },
-    cnefe22 = {
-      state_files <- list.files("data/cnefe_2022", pattern = "cnefe_2022_.*\\.csv\\.gz$")
-      gsub("cnefe_2022_(.+)\\.csv\\.gz", "\\1", state_files)
-    },
-    panel = {
-      # Use custom states or default to all Brazilian states
-      custom_states %||% BRAZIL_STATES
-    },
-    stop("Unknown context: ", context)
-  )
+  if (length(files) == 0L) {
+    stop(sprintf("No CNEFE %d state files found under %s/", year, dir))
+  }
+  sort(files)
 }
 
-get_agro_cnefe_files <- function(pipeline_config) {
-  # Get agro CNEFE files based on mode
-  # Special handler for agro_cnefe_files which returns file paths not states
-  # In dev mode, maps state abbreviations to specific file names
-  # In production mode, returns all files in the agro_censo directory
-
-  if (pipeline_config$dev_mode) {
+get_agro_cnefe_files <- function(dev_mode = FALSE, dev_states = DEV_STATES) {
+  # 2017 agro-CNEFE state file paths, restricted to the dev subset in dev mode.
+  # Source files are named by IBGE UF code + name (e.g. "12_ACRE.csv.gz"), so the
+  # dev subset maps state abbreviations to those filenames.
+  if (dev_mode) {
     state_file_map <- c(
       "AC" = "12_ACRE.csv.gz",
       "RR" = "14_RORAIMA.csv.gz",
       "AP" = "16_AMAPA.csv.gz",
       "RO" = "11_RONDONIA.csv.gz"
     )
-    dev_files <- state_file_map[pipeline_config$dev_states]
-    file.path("data/agro_censo", dev_files[!is.na(dev_files)])
+    dev_files <- state_file_map[dev_states]
+    files <- file.path("data/agro_censo", dev_files[!is.na(dev_files)])
   } else {
-    dir("data/agro_censo/", full.names = TRUE)
+    files <- list.files("data/agro_censo", pattern = "\\.csv\\.gz$", full.names = TRUE)
   }
+  if (length(files) == 0L) {
+    stop("No agro-CNEFE files found under data/agro_censo/")
+  }
+  sort(files)
 }
 
 # ===== EXPECTED MUNICIPALITY COUNTS =====

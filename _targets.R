@@ -1,40 +1,24 @@
-## Targets pipeline configuration for geocoding Brazilian polling stations
-#
-# This script defines a comprehensive targets pipeline for geocoding Brazilian polling stations
-# using multiple data sources and advanced string matching techniques. The pipeline includes:
-# - Data import and cleaning from various sources (CNEFE, INEP, TSE)
-# - Validation stages for data quality
-# - String matching and geolocation prediction
-# - Geocoding of polling stations
-# - Validation and export of results
-#
-# The pipeline supports both development (subset of states) and production (full Brazil) modes.
-# Parallel processing is managed using the crew package for efficient computation.
+## Geocoding pipeline for Brazilian polling stations: import and clean CNEFE/INEP/TSE
+## sources, fuzzy-match addresses, score matches with a boosted tree, build panel ids,
+## and export the geocoded and panel datasets. Runs in dev (AC/RR) or production mode.
 
-# ===== CONFIGURATION =====
-# Development mode is selected by the TAR_PROJECT environment variable, using the
-# standard `targets` project-profile mechanism (see _targets.yaml): TAR_PROJECT=dev
-# runs against the `dev` profile (store _targets_dev, AC/RR subset, fully local),
-# while the default `main` profile is production (store _targets, full Brazil, S3).
-# DEV_MODE is the single derived constant; everything downstream reads from it, so
-# the S3 gate and the data filtering can never disagree.
+# --- Configuration ---
+# TAR_PROJECT=dev selects the `dev` profile in _targets.yaml (AC/RR subset, local store).
+# DEV_MODE is the single derived constant, so the S3 gate and data filtering can't disagree.
 DEV_MODE <- identical(Sys.getenv("TAR_PROJECT"), "dev")
 
-# ===== SETUP =====
+# --- Setup ---
 # Load packages required to define the pipeline:
 library(targets)
 library(tarchetypes)
 library(data.table)
 library(crew)
 
-# ===== GLOBAL FUNCTION LOADING =====
+# --- Global function loading ---
 # Load ALL custom functions - makes functions available to all workers
 tar_source(files = "R")
 
-# Set global options
-
-# Fix for quarto not being found in crew workers
-# Set QUARTO_PATH environment variable if not already set
+# Quarto is not on the PATH inside crew workers, so pin its location here.
 if (Sys.getenv("QUARTO_PATH") == "") {
   quarto_bin <- Sys.which("quarto")
   if (nzchar(quarto_bin)) {
@@ -43,22 +27,15 @@ if (Sys.getenv("QUARTO_PATH") == "") {
   }
 }
 
-# Null coalescing operator is defined in R/utilities.R
-
 ## Setup parallel processing with crew/mirai
 
 # Limit data.table threads to prevent memory contention
 data.table::setDTthreads(1)
 
-# Set garbage collection options
 options(
-  # Garbage collection frequency
   gcinfo = FALSE
 )
 
-# Create controller group using configuration function
-# Now uses the same controller configuration for both dev and production modes
-# Crew only spawns workers as needed, so this is efficient
 controller_group <- get_crew_controllers()
 
 # Only start controllers when tar_make() is running
@@ -80,13 +57,10 @@ if (targets::tar_active()) {
 # Set target options using configuration function
 configure_targets_options(controller_group)
 
-# Configure AWS S3 cloud storage for production mode only; dev runs stay fully
-# local. Gated on the single DEV_MODE constant (defined above).
+# Production stores targets on S3; dev runs stay fully local.
 if (!DEV_MODE) {
-  # Production uses the AWS S3 backend. targets loads paws.storage by string when
-  # repository = "aws", so it is otherwise invisible to renv's dependency scanner;
-  # naming it here both fails loud on a fresh machine that lacks it and keeps it in
-  # the lockfile across snapshots.
+  # targets loads paws.storage by string when repository = "aws", so naming it here
+  # keeps it visible to renv and fails loud on a machine that lacks it.
   if (!requireNamespace("paws.storage", quietly = TRUE)) {
     stop(
       "Production mode requires the 'paws.storage' package for S3 storage. ",
@@ -94,8 +68,7 @@ if (!DEV_MODE) {
       "(TAR_PROJECT=dev)."
     )
   }
-  # Only configure S3 in production mode
-  # Need to preserve existing crew resources and add AWS resources
+  # Preserve the existing crew resources while adding the AWS ones.
   existing_resources <- tar_option_get("resources")
   tar_option_set(
     repository = "aws",
@@ -113,17 +86,11 @@ if (!DEV_MODE) {
   message("Using local storage (development mode)")
 }
 
-# Two-level blocking for panel IDs is now configured in the pipeline_config target
-# This ensures proper dependency tracking when the setting changes
-
-# ===== TARGETS PIPELINE =====
+# --- Targets pipeline ---
 list(
-  # ========================================
-  # CONFIGURATION TARGETS
-  # ========================================
+  # --- Configuration targets ---
 
   # Development mode flag - controls whether to process all states or just AC/RR.
-  # Spliced from the single DEV_MODE constant (defined above).
   tar_target(
     name = dev_mode_flag,
     command = !!DEV_MODE
@@ -157,9 +124,7 @@ list(
     }
   ),
 
-  # ========================================
-  # DATA IMPORT TARGETS
-  # ========================================
+  # --- Data import targets ---
 
   ## Municipality and code identifiers
   tar_target(
@@ -266,9 +231,7 @@ list(
     }
   ),
 
-  # ========================================
-  # GEOGRAPHIC FEATURES
-  # ========================================
+  # --- Geographic features ---
 
   tar_target(
     name = tract_centroids,
@@ -279,21 +242,10 @@ list(
     command = calc_muni_area(muni_shp)
   ),
 
-  # ========================================
-  # CNEFE DATA PROCESSING
-  # ========================================
+  # --- CNEFE data processing ---
 
-  ## CNEFE 2010 Processing
-  #
-  # Per-state cleaning returns list(st, bairro, schools) computed in memory; the
-  # full cleaned address rows are never persisted (spec D5). The national
-  # `cnefe10` combine and the duplicate schools read/clean pass are deleted; the
-  # small aggregates are row-bound from the per-state results below.
-  # Track each 2010 CNEFE state file's content (cleanup phase 5, C2) so a
-  # re-downloaded or added file invalidates exactly its branch. tar_files_input
-  # enumerates the files at definition time via the DEV_MODE-aware helper;
-  # repository = "local" keeps file tracking off S3, matching the other input
-  # file targets.
+  ## CNEFE 2010: one tracked file per state, so a re-downloaded file rebuilds only
+  ## its branch. Per-state cleaning stays in memory; only the small aggregates persist.
   tarchetypes::tar_files_input(
     cnefe10_files,
     get_cnefe_state_files(2010, DEV_MODE),
@@ -316,7 +268,7 @@ list(
       crew = tar_resources_crew(controller = "memory_limited")
     )
   ),
-  # Track each 2022 CNEFE state file's content (cleanup phase 5, C2).
+  ## CNEFE 2022: one tracked file per state.
   tarchetypes::tar_files_input(
     cnefe22_files,
     get_cnefe_state_files(2022, DEV_MODE),
@@ -347,7 +299,7 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  ## Create a dataset of streets in 2010 CNEFE (D6 invariant asserted at combine)
+  ## Create a dataset of streets in 2010 CNEFE (key uniqueness asserted at combine)
   tar_target(
     name = cnefe10_st,
     command = combine_cnefe_state_component(
@@ -359,7 +311,7 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  ## Create a dataset of neighborhoods in 2010 CNEFE (D6 invariant asserted)
+  ## Create a dataset of neighborhoods in 2010 CNEFE (key uniqueness asserted at combine)
   tar_target(
     name = cnefe10_bairro,
     command = combine_cnefe_state_component(
@@ -371,10 +323,8 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  ## Import and clean 2017 CNEFE
-  # Track each agro-CNEFE state file's content (cleanup phase 5, C2). clean_agro_cnefe
-  # consumes the aggregated branch paths (a non-mapped consumer of a branched file
-  # target receives the full vector of paths), so a changed file rebuilds agro_cnefe.
+  ## Import and clean 2017 agro CNEFE. clean_agro_cnefe is not mapped, so it receives
+  ## the full vector of branch paths and rebuilds when any state file changes.
   tarchetypes::tar_files_input(
     agro_cnefe_files,
     get_agro_cnefe_files(DEV_MODE),
@@ -429,7 +379,7 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  ## Create a dataset of streets in 2022 CNEFE (D6 invariant asserted at combine)
+  ## Create a dataset of streets in 2022 CNEFE (key uniqueness asserted at combine)
   tar_target(
     name = cnefe22_st,
     command = combine_cnefe_state_component(
@@ -441,7 +391,7 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  ## Create a dataset of neighborhoods in 2022 CNEFE (D6 invariant asserted)
+  ## Create a dataset of neighborhoods in 2022 CNEFE (key uniqueness asserted at combine)
   tar_target(
     name = cnefe22_bairro,
     command = combine_cnefe_state_component(
@@ -477,9 +427,7 @@ list(
     )
   ),
 
-  # ========================================
-  # POLLING STATION DATA
-  # ========================================
+  # --- Polling station data ---
 
   tar_target(
     name = locais_file,
@@ -491,11 +439,8 @@ list(
     name = locais_all,
     command = import_locais(
       locais_file = locais_file,
-      # locais_all is the pre-dev-filter national import, so it must merge against
-      # the unfiltered national crosswalk. Using dev-filtered muni_ids here would
-      # leave non-dev stations with cod_localidade_ibge = NA, colliding on the
-      # deterministic local_id key (#70). Dev subsetting happens downstream in the
-      # `locais` target via apply_dev_mode_filters().
+      # National import, so it needs the unfiltered crosswalk: dev-filtered muni_ids
+      # would leave other states with cod_localidade_ibge = NA, colliding on local_id.
       muni_ids = muni_ids_all
     ),
     format = "qs",
@@ -592,12 +537,8 @@ list(
     },
     pattern = map(panel_batch_ids),
     iteration = "list",
-    # Back on crew workers: the crew 1.3.1 GC-kill that forced this stage onto
-    # the main process (issue #82) is neutralized by keep_crew_launch_handles()
-    # in get_crew_controllers(). The mega-city batches (Sao Paulo, Rio) run 25+
-    # min single-threaded and were this bug's reliable victims -- if this stage
-    # ever dies again with "worker crashed N consecutive times", see
-    # docs/crew_bug_82/ before re-pinning it to main.
+    # Mega-city batches (Sao Paulo, Rio) run 25+ minutes single-threaded here, which
+    # crew 1.3.1 mistook for a dead worker until keep_crew_launch_handles() fixed it.
     deployment = "worker",
     storage = "worker",
     retrieval = "worker",
@@ -630,9 +571,7 @@ list(
     format = "qs"
   ),
 
-  # ========================================
-  # SECTION-LOCATION MAPPING
-  # ========================================
+  # --- Section-location mapping ---
 
   ## Import section-to-location mapping
   tar_target(
@@ -670,9 +609,7 @@ list(
     retrieval = "worker"
   ),
 
-  # ========================================
-  # STRING MATCHING TARGETS
-  # ========================================
+  # --- String matching targets ---
   ## Setup for parallel string matching
   tar_target(
     name = municipalities_for_matching,
@@ -707,18 +644,11 @@ list(
     command = unique(municipality_batch_assignments$batch_id)
   ),
 
-  # ---- Reference slices (Option A, issue #68) --------------------------------
-  # One grouped stem per CNEFE-family match target: each reference table is
-  # inner-joined to its batch_id and split into per-batch groups so the match
-  # targets can `pattern = map()` over the groups with `retrieval = "main"` and
-  # receive only their batch's slice (megabytes) instead of the whole national
-  # table (hundreds of megabytes). Built on the main process and held in
-  # persistent memory so the stem is not re-read for every branch dispatch
-  # (spike #66 settings). The stbairro stems union the street + neighborhood
-  # aggregates into one table (tagged by `component`) so the pair can never fall
-  # out of group alignment.
-  # inep_data is ~61 MB in production (measured, issue #68 / spec D3), so it clears
-  # the "non-trivially large" bar and is sliced like the CNEFE-family references.
+  # --- Reference slices ---
+  # Each reference table is split into per-batch groups so a match branch retrieves
+  # only its own slice (megabytes) instead of the whole national table (hundreds of
+  # megabytes; inep_data alone is ~61 MB in production). The stbairro stems union the
+  # street and neighborhood aggregates so the pair can never fall out of alignment.
   tar_target(
     name = inep_grouped,
     command = make_ref_batch_groups(inep_data, municipality_batch_assignments),
@@ -852,15 +782,10 @@ list(
     deployment = "main"
   ),
   # CNEFE 2010 street/neighborhood matching with batched dynamic branching.
-  # Controller stays `memory_limited` (8 workers), NOT promoted to `standard`
-  # (issue #68, D2, data-driven decision). Slicing removes the ~350 MB whole-
-  # reference residency per worker, but the street/neighborhood matcher's peak is
-  # the per-municipality distance matrix -- min(10000, n_locais) x n_ref_streets x
-  # 8 bytes -- which reaches multiple GB for the largest cities (Sao Paulo has
-  # tens of thousands of unique streets) and is unchanged by this reshape. At 28
-  # workers that risks exceeding the 50 GB machine; at 8 workers it is safe and
-  # still benefits from the slimmer reference. See the measurements recorded on
-  # the issue.
+  # The street/neighborhood matchers stay on `memory_limited` (8 workers): their peak
+  # is the per-municipality distance matrix, min(10000, n_locais) x n_ref_streets x 8
+  # bytes, which reaches multiple GB for the largest cities. 28 workers would exceed
+  # the 50 GB machine.
   tar_target(
     name = cnefe10_stbairro_match_batch,
     command = process_cnefe_stbairro_batch(
@@ -884,8 +809,6 @@ list(
     retrieval = "worker"
   ),
   # CNEFE 2022 street/neighborhood matching with batched dynamic branching.
-  # Controller stays `memory_limited` for the same reason as the 2010 target
-  # above (issue #68, D2): multi-GB per-branch distance matrix for large cities.
   tar_target(
     name = cnefe22_stbairro_match_batch,
     command = process_cnefe_stbairro_batch(
@@ -909,12 +832,8 @@ list(
     retrieval = "worker"
   ),
   # Agro CNEFE street/neighborhood matching with batched dynamic branching.
-  # Controller stays `memory_limited` (issue #68, D2): this is a street/
-  # neighborhood matcher of the same class as the CNEFE stbairro targets, so once
-  # its code-scheme bug (#75) is fixed and it matches against the full rural
-  # reference, its per-branch peak is the same multi-GB matrix. Keeping it here
-  # avoids a latent OOM when #75 lands. (It currently produces an empty match --
-  # see #75 -- so it is trivially safe today either way.)
+  # A code-scheme mismatch currently makes this match table come out empty; the
+  # controller is sized for the full rural reference it will match once fixed.
   tar_target(
     name = agrocnefe_stbairro_match_batch,
     command = process_agrocnefe_stbairro_batch(
@@ -962,9 +881,7 @@ list(
     retrieval = "worker"
   ),
 
-  # ========================================
-  # STRING MATCH DIAGNOSTICS
-  # ========================================
+  # --- String match diagnostics ---
 
   # Calculate NA coordinate percentages and match quality metrics
   tar_target(
@@ -990,15 +907,11 @@ list(
       writeLines(report_text, "output/string_match_diagnostics.txt")
       "output/string_match_diagnostics.txt"
     },
-    # Real tracked file target (cleanup phase 5, H5): if the written report is
-    # deleted, targets rebuilds it. repository = "local" matches the input files.
     format = "file",
     repository = "local"
   ),
 
-  # ========================================
-  # MODEL TRAINING AND PREDICTION
-  # ========================================
+  # --- Model training and prediction ---
 
   ## Combine string matching data for modeling
   tar_target(
@@ -1056,28 +969,25 @@ list(
     )
   ),
 
-  # ========================================
-  # EVALUATION HARNESS
-  # ========================================
-  # Leakage-controlled evaluation (docs/specs/2026-07-evaluation-spec.md, #47):
-  # honest out-of-fold accuracy over the TSE-covered set, TSE coverage density,
-  # and the pred_dist calibration check. See R/evaluation.R.
+  # --- Evaluation harness ---
+  # Leakage-controlled out-of-fold accuracy over the TSE-covered set, plus TSE
+  # coverage density and the pred_dist calibration check. See R/evaluation.R.
 
-  ## TSE coverage by year x state (spec section 6) - ground-truth density.
+  ## TSE coverage by year x state - ground-truth density.
   tar_target(
     name = tse_coverage,
     command = compute_tse_coverage(locais_filtered, tsegeocoded_locais)
   ),
 
-  ## Raw per-year TSE coordinate availability - the ceiling landed coverage is
-  ## read against in release Gate 7 (near-lossless join tripwire). See R/evaluation.R.
+  ## Raw per-year TSE coordinate availability - the ceiling landed coverage is read
+  ## against by the near-lossless join tripwire in the release gates.
   tar_target(
     name = tse_raw_availability,
     command = compute_tse_raw_availability(tse_files, locais_filtered)
   ),
 
-  ## Station-grouped fold assignment, created once upstream of any refit so a
-  ## fold never leaks its TSE target (spec section 3).
+  ## Station-grouped fold assignment, created once upstream of any refit so a fold
+  ## never leaks its TSE target.
   tar_target(
     name = eval_fold_assignment,
     command = assign_eval_folds(model_data)
@@ -1101,7 +1011,7 @@ list(
   ),
 
   ## Per-station selected match from OOF scores, joined onto the covered-station
-  ## universe with stratification axes (spec sections 3-4).
+  ## universe with stratification axes.
   tar_target(
     name = oof_selected_matches,
     command = select_oof_matches(
@@ -1119,7 +1029,7 @@ list(
     command = compute_accuracy_tables(oof_selected_matches)
   ),
 
-  ## pred_dist calibration: rank-and-filter + reliability/ENCE (spec section 7).
+  ## pred_dist calibration: rank-and-filter plus reliability/ENCE.
   tar_target(
     name = calibration_check,
     command = compute_calibration(oof_selected_matches)
@@ -1132,9 +1042,7 @@ list(
     output_dir = "reports"
   ),
 
-  # ========================================
-  # FINAL GEOCODING
-  # ========================================
+  # --- Final geocoding ---
 
   tar_target(
     name = geocoded_locais,
@@ -1163,9 +1071,7 @@ list(
     )
   ),
 
-  # ========================================
-  # VALIDATION AND REPORTING
-  # ========================================
+  # --- Validation and reporting ---
   ## Generate simplified validation report
   tar_target(
     name = validation_report,
@@ -1182,14 +1088,10 @@ list(
     )
   ),
 
-  # ========================================
-  # DATA EXPORT
-  # ========================================
+  # --- Data export ---
 
-  # The three exports are real tracked file targets (cleanup phase 5, H5): each
-  # command writes its file and returns the path, and format = "file" makes
-  # targets rebuild it if the output file is deleted. repository = "local" keeps
-  # the outputs off S3, matching the input-file policy.
+  # Each export writes its file and returns the path, so format = "file" rebuilds it
+  # when the output is deleted; repository = "local" keeps the outputs off S3.
   tar_target(
     name = geocoded_export,
     command = export_geocoded_with_validation(
@@ -1215,9 +1117,8 @@ list(
     format = "file",
     repository = "local"
   ),
-  ## Release gates: fail-loud structural tripwires on the production rebuild
-  ## before it can be shipped as v0.15 (release spec, #48). Depends on the export
-  ## paths so gate 4 (output files exist) checks the written files.
+  ## Fail-loud structural tripwires on a production rebuild before it can be shipped.
+  ## Depends on the export paths so the output-files gate checks the written files.
   tar_target(
     name = release_gates,
     command = validate_release_gates(
@@ -1230,10 +1131,8 @@ list(
     ),
     cue = tar_cue(mode = "always")
   ),
-  ## Panel-output release gate: guards panel_ids.csv.gz (accuracy column present,
-  ## coordinates assigned to essentially every panel). Sibling to release_gates,
-  ## and a dependency of it (via panel_gate) so the canonical release check
-  ## can't be built without also running this one.
+  ## Panel-output release gate: guards panel_ids.csv.gz. A dependency of release_gates
+  ## so the canonical release check can't be built without also running this one.
   tar_target(
     name = panel_release_gates,
     command = validate_panel_release(panel_ids),
@@ -1249,9 +1148,8 @@ list(
         panelid_export = panelid_export,
         geocoded_locais = geocoded_locais,
         panel_ids = panel_ids,
-        # Thresholds from former config file. The expected municipality count is
-        # derived from the states this run processes so a dev-filtered (AC/RR)
-        # output does not trip the CRITICAL municipality-count check.
+        # Expected municipality count is derived from the states this run processes, so a
+        # dev-filtered (AC/RR) output does not trip the municipality-count check.
         expected_municipality_count = get_expected_municipality_count_for_config(pipeline_config),
         muni_count_tolerance = 50,
         extreme_change_threshold = 30,

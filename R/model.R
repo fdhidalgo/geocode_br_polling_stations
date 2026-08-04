@@ -8,13 +8,11 @@
 library(data.table)
 library(stringr)
 
-# Offset added inside the outcome log-transform so log(distance) is defined at
-# distance 0. The same constant must undo the transform on every prediction path,
-# so it is defined once here and reused by build_gbm_workflow() (forward), and by
-# get_predictions() / compute_oof_predictions() (inverse). Changing it in one
-# place without the others would silently corrupt pred_dist.
+# Offset inside the outcome log-transform so log(distance) is defined at distance 0;
+# shared by the forward transform and both inverse paths so they cannot drift apart.
 GBM_LOG_OFFSET <- 1e-4
 
+# Assemble the modeling table: all candidate matches, address/municipal features, TSE distance.
 make_model_data <- function(
   cnefe10_stbairro_match,
   cnefe22_stbairro_match,
@@ -157,11 +155,7 @@ make_model_data <- function(
     .(cod_localidade_ibge = Codmun7, logpop, pct_rural)
   ]
 
-  # School-name synonyms (school_synonyms) are defined once in R/data_cleaning.R
-  # and reused here. Most polling stations are located in schools, so detecting
-  # school-related terms helps the model prioritize school matches.
-
-  # Prepare address features
+  # Prepare address features; school_synonyms comes from R/data_cleaning.R.
   addr_features <- locais[, .(
     local_id,
     nm_locvot,
@@ -263,11 +257,7 @@ make_model_data <- function(
 }
 
 build_gbm_workflow <- function(data) {
-  # Build the (unfitted) tunable LightGBM workflow used for match selection.
-  # Extracted so both train_model() (production tuning) and the out-of-fold
-  # evaluation harness (compute_oof_predictions() in R/evaluation.R) construct
-  # the recipe and model specification from a single definition. `data` supplies
-  # the recipe's column roles/types; the returned workflow is not yet fitted.
+  # Build the unfitted tunable LightGBM workflow (recipe + spec) used for match selection.
 
   ## Define the model recipe
   gbm_recipe <- recipes::recipe(
@@ -277,7 +267,7 @@ build_gbm_workflow <- function(data) {
     recipes::update_role(cod_localidade_ibge, new_role = "id variable") |>
     recipes::update_role(local_id, new_role = "id variable") |>
     recipes::step_impute_median(logpop, pct_rural, area) |>
-    ## Log transform the outcome variable to deal w ith outliers
+    ## Log transform the outcome variable to deal with outliers
     recipes::step_log(recipes::all_outcomes(), offset = GBM_LOG_OFFSET, skip = TRUE)
 
   ## Define the model specification
@@ -383,6 +373,7 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
   )
 }
 
+# Score every candidate match with the fitted model, back-transformed to the distance scale.
 get_predictions <- function(trained_model, model_data) {
   fitted <- tune::extract_workflow(trained_model$final_fit)
 

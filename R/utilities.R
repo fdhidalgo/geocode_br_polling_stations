@@ -1,25 +1,13 @@
-## Utility Functions
-##
-## Helper functions for common operations throughout the pipeline:
-## - State/municipality filtering for development mode
-## - File I/O operations with compression support
-## - Parallel processing configuration
-## - Memory monitoring and management
-## - Data export utilities
+## Utility helpers used throughout the pipeline.
 
 library(data.table)
 
-# ===== FILTERING HELPERS =====
-# Functions to subset data for development mode testing
-
-# Define the null coalescing operator
+# Null-coalescing operator: x, unless it is NULL.
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
-# Run fn(item) for each item under the collect-and-stop convention (cleanup
-# phase 3): a per-item error is recorded and the batch continues; at batch end,
-# if any items failed, stop() with a single message naming every failure. A NULL
-# result is a legitimate empty item (not a failure) and is dropped from the
-# returned list. `task_label` and the unit noun shape the error message.
+# Run fn(item) over items, recording per-item errors and stopping once at the
+# end with every failure named. A NULL result is a legitimate empty item, not a
+# failure, and is dropped from the returned list.
 collect_batch_or_stop <- function(
   items,
   fn,
@@ -59,15 +47,15 @@ collect_batch_or_stop <- function(
   Filter(Negate(is.null), results)
 }
 
+# Keep only the development-mode states; NULL or empty dev_states means
+# production, which passes all data through.
 filter_by_dev_mode <- function(data, dev_states, id_column = "estado_abrev") {
-  # Filter data by development mode states.
-  # If dev_states is NULL or empty (production), return all data.
   if (is.null(dev_states) || length(dev_states) == 0) {
     return(data)
   }
 
-  # Fail loud when the filter column is absent (cleanup phase 3, finding H2):
-  # silently returning unfiltered data would run the full pipeline in dev mode.
+  # A missing filter column would silently return unfiltered data, running the
+  # full pipeline in dev mode.
   if (!id_column %in% names(data)) {
     stop(sprintf("filter_by_dev_mode(): column '%s' not found in data.", id_column))
   }
@@ -75,13 +63,12 @@ filter_by_dev_mode <- function(data, dev_states, id_column = "estado_abrev") {
   data[get(id_column) %in% dev_states]
 }
 
+# Filter a data.table or data.frame to the given states.
 filter_data_by_state <- function(data, states, state_col = "estado_abrev") {
-  # Generic function to filter any data by state (data.table or data.frame).
   if (is.null(states) || length(states) == 0) {
     return(data)
   }
 
-  # Fail loud when the state column is absent (cleanup phase 3, finding H2).
   if (!state_col %in% names(data)) {
     stop(sprintf("filter_data_by_state(): state column '%s' not found in data.", state_col))
   }
@@ -93,15 +80,14 @@ filter_data_by_state <- function(data, states, state_col = "estado_abrev") {
   }
 }
 
+# Filter a data.table or data.frame to the given municipality codes. The caller
+# names the column, since Brazilian tables carry several municipality ID systems
+# and filtering on the wrong one silently returns the wrong rows.
 filter_data_by_municipalities <- function(data, muni_codes, muni_col = "id_munic_7") {
-  # Filter data by municipality codes.
   if (is.null(muni_codes) || length(muni_codes) == 0) {
     return(data)
   }
 
-  # Fail loud when the named column is absent (cleanup phase 3, finding H2). The
-  # former four-way probing of alternative ID columns could filter on the wrong
-  # ID system; the caller must name the column it means.
   if (!muni_col %in% names(data)) {
     stop(sprintf("filter_data_by_municipalities(): municipality column '%s' not found in data.", muni_col))
   }
@@ -113,28 +99,19 @@ filter_data_by_municipalities <- function(data, muni_codes, muni_col = "id_munic
   }
 }
 
+# Restrict data to what dev mode processes: the configured development states in
+# dev mode, everything in production (dev_states is NULL).
 apply_dev_mode_filters <- function(data, config, state_col) {
-  # Single named seam for "what dev mode restricts data to", so the pipeline file
-  # reads intent and there is one place to re-expand if dev filtering ever regains
-  # a second dimension (it previously also filtered by municipality). In dev mode
-  # it keeps only the configured development states (config$dev_states) on the
-  # named state column; in production dev_states is NULL and the data passes
-  # through unchanged. The caller must name the state column (cleanup phase 4; H2
-  # convention).
   filter_data_by_state(data, config$dev_states, state_col)
 }
 
+# Drop Brasília (DF), which holds municipal elections in different years from
+# the other states.
 apply_brasilia_filters <- function(data, remove_brasilia = TRUE, state_col = "sg_uf") {
-  # Apply special filtering for Brasília (DF), which had municipal elections in
-  # years that differ from other states.
   if (!remove_brasilia) {
     return(data)
   }
 
-  # Fail loud when the named state column is absent (cleanup phase 3, finding
-  # H2). The former stacked fallbacks (four state-column names, then three
-  # municipality-code columns filtering on a "^53" prefix, then a warn-and-pass)
-  # could silently skip the filter or use the wrong column; the caller names it.
   if (!state_col %in% names(data)) {
     stop(sprintf("apply_brasilia_filters(): state column '%s' not found in data.", state_col))
   }
@@ -146,31 +123,16 @@ apply_brasilia_filters <- function(data, remove_brasilia = TRUE, state_col = "sg
   }
 }
 
-# ===== PIPELINE HELPERS =====
-
-#' Process one state's CNEFE data into per-municipality aggregates
-#'
-#' Reads and cleans one state's CNEFE file entirely in memory and returns only
-#' the small summaries the pipeline consumes: street- and neighborhood-level
-#' coordinate aggregates plus the school rows. The full cleaned address table is
-#' never returned (and therefore never persisted); it has no consumer other than
-#' these three aggregates (spec `2026-07-partition-reference-data-spec.md`, D5).
-#'
-#' @param state Current state being processed
-#' @param year CNEFE year (2010 or 2022)
-#' @param muni_ids Municipality identifiers
-#' @param tract_centroids Tract centroids (for 2010 only)
-#' @return A list with `st` (street aggregates), `bairro` (neighborhood
-#'   aggregates), and `schools` (school rows) for this state
-#' @export
+# Read and clean one state's CNEFE file in memory and return only the small
+# summaries the pipeline consumes: street- and neighborhood-level coordinate
+# aggregates plus the school rows. The full cleaned address table has no other
+# consumer, so it is never returned or persisted.
 process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NULL) {
-  # state_file is the tracked per-state CNEFE path (cleanup phase 5, C2), e.g.
-  # "data/cnefe_2010/cnefe_2010_AC.csv.gz". Deriving the state from the filename
-  # (rather than passing it separately) keeps the file content the single tracked
-  # dependency, so a re-downloaded state file invalidates exactly its branch.
+  # The state is derived from the filename (e.g. "cnefe_2010_AC.csv.gz") rather
+  # than passed separately, so file content stays the single tracked dependency
+  # and a re-downloaded state file invalidates exactly its branch.
   state <- cnefe_state_from_file(state_file, year)
 
-  # Get municipality IDs for this state
   state_muni_ids <- muni_ids[estado_abrev == state]
   if (nrow(state_muni_ids) == 0L) {
     stop(sprintf(
@@ -181,7 +143,6 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
   }
 
   if (year == 2010) {
-    # Read state data
     state_data <- fread(
       state_file,
       sep = ",",
@@ -190,7 +151,6 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
       showProgress = FALSE
     )
 
-    # Get tract centroids for this state
     state_codes <- unique(substr(
       as.character(state_muni_ids$id_munic_7),
       1,
@@ -200,8 +160,7 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
       substr(setor_code, 1, 2) %in% state_codes
     ]
 
-    # Clean the data, extracting schools from the same in-memory pass (the
-    # duplicate 2010 schools read/clean pass is deleted per spec D5).
+    # Schools come out of the same in-memory pass, so the state file is read once.
     cleaned <- clean_cnefe10(
       cnefe_file = state_data,
       muni_ids = state_muni_ids,
@@ -211,7 +170,6 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
     addr <- cleaned$data
     schools <- cleaned$schools
   } else {
-    # CNEFE 2022 processing
     addr <- clean_cnefe22(
       cnefe22_file = state_file,
       muni_ids = state_muni_ids
@@ -226,25 +184,9 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
   )
 }
 
-#' Aggregate CNEFE coordinates to per-municipality group medians
-#'
-#' Collapses cleaned CNEFE rows to one row per `(id_munic_7, <group_col>)` group,
-#' taking the median coordinate and the group size `n`. This is the aggregation
-#' formerly applied to the combined national `cnefe10`/`cnefe22` tables; because
-#' each municipality lives in exactly one state file, computing it per state and
-#' row-binding the results is equivalent to aggregating the national table.
-#'
-#' Singleton groups (`n == 1`) are intentionally NOT dropped here: the singleton
-#' drop happens in [combine_cnefe_state_component()], *after* the cross-slice
-#' duplicate check, so that a key accidentally split one-and-one across two state
-#' files is caught by the D6 invariant instead of being filtered away unseen.
-#'
-#' @param addr Cleaned CNEFE address data.table with `id_munic_7`,
-#'   `cnefe_long`, `cnefe_lat`, and the grouping column
-#' @param group_col Grouping column name (`"norm_street"` or `"norm_bairro"`)
-#' @return A data.table with columns `id_munic_7`, `<group_col>`, `long`, `lat`,
-#'   `n` (one row per group, including `n == 1` groups)
-#' @export
+# Collapse cleaned CNEFE rows to one row per (id_munic_7, group_col) with the
+# median coordinate and group size n. Singleton groups are deliberately kept
+# here; combine_cnefe_state_component() drops them after its duplicate check.
 aggregate_cnefe_coords <- function(addr, group_col) {
   addr[,
     .(
@@ -256,29 +198,10 @@ aggregate_cnefe_coords <- function(addr, group_col) {
   ]
 }
 
-#' Combine one component of the per-state CNEFE results
-#'
-#' Row-binds a named component (`"st"`, `"bairro"`, or `"schools"`) across the
-#' per-state result lists returned by [process_cnefe_state()]. For the street and
-#' neighborhood aggregates, `unique_key` asserts the spec-D6 invariant: no
-#' `(id_munic_7, <key>)` may appear in more than one state slice. A duplicate is
-#' exactly what a municipality spanning two state files, or a mis-assigned state
-#' file, would produce, so it is a hard error rather than a silently merged row.
-#'
-#' The duplicate check runs on the un-thinned aggregates (singleton `n == 1`
-#' groups still present), so a key split one-and-one across two state files is
-#' detected here; only afterwards are singleton groups dropped (`n > 1`), matching
-#' the national aggregation's `[n > 1]` filter. `schools` has no `n` column and is
-#' returned in full.
-#'
-#' @param state_results List of per-state result lists
-#' @param component Component name to extract from each per-state list
-#' @param unique_key Optional key columns whose uniqueness across slices is
-#'   asserted; `NULL` (the default) skips the check (used for `schools`, which is
-#'   legitimately many-per-municipality)
-#' @return The row-bound data.table for the requested component (aggregate
-#'   components thinned to `n > 1` groups)
-#' @export
+# Row-bind one component ("st", "bairro", or "schools") across the per-state
+# CNEFE results. For the aggregates, unique_key asserts that no key appears in
+# more than one state slice -- a duplicate means a municipality spanning two
+# state files or a mis-assigned file, which is an error, not a row to merge.
 combine_cnefe_state_component <- function(state_results, component, unique_key = NULL) {
   combined <- rbindlist(
     lapply(state_results, `[[`, component),
@@ -287,8 +210,7 @@ combine_cnefe_state_component <- function(state_results, component, unique_key =
   )
 
   # anyDuplicated() is a single pass with a 0L fast path, so the expensive
-  # per-key count table is only materialized on the rare error path (to build
-  # the diagnostic), not on every combine.
+  # per-key count table is only built on the rare error path.
   if (!is.null(unique_key) && anyDuplicated(combined, by = unique_key) > 0L) {
     dup_keys <- combined[, .N, by = unique_key][N > 1]
     example <- paste(
@@ -307,9 +229,9 @@ combine_cnefe_state_component <- function(state_results, component, unique_key =
     ))
   }
 
-  # Drop singleton groups only now, after the cross-slice duplicate check, so a
-  # 1+1 split cannot be filtered away before the invariant sees it. Aggregate
-  # components carry an `n` column; `schools` does not and passes through whole.
+  # Singletons are dropped only after the duplicate check, so a key split
+  # one-and-one across two state files cannot be filtered away unseen. Aggregate
+  # components carry `n`; `schools` does not and passes through whole.
   if ("n" %in% names(combined)) {
     combined <- combined[n > 1]
   }
@@ -317,32 +239,10 @@ combine_cnefe_state_component <- function(state_results, component, unique_key =
   combined
 }
 
-#' Slice a reference table into per-batch groups for Option A branching (issue #68)
-#'
-#' Attaches each reference row's `batch_id` (via `municipality_batch_assignments`,
-#' the single source of truth for the municipality->batch map) plus a contiguous
-#' `tar_group`, so a match target can `pattern = map()` over the groups with
-#' `retrieval = "main"` and receive only its batch's slice instead of the whole
-#' national reference table.
-#'
-#' The join is an update-join (it does not reorder rows) followed by an
-#' inner-join drop: reference municipalities absent from the batch assignments
-#' have no polling stations and are never matched, so dropping them changes no
-#' match output. `tar_group` is the dense rank of `batch_id`, which is a
-#' contiguous 1..N in ascending `batch_id` order (the pre-existing branch order)
-#' and leaves row order untouched -- so every per-municipality slice preserves the
-#' reference's original row order and therefore identical match tie-breaks.
-#'
-#' @param ref data.table reference table (must have `id_munic_7`).
-#' @param municipality_batch_assignments data.table with `cod_localidade_ibge`,
-#'   `batch_id`.
-#' @param copy Copy `ref` before the in-place update-join? Defaults to `TRUE` so a
-#'   real target's cached value is never mutated. Callers that already hand in a
-#'   freshly allocated table (e.g. [make_stbairro_batch_groups()] via `rbindlist`)
-#'   pass `FALSE` to avoid a redundant copy of a large reference.
-#' @return `ref` (inner-joined to the assignments) with added `batch_id` and
-#'   `tar_group` columns, intended for `iteration = "group"`.
-#' @export
+# Attach each reference row's batch_id plus a contiguous tar_group, so a match
+# target can map() over the groups and receive only its batch's slice instead of
+# the whole national reference table. tar_group is the dense rank of batch_id,
+# so row order (and therefore match tie-breaks) is untouched.
 make_ref_batch_groups <- function(ref, municipality_batch_assignments, copy = TRUE) {
   if (copy) {
     ref <- data.table::copy(ref)
@@ -356,15 +256,11 @@ make_ref_batch_groups <- function(ref, municipality_batch_assignments, copy = TR
   # is never matched, so drop it rather than form an empty group for it.
   ref <- ref[!is.na(batch_id)]
   if (nrow(ref) == 0L) {
-    # Degenerate case: no reference municipality overlaps the batch assignments,
-    # so this reference contributes no matches at all. `pattern = map()` cannot
-    # branch over an empty target, so emit one placeholder group carrying no real
-    # municipality (id_munic_7 = NA). The match batch then runs once, every
-    # per-municipality lookup misses, and the combined result is the same empty
-    # data.table the whole-table path produced -- no crash. This is not expected
-    # for any reference in normal operation (Agro CNEFE used to hit it in dev via
-    # bug #75, now fixed), so the warning keeps a genuinely empty reference from
-    # passing silently.
+    # No reference municipality overlaps the batch assignments, so this reference
+    # contributes no matches at all. map() cannot branch over an empty target, so
+    # emit one placeholder group with id_munic_7 = NA: every lookup misses and the
+    # result is the same empty table the whole-table path produced. Not expected
+    # in normal operation, hence the warning.
     warning(
       "make_ref_batch_groups(): reference has no municipality overlap with the ",
       "batch assignments; emitting one empty placeholder group (no matches). ",
@@ -377,27 +273,13 @@ make_ref_batch_groups <- function(ref, municipality_batch_assignments, copy = TR
   ref[]
 }
 
-#' Slice paired street + neighborhood reference tables into per-batch groups (#68)
-#'
-#' Unions the street and neighborhood aggregates (tagged by a `component` column)
-#' into one table before grouping, so both travel as a single grouped stem and
-#' cannot fall out of group alignment -- which mapping over two separate grouped
-#' targets would risk whenever a batch has streets but no neighborhoods, or vice
-#' versa. Grouping semantics are those of [make_ref_batch_groups()].
-#'
-#' @param ref_st Street-level aggregate (`id_munic_7`, `norm_street`, `long`,
-#'   `lat`, `n`).
-#' @param ref_bairro Neighborhood-level aggregate (`id_munic_7`, `norm_bairro`,
-#'   `long`, `lat`, `n`).
-#' @param municipality_batch_assignments data.table with `cod_localidade_ibge`,
-#'   `batch_id`.
-#' @return Unioned table with a `component` tag (`"st"`/`"bairro"`) plus
-#'   `batch_id`/`tar_group`, intended for `iteration = "group"`.
-#' @export
+# Group the street and neighborhood aggregates into per-batch slices. They are
+# unioned into one table (tagged by `component`) first so both travel as a single
+# grouped stem and cannot fall out of alignment when a batch has streets but no
+# neighborhoods, or vice versa.
 make_stbairro_batch_groups <- function(ref_st, ref_bairro, municipality_batch_assignments) {
-  # rbindlist(idcol=) tags each source with its `component` and returns a fresh
-  # table, so neither input is copied or mutated. The union is already fresh,
-  # hence copy = FALSE below.
+  # rbindlist() returns a fresh table, so neither input is mutated and the
+  # defensive copy inside make_ref_batch_groups() is unnecessary.
   ref <- data.table::rbindlist(
     list(st = ref_st, bairro = ref_bairro),
     use.names = TRUE,
@@ -407,19 +289,9 @@ make_stbairro_batch_groups <- function(ref_st, ref_bairro, municipality_batch_as
   make_ref_batch_groups(ref, municipality_batch_assignments, copy = FALSE)
 }
 
-#' Process INEP string matching in batches
-#'
-#' `inep_data` is a per-batch grouped-stem slice (Option A, issue #68): the
-#' production INEP catalog is ~61 MB, so slicing it (rather than broadcasting the
-#' whole table to every worker) clears the D3 size bar. Municipalities are still
-#' taken from `municipality_batch_assignments` so the combined row order is
-#' byte-identical to the pre-reshape pipeline.
-#'
-#' @param municipality_batch_assignments Batch assignments
-#' @param locais_filtered Filtered polling stations
-#' @param inep_data Per-batch slice of the INEP catalog
-#' @return Combined match results
-#' @export
+# Match one batch's polling stations against the INEP school catalog. inep_data
+# is this batch's slice of the catalog; municipalities come from
+# municipality_batch_assignments, which fixes the combined row order.
 process_inep_batch <- function(municipality_batch_assignments, locais_filtered, inep_data) {
   this_batch <- inep_data$batch_id[1]
   batch_munis <- municipality_batch_assignments[
@@ -429,7 +301,6 @@ process_inep_batch <- function(municipality_batch_assignments, locais_filtered, 
   data.table::setkey(inep_data, id_munic_7)
   data.table::setkey(locais_filtered, cod_localidade_ibge)
 
-  # Process all municipalities in this batch
   batch_results <- lapply(batch_munis, function(muni_code) {
     match_inep_muni(
       locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
@@ -437,7 +308,6 @@ process_inep_batch <- function(municipality_batch_assignments, locais_filtered, 
     )
   })
 
-  # Remove NULL results and combine
   batch_results <- batch_results[!sapply(batch_results, is.null)]
   if (length(batch_results) > 0) {
     rbindlist(batch_results, use.names = TRUE, fill = TRUE)
@@ -446,20 +316,7 @@ process_inep_batch <- function(municipality_batch_assignments, locais_filtered, 
   }
 }
 
-#' Process schools CNEFE string matching in batches
-#'
-#' `schools_cnefe` is a per-batch grouped-stem slice (Option A, issue #68): it
-#' holds only this batch's municipalities plus a constant `batch_id` column, so
-#' the whole national table never crosses to the worker. Municipalities are still
-#' taken from `municipality_batch_assignments` (the source of truth) so per-batch
-#' iteration order -- and thus the combined row order -- is byte-identical to the
-#' pre-reshape pipeline.
-#'
-#' @param municipality_batch_assignments Batch assignments
-#' @param locais_filtered Filtered polling stations
-#' @param schools_cnefe Per-batch slice of the schools CNEFE reference
-#' @return Combined match results
-#' @export
+# Match one batch's polling stations against the CNEFE school rows.
 process_schools_cnefe_batch <- function(municipality_batch_assignments, locais_filtered, schools_cnefe) {
   this_batch <- schools_cnefe$batch_id[1]
   batch_munis <- municipality_batch_assignments[
@@ -476,7 +333,6 @@ process_schools_cnefe_batch <- function(municipality_batch_assignments, locais_f
     )
   })
 
-  # Remove NULL results and combine
   batch_results <- batch_results[!sapply(batch_results, is.null)]
   if (length(batch_results) > 0) {
     rbindlist(batch_results, use.names = TRUE, fill = TRUE)
@@ -485,25 +341,17 @@ process_schools_cnefe_batch <- function(municipality_batch_assignments, locais_f
   }
 }
 
-#' Process GeocodeR string matching in batches
-#'
-#' @param batch_ids Current batch ID
-#' @param municipality_batch_assignments Batch assignments
-#' @param locais_filtered Filtered polling stations
-#' @param muni_ids Municipality IDs data
-#' @return Combined match results
-#' @export
+# Geocode one batch's polling stations with geocodebr.
 process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, locais_filtered, muni_ids) {
-  # Get municipalities for this batch
   batch_munis <- municipality_batch_assignments[
     batch_id == batch_ids
   ]$cod_localidade_ibge
 
   data.table::setkey(locais_filtered, cod_localidade_ibge)
 
-  # Collect-and-stop (cleanup phase 3, finding C5): a NULL result (no polling
-  # stations or no geocoding hits) is a legitimate empty case and is filtered;
-  # a municipality that errors is surfaced at batch end, never silently dropped.
+  # A NULL result (no polling stations, or no geocoding hits) is a legitimate
+  # empty case and is filtered out; a municipality that errors is reported at
+  # batch end rather than silently dropped.
   results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
@@ -522,26 +370,10 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
   }
 }
 
-#' Process street/neighborhood matching for one batch slice
-#'
-#' Shared engine for the CNEFE and Agro CNEFE street/neighborhood match batches,
-#' which differ only in the per-municipality matcher and the log label. `stbairro`
-#' is a per-batch grouped-stem slice (Option A, issue #68): the union of the
-#' street and neighborhood aggregates for this batch's municipalities, tagged by
-#' `component` and carrying a constant `batch_id`. The whole national tables never
-#' cross to the worker; municipalities are still taken from
-#' `municipality_batch_assignments` so the combined row order is byte-identical to
-#' the pre-reshape pipeline.
-#'
-#' @param municipality_batch_assignments Batch assignments
-#' @param locais_filtered Filtered polling stations
-#' @param stbairro Per-batch slice: union of street + neighborhood aggregates,
-#'   tagged by `component`
-#' @param match_fn Per-municipality matcher called positionally as
-#'   `match_fn(locais_muni, st_muni, bairro_muni)`
-#' @param label Human-readable source label for the log lines (e.g. `"CNEFE"`)
-#' @return Combined match results
-#' @export
+# Shared engine for the CNEFE and Agro CNEFE street/neighborhood match batches,
+# which differ only in the per-municipality matcher and the log label. stbairro
+# is this batch's slice: the union of the street and neighborhood aggregates,
+# tagged by `component`.
 process_stbairro_batch <- function(
   municipality_batch_assignments,
   locais_filtered,
@@ -623,16 +455,7 @@ process_stbairro_batch <- function(
   }
 }
 
-#' Process CNEFE street/neighborhood matching in batches
-#'
-#' Thin wrapper over [process_stbairro_batch()] with the CNEFE matcher.
-#'
-#' @param municipality_batch_assignments Batch assignments
-#' @param locais_filtered Filtered polling stations
-#' @param cnefe_stbairro Per-batch slice: union of street + neighborhood CNEFE
-#'   aggregates, tagged by `component`
-#' @return Combined match results
-#' @export
+# CNEFE street/neighborhood matching for one batch.
 process_cnefe_stbairro_batch <- function(
   municipality_batch_assignments,
   locais_filtered,
@@ -647,16 +470,7 @@ process_cnefe_stbairro_batch <- function(
   )
 }
 
-#' Process Agro CNEFE street/neighborhood matching in batches
-#'
-#' Thin wrapper over [process_stbairro_batch()] with the Agro CNEFE matcher.
-#'
-#' @param municipality_batch_assignments Batch assignments
-#' @param locais_filtered Filtered polling stations
-#' @param agrocnefe_stbairro Per-batch slice: union of street + neighborhood Agro
-#'   CNEFE aggregates, tagged by `component`
-#' @return Combined match results
-#' @export
+# Agro CNEFE street/neighborhood matching for one batch.
 process_agrocnefe_stbairro_batch <- function(
   municipality_batch_assignments,
   locais_filtered,
@@ -670,30 +484,14 @@ process_agrocnefe_stbairro_batch <- function(
     label = "Agro CNEFE"
   )
 }
-# ===== PARALLEL PROCESSING =====
 
-#' Create municipality batch assignments for balanced parallel processing
-#'
-#' This function creates balanced batch assignments for municipality codes to reduce
-#' the number of dynamic branches in the targets pipeline. It assigns each municipality
-#' to a specific batch number, which helps prevent bottlenecks when crew dispatches
-#' thousands of fine-grained tasks.
-#'
-#' Unlike create_municipality_batches (which returns a list of batches), this function
-#' returns a data.table mapping each municipality code to its batch number. This is
-#' more efficient for joining operations in the pipeline.
-#'
-#' @param muni_codes Vector of municipality codes to batch
-#' @param batch_size Target size for each batch (default: 50)
-#' @param muni_sizes Optional named vector of municipality sizes for load balancing
-#' @return data.table with columns: cod_localidade_ibge (municipality code) and batch_id
-#' @examples
-#' assignments <- create_municipality_batch_assignments(unique(locais$cod_localidade_ibge))
-#' @export
+# Map each municipality code to a batch number, so the pipeline branches over a
+# few hundred batches instead of thousands of per-municipality tasks. With
+# muni_sizes supplied, batches are balanced by size instead of assigned
+# sequentially.
 create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, muni_sizes = NULL) {
   n_munis <- length(muni_codes)
 
-  # Simple sequential batching if no size information provided
   if (is.null(muni_sizes)) {
     n_batches <- ceiling(n_munis / batch_size)
     batch_nums <- rep(seq_len(n_batches), each = batch_size, length.out = n_munis)
@@ -703,25 +501,19 @@ create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, m
       batch_id = batch_nums
     )
   } else {
-    # Load-balanced batching based on municipality sizes
-    # Handle both data.table and vector inputs for muni_sizes
     if (inherits(muni_sizes, "data.table")) {
-      # If muni_sizes is a data.table, join properly
       muni_df <- data.table::data.table(
         cod_localidade_ibge = muni_codes
       )
-      # Join with the sizes data
       muni_df <- merge(muni_df, muni_sizes, by.x = "cod_localidade_ibge", by.y = "muni_code", all.x = TRUE)
     } else {
-      # If muni_sizes is a named vector
       muni_df <- data.table::data.table(
         cod_localidade_ibge = muni_codes,
         size = muni_sizes[as.character(muni_codes)]
       )
     }
-    # Fail loud on a municipality with no size entry (cleanup phase 3, Medium):
-    # median-imputing a missing size masks a municipality-code key mismatch
-    # between muni_codes and muni_sizes.
+    # A missing size means the municipality-code keys of muni_codes and
+    # muni_sizes disagree; imputing one would hide that mismatch.
     missing_size <- muni_df[is.na(size), cod_localidade_ibge]
     if (length(missing_size) > 0) {
       stop(sprintf(
@@ -733,14 +525,13 @@ create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, m
     }
     data.table::setorder(muni_df, -size)
 
-    # Assign to batches using round-robin for load balancing
+    # Round-robin over size-sorted municipalities spreads the large ones evenly.
     n_batches <- ceiling(n_munis / batch_size)
     muni_df[, batch_id := rep_len(seq_len(n_batches), .N)]
 
     result <- muni_df[, .(cod_localidade_ibge, batch_id)]
   }
 
-  # Log batch statistics
   batch_stats <- result[, .N, by = batch_id]
   message(sprintf(
     "Created %d batches for %d municipalities (min: %d, max: %d, avg: %.1f per batch)",
@@ -753,9 +544,6 @@ create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, m
 
   result
 }
-
-# ===== DATA EXPORT FUNCTIONS =====
-# These functions were moved from data_export.R
 
 # Column names and order of the published geocoded file, preserved from the
 # 0.141 release so downstream code that reads it keeps working. Internally the
@@ -783,19 +571,10 @@ GEOCODED_EXPORT_SCHEMA <- c(
   "lat"
 )
 
-#' Map the internal geocoded table to the published 0.141-compatible schema.
-#'
-#' Renames final_long/final_lat to long/lat and reorders columns to
-#' GEOCODED_EXPORT_SCHEMA. Pure (returns a new table; does not mutate the input),
-#' so it is unit-testable and safe to call on a shared target object. Fails loud
-#' if the expected columns are absent.
-#'
-#' @param geocoded_locais Internal geocoded table (with final_long/final_lat).
-#' @return A data.table with exactly the published columns, in 0.141 order.
-#' @export
+# Map the internal geocoded table to the published schema: rename
+# final_long/final_lat to long/lat and reorder to GEOCODED_EXPORT_SCHEMA.
+# Returns a new table; the input is not mutated.
 to_geocoded_export_schema <- function(geocoded_locais) {
-  # Read-only select: renames final_long/final_lat inline and fixes column order
-  # in one pass, returning a new data.table without mutating the input.
   as.data.table(geocoded_locais)[, .(
     local_id,
     ano,
@@ -819,11 +598,7 @@ to_geocoded_export_schema <- function(geocoded_locais) {
   )]
 }
 
-#' Export geocoded locations to file
-#'
-#' @param geocoded_locais Geocoded locations data
-#' @return Path to exported file
-#' @export
+# Write the published geocoded file and return its path.
 export_geocoded_locais <- function(geocoded_locais) {
   fwrite(
     to_geocoded_export_schema(geocoded_locais),
@@ -832,34 +607,20 @@ export_geocoded_locais <- function(geocoded_locais) {
   "./output/geocoded_polling_stations.csv.gz"
 }
 
-#' Export panel IDs to file
-#'
-#' @param panel_ids Panel ID data to export
-#' @return Path to exported file
-#' @export
+# Write the published panel-ID file and return its path.
 export_panel_ids <- function(panel_ids) {
   fwrite(panel_ids, "./output/panel_ids.csv.gz")
   "./output/panel_ids.csv.gz"
 }
 
-#' Export geocoded data with validation dependency
-#'
-#' @param geocoded_locais Geocoded locations data
-#' @param validation_report Validation report (ensures it runs first)
-#' @return File path of exported data
-#' @export
+# Export the geocoded file. validation_report is unused except to force the
+# validation target to build first.
 export_geocoded_with_validation <- function(geocoded_locais, validation_report) {
-  # validation_report is passed to ensure dependency
   export_geocoded_locais(geocoded_locais)
 }
 
-#' Export panel IDs with validation dependency
-#'
-#' @param panel_ids Panel ID data
-#' @param validation_report Validation report (ensures it runs first)
-#' @return File path of exported data
-#' @export
+# Export the panel-ID file. validation_report is unused except to force the
+# validation target to build first.
 export_panel_ids_with_validation <- function(panel_ids, validation_report) {
-  # validation_report is passed to ensure dependency
   export_panel_ids(panel_ids)
 }

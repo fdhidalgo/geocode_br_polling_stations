@@ -1,18 +1,8 @@
-## String Matching Functions
-##
-## Functions for fuzzy string matching between polling station addresses and
-## reference datasets (CNEFE, INEP schools, geocodebr). Uses Jaro-Winkler
-## distance for name matching and Levenshtein distance for addresses.
-## All functions implement memory-efficient chunked processing to handle
-## large datasets without exhausting system memory.
+## Fuzzy matching of polling station names/addresses to reference datasets (CNEFE, INEP, geocodebr).
 
 library(data.table)
 library(stringr)
 library(stringdist)
-
-# ===== MEMORY EFFICIENT HELPER FUNCTIONS =====
-# These functions enable processing of large string matching tasks
-# by breaking them into manageable chunks and pre-filtering candidates
 
 prefilter_by_common_words <- function(query_strings, target_strings, min_common_words = 1) {
   # Pre-filter strings based on common words to reduce comparison space
@@ -165,15 +155,11 @@ get_adaptive_chunk_size <- function(n_items, available_memory_gb = 4) {
   # Apply reasonable bounds
   chunk_size <- max(100, min(chunk_size, 10000))
 
-  # Never chunk larger than the number of query items: chunking beyond n_items
-  # yields a single chunk of n_items anyway, so cap here for an honest chunk
-  # size. This cap wins over the lower bound when n_items < 100.
+  # Cap at the number of query items; this wins over the lower bound when n_items < 100.
   chunk_size <- min(chunk_size, n_items)
 
   return(chunk_size)
 }
-
-# ===== UNIFIED STRING MATCHING FUNCTIONS =====
 
 match_inep_muni <- function(locais_muni, inep_muni) {
   # Match polling stations with INEP school data for a single municipality
@@ -360,8 +346,7 @@ match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_m
 }
 
 match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocnefe_bairro_muni) {
-  # Match polling stations with Agro CNEFE data
-  # This follows the same pattern as match_stbairro_cnefe_muni
+  # Match polling stations with Agro CNEFE street and neighborhood data
 
   if (nrow(agrocnefe_st_muni) == 0) {
     return(NULL)
@@ -428,17 +413,10 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
   return(output)
 }
 
-# ===== GEOCODEBR MATCHING FUNCTION =====
-
 match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
   # Match polling stations with geocodebr for a single municipality.
-  #
-  # Fail-loud contract (cleanup phase 3, finding C5): geocodebr must be
-  # installed, and any geocoding error propagates to the caller rather than
-  # being converted to a warning + NULL or an empty result. The batch driver
-  # (process_geocodebr_batch) applies the collect-and-stop convention, so a
-  # failing municipality is surfaced instead of silently dropped from coverage.
-  # A missing package is a structural precondition and stops immediately here.
+
+  # Geocoding errors propagate to the caller; a municipality never drops out silently.
   if (!requireNamespace("geocodebr", quietly = TRUE)) {
     stop("geocodebr package not installed; it is required for match_geocodebr_muni().")
   }
@@ -473,10 +451,8 @@ match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
     return(NULL)
   }
 
-  # Carry local_id through as a passthrough column so geocodebr reattaches it to
-  # each result via its internal row id (see the row-count assertion below),
-  # rather than us reassigning it by position afterward. Only estado, municipio,
-  # logradouro are address fields; local_id is returned unchanged in the result.
+  # local_id rides along as a non-address column so geocodebr reattaches it to each
+  # result itself, rather than us reassigning coordinates by position afterward.
   geocode_data <- dt_geocode[, .(local_id, estado, municipio, logradouro)]
   char_cols <- names(geocode_data)[sapply(geocode_data, is.character)]
   for (col in char_cols) {
@@ -501,10 +477,7 @@ match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
     return(NULL)
   }
 
-  # geocodebr returns one row per input row (ties resolved) with all input
-  # columns preserved, so local_id is already attached to the correct result.
-  # Assert the invariant so a coordinate can never be tied to the wrong polling
-  # station: local_id must survive the round-trip and the row count must match.
+  # Assert the round-trip so a coordinate can never be tied to the wrong station.
   stopifnot(
     "local_id" %in% names(geocoded_result),
     nrow(geocoded_result) == nrow(dt_geocode),

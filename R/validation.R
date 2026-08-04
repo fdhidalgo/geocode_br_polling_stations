@@ -1,18 +1,10 @@
-## Validation Functions
-##
-## Functions for validating data quality throughout the geocoding pipeline.
-## Implements stage-based validation (import, transformation, merge, output)
-## with automatic reporting and error tracking. Uses the validate package
-## to define and check business rules at each pipeline stage.
+## Data-quality validation and release gates for the geocoding pipeline.
 
 library(validate)
 library(data.table)
 library(knitr)
 
-# ===== VALIDATION STAGE FUNCTIONS =====
-# Functions to validate data at specific pipeline stages
-# Each returns structured results for tracking and reporting
-
+# Confronts merged data with row-count, duplicate, and merge-key rules.
 validate_merge_stage <- function(
   merged_data,
   left_data,
@@ -21,16 +13,11 @@ validate_merge_stage <- function(
   merge_keys,
   join_type = "left"
 ) {
-  # Validates data after merge operations
-
-  # Create merge-specific rules
   base_rules <- list(
-    # Should have results
     has_rows = quote(nrow(.) > 0),
     no_complete_duplicates = quote(nrow(.) == nrow(unique(.)))
   )
 
-  # Add merge key checks
   if (!is.null(merge_keys)) {
     for (key in merge_keys) {
       base_rules[[paste0("has_key_", key)]] <- parse(
@@ -42,13 +29,10 @@ validate_merge_stage <- function(
     }
   }
 
-  # Create validator
   rules <- do.call(validator, base_rules)
 
-  # Run validation
   result <- confront(merged_data, rules)
 
-  # Create metadata
   metadata <- list(
     stage = stage_name,
     type = "merge",
@@ -57,7 +41,6 @@ validate_merge_stage <- function(
     n_cols = ncol(merged_data)
   )
 
-  # Return structured result
   structure(
     list(
       result = result,
@@ -69,18 +52,13 @@ validate_merge_stage <- function(
   )
 }
 
+# Confronts model predictions with column-presence, type, and probability-range rules.
 validate_prediction_stage <- function(predictions, stage_name, pred_col = "prediction", prob_col = NULL) {
-  # Validates model prediction results
-
-  # Create prediction-specific rules
   base_rules <- list(
-    # Should have predictions
     has_rows = quote(nrow(.) > 0),
-    # Check for prediction column
     has_pred_col = parse(text = sprintf("'%s' %%in%% names(.)", pred_col))[[1]]
   )
 
-  # Add prediction column validation
   if (pred_col %in% names(predictions)) {
     base_rules$predictions_numeric <- parse(
       text = sprintf(
@@ -96,7 +74,6 @@ validate_prediction_stage <- function(predictions, stage_name, pred_col = "predi
     )[[1]]
   }
 
-  # Add probability column checks if specified
   if (!is.null(prob_col)) {
     base_rules$has_prob_col <- parse(
       text = sprintf(
@@ -115,18 +92,14 @@ validate_prediction_stage <- function(predictions, stage_name, pred_col = "predi
     }
   }
 
-  # Create validator
   rules <- do.call(validator, base_rules)
 
-  # Run validation
   result <- confront(predictions, rules)
 
-  # Calculate prediction statistics based on pred_col
   if (pred_col %in% names(predictions)) {
     n_predictions <- sum(!is.na(predictions[[pred_col]]))
     prediction_rate <- n_predictions / nrow(predictions)
   } else if ("long" %in% names(predictions) && "lat" %in% names(predictions)) {
-    # Fallback for coordinate predictions
     n_predictions <- sum(!is.na(predictions$long) | !is.na(predictions$lat))
     prediction_rate <- n_predictions / nrow(predictions)
   } else {
@@ -134,7 +107,6 @@ validate_prediction_stage <- function(predictions, stage_name, pred_col = "predi
     prediction_rate <- 0
   }
 
-  # Create metadata
   metadata <- list(
     stage = stage_name,
     type = "prediction",
@@ -146,7 +118,6 @@ validate_prediction_stage <- function(predictions, stage_name, pred_col = "predi
     prob_col = prob_col
   )
 
-  # Return structured result
   structure(
     list(
       result = result,
@@ -158,21 +129,17 @@ validate_prediction_stage <- function(predictions, stage_name, pred_col = "predi
   )
 }
 
+# Confronts final output with required-column, coordinate, and key-uniqueness rules.
 validate_output_stage <- function(output_data, stage_name, required_cols = NULL, unique_keys = NULL) {
-  # Validates final output data before export
-
-  # Default required columns for geocoded output
   if (is.null(required_cols)) {
     required_cols <- c("local_id", "ano", "nr_zona", "nr_locvot")
   }
 
-  # Create output-specific rules
   base_rules <- list(
     has_rows = quote(nrow(.) > 0),
     has_coordinates = quote(any(c("final_long", "final_lat", "pred_long", "pred_lat") %in% names(.)))
   )
 
-  # Add required column checks
   for (col in required_cols) {
     rule_name <- paste0("has_", col)
     base_rules[[rule_name]] <- substitute(col %in% names(.), list(col = col))
@@ -180,10 +147,8 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
 
   rules <- do.call(validator, base_rules)
 
-  # Run validation
   result <- confront(output_data, rules)
 
-  # Calculate output statistics
   coord_cols <- intersect(c("final_long", "final_lat", "pred_long", "pred_lat"), names(output_data))
   n_geocoded <- 0
 
@@ -195,7 +160,6 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
 
   geocoding_rate <- n_geocoded / nrow(output_data)
 
-  # Create metadata
   metadata <- list(
     stage = stage_name,
     type = "output",
@@ -207,7 +171,6 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
     coordinate_columns = coord_cols
   )
 
-  # Check uniqueness if keys specified
   if (!is.null(unique_keys) && all(unique_keys %in% names(output_data))) {
     n_unique <- nrow(unique(output_data[, ..unique_keys]))
     metadata$n_unique_keys <- n_unique
@@ -218,16 +181,13 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
     }
   }
 
-  # Check if all rules passed
   summary_df <- summary(result)
   passed <- all(summary_df$fails == 0, na.rm = TRUE)
 
-  # Additional check for duplicates
   if (!is.null(unique_keys) && metadata$duplicate_keys > 0) {
     passed <- FALSE
   }
 
-  # Return structured result
   structure(
     list(
       result = result,
@@ -239,8 +199,7 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
   )
 }
 
-# ===== VALIDATION TARGET FUNCTIONS =====
-
+# Validates a merge and warns with a caller-supplied message on failure.
 validate_merge_simple <- function(
   merged_data,
   left_data,
@@ -249,8 +208,6 @@ validate_merge_simple <- function(
   join_type = "left_many",
   warning_message = NULL
 ) {
-  # Validate merge operation
-
   result <- validate_merge_stage(
     merged_data = merged_data,
     left_data = left_data,
@@ -267,14 +224,13 @@ validate_merge_simple <- function(
   return(result)
 }
 
+# Validates model predictions and stops the pipeline on failure.
 validate_predictions_simple <- function(
   predictions,
   stage_name = "model_predictions",
   pred_col = "pred_dist",
   stop_on_failure = TRUE
 ) {
-  # Validate predictions
-
   result <- validate_prediction_stage(
     predictions = predictions,
     stage_name = stage_name,
@@ -289,6 +245,7 @@ validate_predictions_simple <- function(
   return(result)
 }
 
+# Validates the final geocoded output and stops before export on failure.
 validate_final_output <- function(
   output_data,
   stage_name = "geocoded_locais",
@@ -296,8 +253,6 @@ validate_final_output <- function(
   unique_keys,
   stop_on_failure = TRUE
 ) {
-  # Validate final geocoded output
-
   result <- validate_output_stage(
     output_data = output_data,
     stage_name = stage_name,
@@ -305,7 +260,6 @@ validate_final_output <- function(
     unique_keys = unique_keys
   )
 
-  # Final quality check
   if (!result$passed && stop_on_failure) {
     stop("Final output validation failed - do not export!")
   }
@@ -318,10 +272,8 @@ validate_final_output <- function(
   return(result)
 }
 
+# Checks municipality, INEP, and polling-station row counts against expected ranges.
 validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, pipeline_config) {
-  # Validate all input datasets by checking their sizes against expected ranges
-  # Size validation helps catch data loading issues early in the pipeline
-
   # Define expected sizes based on mode, for the datasets that dev mode filters.
   expected_sizes <- if (pipeline_config$dev_mode) {
     list(
@@ -334,19 +286,13 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
       locais = list(min = 100000, max = 1000000, name = "polling stations")
     )
   }
-  # inep_codes is the national INEP codes table in both modes (it is never
-  # filtered by dev mode), so its expected range is always the national one. The
-  # former dev range (1000-50000) mis-assumed a filtered input, so dev validation
-  # silently failed every run; now that the validator stops, that range must be
-  # correct (cleanup phase 3, finding H4 wiring; Codex triage).
+  # inep_codes is never filtered by dev mode, so its expected range is always national.
   expected_sizes$inep_codes <- list(min = 100000, max = 300000, name = "INEP schools")
 
-  # Collect validation results
   checks <- list()
   messages <- list()
   all_passed <- TRUE
 
-  # Check municipality data
   muni_count <- nrow(muni_ids)
   checks$muni_ids_size <- muni_count >= expected_sizes$muni_ids$min &&
     muni_count <= expected_sizes$muni_ids$max
@@ -359,7 +305,6 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   )
   all_passed <- all_passed && checks$muni_ids_size
 
-  # Check INEP codes
   inep_count <- nrow(inep_codes)
   checks$inep_codes_size <- inep_count >= expected_sizes$inep_codes$min &&
     inep_count <= expected_sizes$inep_codes$max
@@ -372,7 +317,6 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   )
   all_passed <- all_passed && checks$inep_codes_size
 
-  # Check polling stations
   locais_count <- nrow(locais_filtered)
   checks$locais_size <- locais_count >= expected_sizes$locais$min &&
     locais_count <= expected_sizes$locais$max
@@ -385,7 +329,6 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   )
   all_passed <- all_passed && checks$locais_size
 
-  # Create metadata
   metadata <- list(
     stage = "input_validation",
     type = "consolidated",
@@ -399,7 +342,6 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
     messages = messages
   )
 
-  # Print summary
   cat("\n=== INPUT DATA VALIDATION ===\n")
   cat("Mode:", metadata$mode, "\n")
   for (msg in messages) {
@@ -407,7 +349,6 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   }
   cat("=============================\n\n")
 
-  # Return validation result
   validation_output <- list(
     result = NULL, # No detailed rules, just size checks
     metadata = metadata,
@@ -417,8 +358,7 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
 
   class(validation_output) <- "validation_result"
 
-  # Fail loud on any failed size check (cleanup phase 3, finding H4): a warning
-  # here let the pipeline continue on inputs that failed validation.
+  # Fail loud: a warning here would let the pipeline continue on inputs that failed validation.
   if (!all_passed) {
     failed <- names(checks)[!unlist(checks)]
     stop(sprintf(
@@ -431,11 +371,8 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   return(validation_output)
 }
 
-# ===== VALIDATION REPORT HELPERS =====
-
+# Timestamped file names (rds, summary, details) for one validation report.
 get_report_output_files <- function(base_name = "validation_report") {
-  # Generate output file names for validation reports
-
   timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
 
   list(
@@ -445,19 +382,14 @@ get_report_output_files <- function(base_name = "validation_report") {
   )
 }
 
+# Writes validation results to an rds plus a text summary; returns the two paths.
 create_validation_report_target <- function(validation_results, output_dir = "output/validation_reports") {
-  # Create validation report as a targets object
-
-  # Ensure output directory exists
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
-  # Get output file names
   files <- get_report_output_files()
 
-  # Save full results
   saveRDS(validation_results, file.path(output_dir, files$rds))
 
-  # Create summary
   summary_text <- capture.output({
     cat("Validation Report Summary\n")
     cat("========================\n")
@@ -471,21 +403,17 @@ create_validation_report_target <- function(validation_results, output_dir = "ou
 
   writeLines(summary_text, file.path(output_dir, files$summary))
 
-  # Return file paths
   list(
     rds = file.path(output_dir, files$rds),
     summary = file.path(output_dir, files$summary)
   )
 }
 
+# create_validation_report_target() plus a per-stage metrics CSV.
 create_validation_report <- function(validation_results, output_dir = "output/validation_reports") {
-  # Create comprehensive validation report
-
   report <- create_validation_report_target(validation_results, output_dir)
 
-  # Add detailed analysis if needed
   if (length(validation_results) > 0) {
-    # Extract key metrics
     metrics <- lapply(validation_results, function(x) {
       if (!is.null(x$metadata)) {
         x$metadata
@@ -494,7 +422,6 @@ create_validation_report <- function(validation_results, output_dir = "output/va
       }
     })
 
-    # Save as CSV for easy analysis
     metrics_df <- do.call(
       rbind,
       lapply(names(metrics), function(name) {
@@ -517,6 +444,7 @@ create_validation_report <- function(validation_results, output_dir = "output/va
   return(report)
 }
 
+# Writes the four critical validation results to a report and prints a console summary.
 generate_validation_report_simplified <- function(
   validate_inputs,
   validate_model_data,
@@ -528,9 +456,6 @@ generate_validation_report_simplified <- function(
   geocoded_locais,
   pipeline_config
 ) {
-  # Simplified version focusing on critical validations only
-
-  # Collect critical validation results only
   validation_results <- list(
     inputs = validate_inputs,
     model_data_merge = validate_model_data,
@@ -538,7 +463,6 @@ generate_validation_report_simplified <- function(
     geocoded_output = validate_geocoded_output
   )
 
-  # Create focused data source mapping
   data_sources <- list(
     inputs = NULL, # Input validation doesn't need data export
     model_data_merge = model_data,
@@ -546,16 +470,13 @@ generate_validation_report_simplified <- function(
     geocoded_output = geocoded_locais
   )
 
-  # Generate comprehensive report
   summary_stats <- create_validation_report(
     validation_results,
     output_dir = "output/validation_reports"
   )
 
-  # Save summary
   saveRDS(summary_stats, "output/validation_summary.rds")
 
-  # Print focused summary to console
   cat("\n========== VALIDATION REPORT SUMMARY ==========\n")
   cat("Report generated:", summary_stats$rds, "\n")
   cat("Critical validations checked:", length(validation_results), "\n")
@@ -567,7 +488,6 @@ generate_validation_report_simplified <- function(
     "\n"
   )
 
-  # Print specific validation results
   cat("\nValidation Results:\n")
   cat("- Input data sizes:", ifelse(validation_results$inputs$passed, "✅", "❌"), "\n")
   cat("- Model data merge:", ifelse(validation_results$model_data_merge$passed, "✅", "❌"), "\n")
@@ -584,28 +504,7 @@ generate_validation_report_simplified <- function(
   return(summary_stats)
 }
 
-# ===== DATA QUALITY MONITORING =====
-
-#' Create data quality monitor report
-#'
-#' Monitors data quality with configurable thresholds
-#'
-#' @param geocoded_export Path to geocoded export file
-#' @param panelid_export Path to panel ID export file
-#' @param geocoded_locais Geocoded locations data
-#' @param panel_ids Panel IDs data
-#' @param expected_municipality_count Expected number of municipalities (default: 5570)
-#' @param muni_count_tolerance Tolerance for municipality count (default: 50)
-#' @param extreme_change_threshold Percentage change to flag as extreme (default: 30)
-#' @param duplicate_coord_threshold Max acceptable coordinate duplicate groups (default: 10)
-#' @param near_duplicate_threshold Max acceptable near-duplicate pairs (default: 50)
-#' @param near_duplicate_distance Distance threshold for near-duplicates in meters (default: 100)
-#' @param alert_muni_discrepancy Alert threshold for municipality count difference (default: 100)
-#' @param alert_extreme_changes Alert threshold for number of extreme changes (default: 50)
-#' @param alert_panel_coverage Minimum acceptable panel coverage percentage (default: 90)
-#' @param alert_geocoding_coverage Minimum acceptable geocoding coverage percentage (default: 95)
-#' @param min_years_required Minimum years needed for comparison (default: 2)
-#' @return List with quality metrics and alerts
+# Computes coverage and duplicate-coordinate quality metrics; stops on CRITICAL status.
 create_data_quality_monitor <- function(
   geocoded_export,
   panelid_export,
@@ -625,10 +524,8 @@ create_data_quality_monitor <- function(
 ) {
   cat("Running data quality monitoring...\n")
 
-  # Initialize alerts list
   alerts <- list()
 
-  # Basic quality metrics
   results <- list(
     timestamp = Sys.time(),
     geocoded_export_path = geocoded_export,
@@ -656,7 +553,6 @@ create_data_quality_monitor <- function(
     alerts = alerts
   )
 
-  # Check if export files exist
   if (!file.exists(geocoded_export)) {
     results$status <- "WARNING"
     results$message <- paste("Geocoded export file not found:", geocoded_export)
@@ -669,7 +565,6 @@ create_data_quality_monitor <- function(
     alerts <- append(alerts, "Panel ID export file not found")
   }
 
-  # Municipality count check
   if ("cd_localidade_tse" %in% names(geocoded_locais)) {
     n_municipalities <- length(unique(geocoded_locais$cd_localidade_tse))
     results$metrics$n_municipalities <- n_municipalities
@@ -693,7 +588,6 @@ create_data_quality_monitor <- function(
     }
   }
 
-  # Geocoding coverage check
   if (all(c("final_long", "final_lat") %in% names(geocoded_locais))) {
     geocoding_rate <- mean(!is.na(geocoded_locais$final_long) & !is.na(geocoded_locais$final_lat)) * 100
     results$metrics$geocoding_coverage <- geocoding_rate
@@ -709,7 +603,6 @@ create_data_quality_monitor <- function(
     }
   }
 
-  # Panel coverage check (simplified - checking if panel_ids exist for geocoded locations)
   if ("local_id" %in% names(panel_ids) && "local_id" %in% names(geocoded_locais)) {
     n_with_panels <- sum(geocoded_locais$local_id %in% panel_ids$local_id)
     panel_coverage <- (n_with_panels / nrow(geocoded_locais)) * 100
@@ -726,7 +619,6 @@ create_data_quality_monitor <- function(
     }
   }
 
-  # Check for coordinate duplicates (simplified check)
   if (all(c("final_long", "final_lat") %in% names(geocoded_locais))) {
     coords_dt <- geocoded_locais[!is.na(final_long) & !is.na(final_lat), .(n = .N), by = .(final_long, final_lat)]
     duplicate_groups <- nrow(coords_dt[n > 1])
@@ -743,10 +635,8 @@ create_data_quality_monitor <- function(
     }
   }
 
-  # Update alerts in results
   results$alerts <- alerts
 
-  # Print summary
   cat("Data quality monitoring completed.\n")
   cat("  Status:", results$status, "\n")
   cat("  Geocoded locations:", results$metrics$n_geocoded, "\n")
@@ -761,8 +651,7 @@ create_data_quality_monitor <- function(
     cat("  Alerts:", length(alerts), "\n")
   }
 
-  # Fail loud on a CRITICAL data-quality state (cleanup phase 3, finding H4):
-  # the monitor previously accumulated the status string but finished green.
+  # A CRITICAL status must stop the build, not merely be recorded in the result.
   if (identical(results$status, "CRITICAL")) {
     stop(sprintf(
       "Data quality monitoring reported CRITICAL status. Alerts:\n%s",
@@ -773,18 +662,11 @@ create_data_quality_monitor <- function(
   return(results)
 }
 
-# ===== RELEASE GATES (2006-2024 re-release, #48) =====
-# Structural, fail-loud tripwires on the production rebuild, extending the
-# testing spec's dev-mode checks to the full run (release spec §Validation
-# gates). Any failed gate stop()s so a broken build is never shipped.
+# Release gates: fail-loud structural tripwires on the production rebuild.
 
-# The exact exported column set (schema §decision 7: no column added or removed).
-# This is the full geocoded_locais schema written to
-# geocoded_polling_stations.csv.gz, in the order finalize_coords() produces it.
-# The gate asserts set equality, so an accidentally dropped OR added column trips
-# it; a deliberate schema change must update this list (which is the point).
-# Provenance is derivable (tse_lat/tse_long non-NA, or pred_dist == 0), so no
-# coord_source column is added.
+# The exact geocoded_locais schema written to geocoded_polling_stations.csv.gz, in the
+# order finalize_coords() produces it. The gate asserts set equality, so a dropped or
+# added column trips it.
 RELEASE_EXPORT_COLS <- c(
   "cd_localidade_tse",
   "ano",
@@ -810,35 +692,26 @@ RELEASE_EXPORT_COLS <- c(
 # All election years the pipeline geocodes.
 RELEASE_EXPECTED_YEARS <- seq(2006L, 2024L, by = 2L)
 
-# Sane-scale bounds for the 2024 partition (address count 93,337; station count
-# ~93,339). A generous band: the gate catches a collapsed/exploded year, not a
-# few-hundred-station drift.
+# Sane-scale band for the 2024 partition (2024 address count: 93,337).
 RELEASE_N_2024_MIN <- 85000L
 RELEASE_N_2024_MAX <- 100000L
 
-# Plausible national band for any single election year. Brazilian polling-station
-# counts sit around 90-96k per year, so this catches both a collapse and an
-# explosion (e.g. a many-to-many merge doubling a year to ~180k).
+# Plausible national band for any single year; counts sit around 90-96k per year.
 RELEASE_N_YEAR_MIN <- 50000L
 RELEASE_N_YEAR_MAX <- 120000L
 
-# Landed 2024 TSE-coverage hard gate (decision 2).
+# Landed 2024 TSE-coverage hard gate, in percent.
 RELEASE_TSE_COVERAGE_GATE <- 92
 
 # Election years for which TSE publishes field-collected coordinates. Coverage
 # begins with the 2018 vintage; earlier years carry no TSE ground truth.
 RELEASE_TSE_VINTAGES <- c(2018L, 2020L, 2022L, 2024L)
 
-# Gate 7 regression tolerance, in percentage points. Each TSE-bearing vintage's
-# landed coverage must come within this slack of what its raw TSE file actually
-# offers (raw availability), because the identity join is near-lossless. Raw
-# availability itself ramps from ~51% (2018) to ~94% (2024), so the gate compares
-# against each vintage's own availability rather than a flat floor. Observed
-# legitimate join loss is <=1.6 pt; the merge bug this gate exists to catch (the
-# stale 2 Aug 2024 run) dropped ~36 pt, so 5 pt cleanly separates noise from a
-# real regression (decision 2).
+# Gate 7 tolerance in percentage points: observed legitimate join loss is <= 1.6 pt, while
+# the merge bug this gate catches dropped ~36 pt.
 RELEASE_TSE_JOIN_SLACK <- 5L
 
+# Runs the release gates over the geocoded export; stops the build on any failure.
 validate_release_gates <- function(
   geocoded_locais,
   tse_coverage,
@@ -847,12 +720,9 @@ validate_release_gates <- function(
   dev_mode,
   panel_gate = NULL
 ) {
-  # panel_gate is a dependency-only argument: passing the panel_release_gates
-  # target makes this canonical release check depend on the panel gate, so
-  # building release_gates also runs validate_panel_release() (which stops the
-  # build itself on failure). It is not otherwise read here.
-  # Read-only, so avoid a defensive deep copy of the ~945k-row national table
-  # when it already arrives as a data.table (it does, from finalize_coords()).
+  # panel_gate is a dependency-only argument: taking the panel_release_gates target makes
+  # this check depend on it, so building release_gates also runs that gate.
+  # Read-only, so skip a deep copy of the ~945k-row national table.
   dt <- if (is.data.table(geocoded_locais)) {
     geocoded_locais
   } else {
@@ -902,10 +772,8 @@ validate_release_gates <- function(
     }
   }
 
-  # Gate 5: sane per-year row counts. Absolute national scale, production only
-  # (dev mode processes AC/RR, so national counts do not apply).
+  # Gate 5: sane per-year row counts, production only (dev mode processes only AC/RR).
   if (!isTRUE(dev_mode)) {
-    # 2024 has a tight expected band (address count 93,337).
     if (n_2024 < RELEASE_N_2024_MIN || n_2024 > RELEASE_N_2024_MAX) {
       add_fail(
         "Gate 5 (counts): 2024 station count %d outside sane range [%d, %d]",
@@ -914,8 +782,6 @@ validate_release_gates <- function(
         RELEASE_N_2024_MAX
       )
     }
-    # Every other year must sit within the plausible national band, catching both
-    # a collapse (too few) and an explosion (a merge doubling the year).
     off <- coord_by_year[
       ano != 2024L & (n < RELEASE_N_YEAR_MIN | n > RELEASE_N_YEAR_MAX)
     ]
@@ -929,8 +795,7 @@ validate_release_gates <- function(
     }
   }
 
-  # Gates 6 & 7: landed TSE coverage, aggregated from the per-year x state
-  # tse_coverage target to per-year landed coverage.
+  # Gates 6 & 7: landed TSE coverage, aggregated from per-year x state to per-year.
   cov <- as.data.table(tse_coverage)
   cov_year <- cov[,
     .(
@@ -950,12 +815,7 @@ validate_release_gates <- function(
     add_fail("Gate 6 (2024 coverage): landed 2024 TSE coverage %.2f%% < %d%% gate", cov_2024, RELEASE_TSE_COVERAGE_GATE)
   }
 
-  # Gate 7: per-year TSE-coverage regression tripwire. TSE coordinates begin with
-  # the 2018 vintage; each TSE-bearing vintage's landed coverage must come within
-  # RELEASE_TSE_JOIN_SLACK points of that vintage's raw TSE availability, so the
-  # merge-gap fix / deterministic local_id did not silently drop coverage the raw
-  # file actually offers. Comparing against per-vintage raw availability (not a
-  # flat floor) is what lets the gate hold for years TSE geocoded sparsely.
+  # Gate 7: landed coverage must track each vintage's own raw TSE availability (~51% in 2018 to ~94% in 2024).
   raw <- as.data.table(tse_raw_availability)
   cov_vs_raw <- merge(
     cov_year[, .(ano, coverage_pct)],
@@ -982,11 +842,8 @@ validate_release_gates <- function(
     )
   }
 
-  # Gate 8: pred_dist is 0 for TSE-covered stations. Their shipped coordinate is
-  # TSE ground truth, so its predicted error must be 0 (documented behavior). A
-  # non-zero value means finalize_coords stopped zeroing it, which breaks
-  # accuracy filtering and the panel coordinate picker (both order by pred_dist).
-  # Guarded on schema so a missing column stays Gate 2's failure, not a raw error.
+  # Gate 8: TSE-covered stations ship ground-truth coordinates, so pred_dist must be 0.
+  # Column-guarded so a missing column stays Gate 2's failure rather than a raw error.
   if (all(c("tse_long", "tse_lat", "pred_dist") %in% names(dt))) {
     n_bad_preddist <- dt[
       !is.na(tse_long) & !is.na(tse_lat) & (is.na(pred_dist) | pred_dist != 0),
@@ -1000,13 +857,7 @@ validate_release_gates <- function(
     }
   }
 
-  # Gate 9: the PUBLISHED geocoded schema is exactly the 0.141 column set and
-  # order. Gates 2-3 check the internal final_* table, but the file is written
-  # through to_geocoded_export_schema() (final_long/final_lat -> long/lat, 0.141
-  # order); this gate runs that mapper and checks its output, so a regression in
-  # the mapper - a dropped/reordered published column - is caught here instead of
-  # shipping a broken header. A one-row sample suffices: the schema is
-  # data-independent.
+  # Gate 9: the published header comes from to_geocoded_export_schema(); check it matches the 0.141 schema.
   published_cols <- tryCatch(
     names(to_geocoded_export_schema(head(dt, 1L))),
     error = function(e) character(0)
@@ -1046,23 +897,11 @@ validate_release_gates <- function(
   summary
 }
 
-# Maximum share of panel rows allowed to ship without a coordinate. The panel
-# file assigns each panel its single most accurate coordinate, and a panel is
-# uncoordinated only when every one of its station-years failed to geocode -
-# which is rare, so the real rate sits well under 1%. A larger rate means the
-# panel step stopped consulting the model coordinates (the regression that read
-# tse_long/tse_lat only left ~13% of panels blank).
+# Max share of panel rows allowed to ship without a coordinate. A panel lacks one only
+# when every one of its station-years failed to geocode, so the real rate sits well under 1%.
 RELEASE_PANEL_COORD_NA_MAX_PCT <- 1
 
-#' Fail-loud release gate for the panel-id output.
-#'
-#' Sibling to validate_release_gates(): that gate guards the geocoded export;
-#' this one guards panel_ids.csv.gz. Stops the build if the panel file drops its
-#' accuracy column or leaves too many panels without a coordinate.
-#'
-#' @param panel_ids The panel_ids target (panel_id, local_id, long, lat, pred_dist).
-#' @return A summary list; stop()s with the specific failures otherwise.
-#' @export
+# Release gate for panel_ids.csv.gz: stops if pred_dist is missing or too many panels lack a coordinate.
 validate_panel_release <- function(panel_ids) {
   dt <- if (is.data.table(panel_ids)) panel_ids else as.data.table(panel_ids)
   failures <- character(0)

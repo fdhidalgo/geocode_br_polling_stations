@@ -6,16 +6,6 @@
 library(testthat)
 library(data.table)
 
-if (!exists("accuracy_metrics")) {
-  # Works whether run from the repo root or from tests/testthat (test_dir wd).
-  eval_path <- if (file.exists("R/evaluation.R")) {
-    "R/evaluation.R"
-  } else {
-    file.path("..", "..", "R", "evaluation.R")
-  }
-  source(eval_path)
-}
-
 test_that("state_to_region maps all 27 UFs and errors on unknown codes", {
   ufs <- c(
     "AC",

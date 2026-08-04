@@ -36,9 +36,6 @@ _targets/
 _targets/meta
 _targets_dev/
 
-# Equivalence-harness baseline snapshot (tests/integration/equivalence_check.R)
-tests/integration/.equivalence_snapshot.rds
-
 # Added by Task Master AI
 # Logs
 logs

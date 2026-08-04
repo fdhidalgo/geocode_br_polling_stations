@@ -4,37 +4,6 @@
 library(data.table)
 library(crew)
 
-# The 27 Brazilian federative units (26 states + the Federal District).
-BRAZIL_STATES <- c(
-  "AC",
-  "AL",
-  "AM",
-  "AP",
-  "BA",
-  "CE",
-  "DF",
-  "ES",
-  "GO",
-  "MA",
-  "MG",
-  "MS",
-  "MT",
-  "PA",
-  "PB",
-  "PE",
-  "PI",
-  "PR",
-  "RJ",
-  "RN",
-  "RO",
-  "RR",
-  "RS",
-  "SC",
-  "SE",
-  "SP",
-  "TO"
-)
-
 # The two smallest states by population (Acre and Roraima), processed in dev mode
 # for fast testing.
 DEV_STATES <- c("AC", "RR")

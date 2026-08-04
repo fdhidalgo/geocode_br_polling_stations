@@ -610,32 +610,10 @@ list(
   ),
 
   # --- String matching targets ---
-  ## Setup for parallel string matching
-  tar_target(
-    name = municipalities_for_matching,
-    command = unique(locais_filtered$cod_localidade_ibge)
-  ),
-
-  # Calculate municipality sizes for smart batching
-  tar_target(
-    name = municipality_sizes,
-    command = {
-      # Count polling stations per municipality
-      locais_filtered[, .(size = .N), by = .(muni_code = cod_localidade_ibge)]
-    }
-  ),
-
-  # Create municipality batch assignments for flattened parallel processing
+  # Size-balanced municipality batches, the unit every match target branches over.
   tar_target(
     name = municipality_batch_assignments,
-    command = {
-      # Explicitly depend on pipeline_config
-      create_municipality_batch_assignments(
-        municipalities_for_matching,
-        batch_size = ifelse(pipeline_config$dev_mode, 5, 15),
-        muni_sizes = municipality_sizes
-      )
-    }
+    command = build_municipality_batches(locais_filtered, pipeline_config$dev_mode)
   ),
 
   # Extract unique batch IDs for dynamic branching
@@ -729,7 +707,7 @@ list(
   ),
   tar_target(
     name = inep_string_match,
-    command = rbindlist(inep_string_match_batch, use.names = TRUE, fill = TRUE),
+    command = combine_match_batches(inep_string_match_batch, "inep_string_match"),
     deployment = "main"
   ),
   # Schools CNEFE 2010 matching with batched dynamic branching
@@ -751,7 +729,7 @@ list(
   ),
   tar_target(
     name = schools_cnefe10_match,
-    command = rbindlist(schools_cnefe10_match_batch),
+    command = combine_match_batches(schools_cnefe10_match_batch, "schools_cnefe10_match"),
     storage = "worker",
     retrieval = "worker"
   ),
@@ -774,11 +752,7 @@ list(
   ),
   tar_target(
     name = schools_cnefe22_match,
-    command = rbindlist(
-      schools_cnefe22_match_batch,
-      use.names = TRUE,
-      fill = TRUE
-    ),
+    command = combine_match_batches(schools_cnefe22_match_batch, "schools_cnefe22_match"),
     deployment = "main"
   ),
   # CNEFE 2010 street/neighborhood matching with batched dynamic branching.
@@ -804,7 +778,7 @@ list(
   ),
   tar_target(
     name = cnefe10_stbairro_match,
-    command = rbindlist(cnefe10_stbairro_match_batch),
+    command = combine_match_batches(cnefe10_stbairro_match_batch, "cnefe10_stbairro_match"),
     storage = "worker",
     retrieval = "worker"
   ),
@@ -827,13 +801,13 @@ list(
   ),
   tar_target(
     name = cnefe22_stbairro_match,
-    command = rbindlist(cnefe22_stbairro_match_batch),
+    command = combine_match_batches(cnefe22_stbairro_match_batch, "cnefe22_stbairro_match"),
     storage = "worker",
     retrieval = "worker"
   ),
   # Agro CNEFE street/neighborhood matching with batched dynamic branching.
-  # A code-scheme mismatch currently makes this match table come out empty; the
-  # controller is sized for the full rural reference it will match once fixed.
+  # A former municipality-code mismatch made this match table come out empty; the
+  # fix produces matches in dev but has not yet been re-run in production.
   tar_target(
     name = agrocnefe_stbairro_match_batch,
     command = process_agrocnefe_stbairro_batch(
@@ -852,6 +826,7 @@ list(
   ),
   tar_target(
     name = agrocnefe_stbairro_match,
+    # Plain rbindlist: tolerated empty until re-verified on a full production run.
     command = rbindlist(agrocnefe_stbairro_match_batch),
     storage = "worker",
     retrieval = "worker"
@@ -876,7 +851,7 @@ list(
   ),
   tar_target(
     name = geocodebr_match,
-    command = rbindlist(geocodebr_match_batch, fill = TRUE, use.names = TRUE),
+    command = combine_match_batches(geocodebr_match_batch, "geocodebr_match"),
     storage = "worker",
     retrieval = "worker"
   ),
@@ -1071,39 +1046,25 @@ list(
     )
   ),
 
-  # --- Validation and reporting ---
-  ## Generate simplified validation report
-  tar_target(
-    name = validation_report,
-    command = generate_validation_report_simplified(
-      validate_inputs = validate_inputs,
-      validate_model_data = validate_model_data,
-      validate_predictions = validate_predictions,
-      validate_geocoded_output = validate_geocoded_output,
-      locais_filtered = locais_filtered,
-      model_data = model_data,
-      model_predictions = model_predictions,
-      geocoded_locais = geocoded_locais,
-      pipeline_config = pipeline_config
-    )
-  ),
-
   # --- Data export ---
 
   # Each export writes its file and returns the path, so format = "file" rebuilds it
   # when the output is deleted; repository = "local" keeps the outputs off S3.
   tar_target(
     name = geocoded_export,
-    command = export_geocoded_with_validation(
+    command = export_geocoded_locais(
       geocoded_locais,
-      validation_report
+      gates = list(validate_inputs, validate_model_data, validate_predictions, validate_geocoded_output)
     ),
     format = "file",
     repository = "local"
   ),
   tar_target(
     name = panelid_export,
-    command = export_panel_ids_with_validation(panel_ids, validation_report),
+    command = export_panel_ids(
+      panel_ids,
+      gates = list(validate_inputs, validate_model_data, validate_predictions, validate_geocoded_output)
+    ),
     format = "file",
     repository = "local"
   ),
@@ -1141,34 +1102,13 @@ list(
   ## Data Quality Monitoring
   tar_target(
     name = data_quality_monitoring,
-    command = {
-      # Create monitoring report with export files as dependencies
-      results <- create_data_quality_monitor(
-        geocoded_export = geocoded_export,
-        panelid_export = panelid_export,
-        geocoded_locais = geocoded_locais,
-        panel_ids = panel_ids,
-        # Expected municipality count is derived from the states this run processes, so a
-        # dev-filtered (AC/RR) output does not trip the municipality-count check.
-        expected_municipality_count = get_expected_municipality_count_for_config(pipeline_config),
-        muni_count_tolerance = 50,
-        extreme_change_threshold = 30,
-        duplicate_coord_threshold = 10,
-        near_duplicate_threshold = 50,
-        near_duplicate_distance = 100,
-        alert_muni_discrepancy = 100,
-        alert_extreme_changes = 50,
-        alert_panel_coverage = 90,
-        alert_geocoding_coverage = 95,
-        min_years_required = 2
-      )
-
-      # Save latest results for tracking
-      saveRDS(results, "output/latest_quality_results.rds")
-
-      # Return results for downstream use
-      results
-    },
+    command = create_data_quality_monitor(
+      geocoded_locais = geocoded_locais,
+      panel_ids = panel_ids,
+      # Expected municipality count is derived from the states this run processes, so a
+      # dev-filtered (AC/RR) output does not trip the municipality-count check.
+      expected_municipality_count = get_expected_municipality_count_for_config(pipeline_config)
+    ),
     # Always run monitoring to catch issues early
     cue = tar_cue(mode = "always")
   ),

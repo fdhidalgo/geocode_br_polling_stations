@@ -4,161 +4,55 @@ library(data.table)
 library(stringr)
 library(stringdist)
 
-prefilter_by_common_words <- function(query_strings, target_strings, min_common_words = 1) {
-  # Pre-filter strings based on common words to reduce comparison space
-  # Returns indices of target_strings that share at least min_common_words with query
-
-  # Extract words from strings
-  query_words <- strsplit(tolower(query_strings), "\\s+")
+# Nearest target string for each query, by Jaro-Winkler distance, considering only targets
+# that share at least one whitespace-delimited word with the query. A query with no such
+# target gets min_dist = Inf and an NA match. normalize_by_length divides the distance by
+# the longer of the two strings, which favours longer targets; neighbourhood matching turns
+# it off. Ties go to the lowest target index.
+match_strings <- function(query_strings, target_strings, normalize_by_length = TRUE) {
+  # An inverted word -> target index makes each query's candidate set a lookup, so no
+  # query x target matrix is ever built.
   target_words <- strsplit(tolower(target_strings), "\\s+")
+  word_index <- split(
+    rep.int(seq_along(target_words), lengths(target_words)),
+    unlist(target_words, use.names = FALSE)
+  )
+  query_words <- strsplit(tolower(query_strings), "\\s+")
 
-  # Create a matrix to store which targets match each query
-  matches <- matrix(FALSE, nrow = length(query_strings), ncol = length(target_strings))
+  n <- length(query_strings)
+  min_dist <- rep(Inf, n)
+  best_match <- rep(NA_character_, n)
+  best_index <- rep(NA_integer_, n)
 
-  for (i in seq_along(query_strings)) {
-    query_word_set <- unique(query_words[[i]])
-
-    for (j in seq_along(target_strings)) {
-      target_word_set <- unique(target_words[[j]])
-      common_words <- length(intersect(query_word_set, target_word_set))
-
-      if (common_words >= min_common_words) {
-        matches[i, j] <- TRUE
-      }
-    }
-  }
-
-  return(matches)
-}
-
-match_strings_memory_efficient <- function(
-  query_strings,
-  target_strings,
-  method = "jw",
-  chunk_size = 1000,
-  normalize_by_length = TRUE,
-  prefilter = TRUE,
-  min_common_words = 1
-) {
-  # Memory-efficient version of string matching
-  # Process queries in chunks and optionally pre-filter
-
-  n_queries <- length(query_strings)
-  n_targets <- length(target_strings)
-
-  # Initialize result vectors
-  min_dists <- rep(Inf, n_queries)
-  best_matches <- rep(NA_character_, n_queries)
-  best_indices <- rep(NA_integer_, n_queries)
-
-  # Pre-filter if requested
-  if (prefilter && min_common_words > 0) {
-    filter_matrix <- prefilter_by_common_words(query_strings, target_strings, min_common_words)
-  } else {
-    filter_matrix <- matrix(TRUE, nrow = n_queries, ncol = n_targets)
-  }
-
-  # Process in chunks
-  n_chunks <- ceiling(n_queries / chunk_size)
-
-  for (chunk_i in seq_len(n_chunks)) {
-    start_idx <- (chunk_i - 1) * chunk_size + 1
-    end_idx <- min(chunk_i * chunk_size, n_queries)
-    chunk_indices <- start_idx:end_idx
-
-    query_chunk <- query_strings[chunk_indices]
-    filter_chunk <- filter_matrix[chunk_indices, , drop = FALSE]
-
-    # For each query in the chunk
-    for (i in seq_along(query_chunk)) {
-      global_idx <- chunk_indices[i]
-
-      # Get filtered targets for this query
-      valid_targets <- which(filter_chunk[i, ])
-
-      if (length(valid_targets) == 0) {
-        next
-      }
-
-      # Calculate distances only for valid targets
-      if (length(valid_targets) < 1000) {
-        # Small set, calculate directly
-        dists <- stringdist::stringdist(
-          query_chunk[i],
-          target_strings[valid_targets],
-          method = method
-        )
-
-        if (normalize_by_length) {
-          lens <- pmax(nchar(query_chunk[i]), nchar(target_strings[valid_targets]))
-          dists <- dists / lens
-        }
-      } else {
-        # Large set, use chunked calculation
-        dists <- numeric(length(valid_targets))
-        sub_chunk_size <- 1000
-
-        for (j in seq(1, length(valid_targets), by = sub_chunk_size)) {
-          sub_end <- min(j + sub_chunk_size - 1, length(valid_targets))
-          sub_indices <- j:sub_end
-
-          sub_dists <- stringdist::stringdist(
-            query_chunk[i],
-            target_strings[valid_targets[sub_indices]],
-            method = method
-          )
-
-          if (normalize_by_length) {
-            lens <- pmax(nchar(query_chunk[i]), nchar(target_strings[valid_targets[sub_indices]]))
-            sub_dists <- sub_dists / lens
-          }
-
-          dists[sub_indices] <- sub_dists
-        }
-      }
-
-      # Find minimum
-      min_idx <- which.min(dists)
-      if (length(min_idx) > 0 && dists[min_idx] < min_dists[global_idx]) {
-        min_dists[global_idx] <- dists[min_idx]
-        best_indices[global_idx] <- valid_targets[min_idx]
-        best_matches[global_idx] <- target_strings[valid_targets[min_idx]]
-      }
+  for (i in seq_len(n)) {
+    candidates <- sort(unique(unlist(
+      word_index[unique(query_words[[i]])],
+      use.names = FALSE
+    )))
+    if (length(candidates) == 0L) {
+      next
     }
 
-    # Garbage collection after each chunk
-    if (chunk_i %% 10 == 0) {
-      gc(verbose = FALSE)
+    dists <- stringdist::stringdist(
+      query_strings[i],
+      target_strings[candidates],
+      method = "jw"
+    )
+    if (normalize_by_length) {
+      dists <- dists / pmax(nchar(query_strings[i]), nchar(target_strings[candidates]))
     }
+
+    best <- which.min(dists)
+    min_dist[i] <- dists[best]
+    best_index[i] <- candidates[best]
+    best_match[i] <- target_strings[candidates[best]]
   }
 
-  return(list(
-    min_dist = min_dists,
-    best_match = best_matches,
-    best_index = best_indices
-  ))
-}
-
-get_adaptive_chunk_size <- function(n_items, available_memory_gb = 4) {
-  # Determine optimal chunk size based on data size and available memory
-  # Assumes each comparison uses roughly 8 bytes
-
-  bytes_per_comparison <- 8
-  safety_factor <- 0.5 # Use only 50% of available memory
-
-  available_bytes <- available_memory_gb * 1e9 * safety_factor
-  max_comparisons <- available_bytes / bytes_per_comparison
-
-  # Chunk size is sqrt of max comparisons (for square distance matrix)
-  chunk_size <- floor(sqrt(max_comparisons))
-
-  # Apply reasonable bounds
-  chunk_size <- max(100, min(chunk_size, 10000))
-
-  # Cap at the number of query items; this wins over the lower bound when n_items < 100.
-  chunk_size <- min(chunk_size, n_items)
-
-  return(chunk_size)
+  list(
+    min_dist = min_dist,
+    best_match = best_match,
+    best_index = best_index
+  )
 }
 
 match_inep_muni <- function(locais_muni, inep_muni) {
@@ -169,25 +63,15 @@ match_inep_muni <- function(locais_muni, inep_muni) {
   }
 
   # Match on name
-  name_results <- match_strings_memory_efficient(
+  name_results <- match_strings(
     locais_muni$normalized_name,
-    inep_muni$norm_school,
-    method = "jw",
-    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-    normalize_by_length = TRUE,
-    prefilter = TRUE,
-    min_common_words = 1
+    inep_muni$norm_school
   )
 
   # Match on address
-  addr_results <- match_strings_memory_efficient(
+  addr_results <- match_strings(
     locais_muni$normalized_addr,
-    inep_muni$norm_addr,
-    method = "jw",
-    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-    normalize_by_length = TRUE,
-    prefilter = TRUE,
-    min_common_words = 1
+    inep_muni$norm_addr
   )
 
   # Get coordinates for best matches
@@ -237,14 +121,9 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
   }
 
   # Match on name
-  name_results <- match_strings_memory_efficient(
+  name_results <- match_strings(
     locais_muni$normalized_name,
-    schools_cnefe_muni$norm_desc,
-    method = "jw",
-    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-    normalize_by_length = TRUE,
-    prefilter = TRUE,
-    min_common_words = 1
+    schools_cnefe_muni$norm_desc
   )
 
   # Get coordinates for best matches
@@ -285,25 +164,16 @@ match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_m
   }
 
   # Match on street
-  st_results <- match_strings_memory_efficient(
+  st_results <- match_strings(
     locais_muni$normalized_st,
-    cnefe_st_muni$norm_street,
-    method = "jw",
-    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-    normalize_by_length = TRUE,
-    prefilter = TRUE,
-    min_common_words = 1
+    cnefe_st_muni$norm_street
   )
 
   # Match on neighborhood
-  bairro_results <- match_strings_memory_efficient(
+  bairro_results <- match_strings(
     locais_muni$normalized_bairro,
     cnefe_bairro_muni$norm_bairro,
-    method = "jw",
-    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-    normalize_by_length = FALSE, # Don't normalize for neighborhoods
-    prefilter = TRUE,
-    min_common_words = 1
+    normalize_by_length = FALSE # Don't normalize for neighborhoods
   )
 
   # Get coordinates for best matches
@@ -353,25 +223,16 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
   }
 
   # Match on street
-  st_results <- match_strings_memory_efficient(
+  st_results <- match_strings(
     locais_muni$normalized_st,
-    agrocnefe_st_muni$norm_street,
-    method = "jw",
-    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-    normalize_by_length = TRUE,
-    prefilter = TRUE,
-    min_common_words = 1
+    agrocnefe_st_muni$norm_street
   )
 
   # Match on neighborhood
-  bairro_results <- match_strings_memory_efficient(
+  bairro_results <- match_strings(
     locais_muni$normalized_bairro,
     agrocnefe_bairro_muni$norm_bairro,
-    method = "jw",
-    chunk_size = get_adaptive_chunk_size(nrow(locais_muni)),
-    normalize_by_length = FALSE,
-    prefilter = TRUE,
-    min_common_words = 1
+    normalize_by_length = FALSE
   )
 
   # Get coordinates for best matches
@@ -413,7 +274,7 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
   return(output)
 }
 
-match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
+match_geocodebr_muni <- function(locais_muni) {
   # Match polling stations with geocodebr for a single municipality.
 
   # Geocoding errors propagate to the caller; a municipality never drops out silently.
@@ -444,8 +305,17 @@ match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
   dt_geocode[, logradouro := simplify_address_for_geocodebr(logradouro)]
   dt_geocode[, localidade := clean_text_for_geocodebr(localidade)]
 
-  # Remove rows with missing essential fields
+  # A station with no street, municipality, or state has nothing to geocode. Report the
+  # count rather than let a silent drop look like a geocoding miss.
+  n_before <- nrow(dt_geocode)
   dt_geocode <- dt_geocode[!is.na(municipio) & !is.na(estado) & !is.na(logradouro)]
+  if (nrow(dt_geocode) < n_before) {
+    message(sprintf(
+      "  %d of %d stations have no address to geocode and are dropped",
+      n_before - nrow(dt_geocode),
+      n_before
+    ))
+  }
 
   if (nrow(dt_geocode) == 0) {
     return(NULL)
@@ -454,10 +324,6 @@ match_geocodebr_muni <- function(locais_muni, muni_ids = NULL) {
   # local_id rides along as a non-address column so geocodebr reattaches it to each
   # result itself, rather than us reassigning coordinates by position afterward.
   geocode_data <- dt_geocode[, .(local_id, estado, municipio, logradouro)]
-  char_cols <- names(geocode_data)[sapply(geocode_data, is.character)]
-  for (col in char_cols) {
-    set(geocode_data, j = col, value = enc2utf8(geocode_data[[col]]))
-  }
 
   geocoded_result <- geocodebr::geocode(
     geocode_data,

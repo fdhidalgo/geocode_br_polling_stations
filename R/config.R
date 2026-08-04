@@ -12,18 +12,18 @@ DEV_STATES <- c("AC", "RR")
 # `pipeline_config` target, so every field it carries is hashed and cascades
 # invalidation to the whole pipeline; it holds only machine-independent,
 # behavior-affecting settings. Worker counts live in get_crew_controllers().
-get_pipeline_config <- function(dev_mode = FALSE) {
-  config <- list(
+get_pipeline_config <- function(dev_mode) {
+  if (dev_mode) {
+    message("Running in DEVELOPMENT MODE, processing states: ", paste(DEV_STATES, collapse = ", "))
+  } else {
+    message("Running in PRODUCTION MODE, processing all Brazilian states")
+  }
+
+  list(
     dev_mode = dev_mode,
     # Process the dev subset in dev mode, all states (NULL) in production.
     dev_states = if (dev_mode) DEV_STATES else NULL
   )
-
-  # Panel record-linkage weight threshold (Fellegi-Sunter). Kept at 0; whether
-  # ~0.5 is the intended value is an open evaluation question.
-  config$panel_weight_threshold <- 0
-
-  return(config)
 }
 
 # The file-enumeration helpers below run when _targets.R is sourced, so
@@ -97,56 +97,25 @@ get_agro_cnefe_files <- function(dev_mode = FALSE, dev_states = DEV_STATES) {
   sort(files)
 }
 
-# Expected number of municipalities in a state, per IBGE's 2022 figures.
-get_expected_municipality_count <- function(state_abbrev) {
-  expected_counts <- list(
-    AC = 22,
-    AL = 102,
-    AM = 62,
-    AP = 16,
-    BA = 417,
-    CE = 184,
-    DF = 1,
-    ES = 78,
-    GO = 246,
-    MA = 217,
-    MG = 853,
-    MS = 79,
-    MT = 141,
-    PA = 144,
-    PB = 223,
-    PE = 185,
-    PI = 224,
-    PR = 399,
-    RJ = 92,
-    RN = 167,
-    RO = 52,
-    RR = 15,
-    RS = 497,
-    SC = 295,
-    SE = 75,
-    SP = 645,
-    TO = 139
-  )
-
-  count <- expected_counts[[state_abbrev]]
-
-  if (is.null(count)) {
-    stop(paste("Unknown state abbreviation:", state_abbrev))
-  }
-
-  return(count)
-}
+# Municipality counts of the dev-mode states, per IBGE's 2022 figures.
+DEV_STATE_MUNICIPALITY_COUNTS <- c(AC = 22, RR = 15)
 
 # Total expected municipality count for the states this run actually processes:
 # the summed per-state IBGE counts in dev mode, the national 5570 in production.
 # Keeps the data-quality monitor from failing on a legitimately dev-filtered run.
 get_expected_municipality_count_for_config <- function(pipeline_config) {
-  if (pipeline_config$dev_mode) {
-    sum(vapply(pipeline_config$dev_states, get_expected_municipality_count, numeric(1)))
-  } else {
-    5570
+  if (!pipeline_config$dev_mode) {
+    return(5570)
   }
+
+  counts <- DEV_STATE_MUNICIPALITY_COUNTS[pipeline_config$dev_states]
+  if (anyNA(counts)) {
+    stop(
+      "get_expected_municipality_count_for_config(): no municipality count for dev state(s): ",
+      paste(setdiff(pipeline_config$dev_states, names(DEV_STATE_MUNICIPALITY_COUNTS)), collapse = ", ")
+    )
+  }
+  sum(counts)
 }
 
 # Retain a strong reference to every processx handle the launcher creates, so

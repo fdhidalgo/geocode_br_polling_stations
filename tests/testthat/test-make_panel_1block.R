@@ -22,12 +22,7 @@ make_block <- function() {
 
 test_that("make_panel_1block links the same station across years under one panel_id", {
   invisible(capture.output(
-    out <- make_panel_1block(
-      copy(make_block()),
-      years = c(2018L, 2020L),
-      blocking_column = "cod_localidade_ibge",
-      scoring_columns = c("normalized_name", "normalized_addr")
-    )
+    out <- make_panel_1block(copy(make_block()), years = c(2018L, 2020L))
   ))
 
   expect_s3_class(out, "data.table")
@@ -45,12 +40,7 @@ test_that("make_panel_1block links the same station across years under one panel
 
 test_that("make_panel_1block returns NULL when a year has no data to link", {
   invisible(capture.output(
-    out <- make_panel_1block(
-      copy(make_block()[ano == 2018L]),
-      years = c(2018L, 2020L),
-      blocking_column = "cod_localidade_ibge",
-      scoring_columns = c("normalized_name", "normalized_addr")
-    )
+    out <- make_panel_1block(copy(make_block()[ano == 2018L]), years = c(2018L, 2020L))
   ))
   expect_null(out)
 })

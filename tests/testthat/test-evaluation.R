@@ -65,14 +65,16 @@ test_that("assign_eval_folds is deterministic and never splits a municipality", 
     cod_localidade_ibge = rep(1:20, each = 3),
     dist = 1 # all covered
   )
-  f1 <- assign_eval_folds(md, k = 5L, seed = 123L)
-  f2 <- assign_eval_folds(md, k = 5L, seed = 123L)
+  f1 <- assign_eval_folds(md)
+  f2 <- assign_eval_folds(md)
   expect_identical(f1, f2) # deterministic
   expect_equal(uniqueN(f1$cod_localidade_ibge), 20L)
   expect_equal(sort(unique(f1$fold)), 1:5) # every fold used
   # one fold per municipality => a municipality's rows can't be split
   expect_equal(nrow(f1), uniqueN(f1$cod_localidade_ibge))
-  expect_error(assign_eval_folds(md, k = 25L), "covered municipalities")
+  # fewer covered municipalities than folds is an error, not a silent short split
+  too_few <- data.table(cod_localidade_ibge = 1:3, dist = 1)
+  expect_error(assign_eval_folds(too_few), "covered municipalities")
 })
 
 test_that("assign_eval_folds ignores uncovered municipalities", {
@@ -80,7 +82,7 @@ test_that("assign_eval_folds ignores uncovered municipalities", {
     cod_localidade_ibge = c(1:10, 100:105),
     dist = c(rep(1, 10), rep(NA_real_, 6)) # 100:105 uncovered
   )
-  f <- assign_eval_folds(md, k = 5L)
+  f <- assign_eval_folds(md)
   expect_equal(sort(unique(f$cod_localidade_ibge)), 1:10)
 })
 
@@ -91,13 +93,13 @@ test_that("compute_tse_coverage counts and flags small cells", {
     sg_uf = "AC"
   )
   tse <- data.table(local_id = c(1:4)) # 4 covered, all 2018
-  cov <- compute_tse_coverage(locais, tse, min_cell_n = 5L)
+  cov <- compute_tse_coverage(locais, tse)
   y18 <- cov[ano == 2018L]
   y20 <- cov[ano == 2020L]
   expect_equal(y18$n_total, 6L)
   expect_equal(y18$n_covered, 4L)
   expect_equal(y20$n_covered, 0L) # no covered stations in 2020
-  expect_true(y18$suppressed) # 4 < floor of 5
+  expect_true(y18$suppressed) # 4 < the 50-station suppression floor
   expect_equal(round(y18$coverage_pct, 2), round(100 * 4 / 6, 2))
 })
 
@@ -109,7 +111,7 @@ test_that("compute_calibration rank-and-filter improves as tail is dropped", {
     pred_dist = seq_len(n) / 100,
     error_km = seq_len(n) / 100
   )
-  cal <- compute_calibration(sel, n_bins = 5L)
+  cal <- compute_calibration(sel)
   rf <- cal$rank_filter
   expect_true(all(diff(rf$median_km) <= 0)) # median monotonically down
   expect_true(all(diff(rf$within_500m) >= 0)) # within-500m monotonically up
@@ -126,12 +128,12 @@ test_that("compute_accuracy_tables reports match rate and suppresses small cells
     error_km = c(0.05, 0.2, 0.9, NA, 0.1, 0.4, NA, NA),
     geocoded = c(TRUE, TRUE, TRUE, FALSE, TRUE, TRUE, FALSE, FALSE)
   )
-  tabs <- compute_accuracy_tables(dt, min_cell_n = 100L)
+  tabs <- compute_accuracy_tables(dt)
   overall <- tabs[stratum == "overall"]
   expect_equal(overall$n_total, 8L)
   expect_equal(overall$n_geocoded, 5L)
   expect_equal(overall$match_rate, 100 * 5 / 8)
-  expect_true(overall$suppressed) # 5 geocoded < floor 100
+  expect_true(overall$suppressed) # 5 geocoded < the 50-station floor
   expect_true(is.na(overall$median_km)) # accuracy suppressed
   # match-source cut carries NA match rate (denominator is geocoded-only)
   ms <- tabs[stratum == "match_source"]

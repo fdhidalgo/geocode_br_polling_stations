@@ -5,12 +5,13 @@ library(data.table)
 library(reclin2)
 library(stringr)
 
+# The panel links a station to its counterpart in the next election year: candidates must
+# share a municipality, and are scored on how similar their name and address are.
+PANEL_BLOCKING_COLUMN <- "cod_localidade_ibge"
+PANEL_SCORING_COLUMNS <- c("normalized_name", "normalized_addr")
+
 # Extend the panel with one year transition's matched pairs.
 process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
-  if (is.null(best_pairs) || nrow(best_pairs) == 0) {
-    return(panel)
-  }
-
   # A transition must extend the panel into a year it does not yet hold: a duplicate
   # local_id_<year_to> column would silently duplicate rows in the join and melt below.
   year_to_col <- paste0("local_id_", year_to)
@@ -58,19 +59,18 @@ process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
   return(panel)
 }
 
-# Attach one coordinate per panel to its member station-years.
-make_panel_ids <- function(panel_ids_df, panel_ids_states, geocoded_locais) {
+# Attach one coordinate per panel to its member station-years. geocoded_locais is the full
+# geocoded output, not the TSE-only table, so panels whose years predate TSE ground truth
+# still get the model's coordinate and its pred_dist.
+make_panel_ids <- function(panel_ids_combined, geocoded_locais) {
   # geocoded_locais is deliberately not standardized: an inplace rename would corrupt the
   # shared in-memory object other consumers (export, release gates) read.
-  standardize_column_names(panel_ids_df, inplace = TRUE)
-  standardize_column_names(panel_ids_states, inplace = TRUE)
-
-  panel_ids <- rbindlist(list(panel_ids_df, panel_ids_states))
+  standardize_column_names(panel_ids_combined, inplace = TRUE)
 
   # Attach each station-year's final coordinate and predicted error. pred_dist is 0 for
   # TSE-covered rows, so ordering by it puts ground-truth coordinates ahead of model ones.
   panel_ids <- geocoded_locais[
-    panel_ids,
+    panel_ids_combined,
     on = .(local_id),
     nomatch = NA
   ][, .(local_id, panel_id, ano, long = final_long, lat = final_lat, pred_dist)]
@@ -145,26 +145,12 @@ create_panel_dataset <- function(final_pairs_list, years) {
 
 
 # Build the panel for one block (a municipality): match pairs across years, then chain them.
-make_panel_1block <- function(
-  block,
-  years,
-  blocking_column,
-  scoring_columns,
-  use_word_blocking = FALSE,
-  panel_weight_threshold = 0
-) {
+make_panel_1block <- function(block, years) {
   standardize_column_names(block, inplace = TRUE)
 
   cat("Processing block with", nrow(block), "rows\n")
 
-  pairs_list <- create_and_select_best_pairs_optimized(
-    block,
-    years,
-    blocking_column,
-    scoring_columns,
-    use_word_blocking,
-    panel_weight_threshold
-  )
+  pairs_list <- select_best_pairs_by_year(block, years)
 
   if (length(pairs_list) == 0) {
     cat("  No pairs found for this block\n")
@@ -249,15 +235,7 @@ create_panel_municipality_batches <- function(locais_data, target_batch_size = 5
 }
 
 # Build panel IDs for one batch of municipalities, one municipality at a time.
-process_panel_ids_municipality_batch <- function(
-  locais_full,
-  municipality_batch,
-  years,
-  blocking_column,
-  scoring_columns,
-  use_word_blocking = FALSE,
-  panel_weight_threshold = 0
-) {
+process_panel_ids_municipality_batch <- function(locais_full, municipality_batch) {
   muni_codes <- municipality_batch$cod_localidade_ibge
 
   batch_data <- locais_full[cod_localidade_ibge %in% muni_codes]
@@ -290,30 +268,13 @@ process_panel_ids_municipality_batch <- function(
         "\n"
       )
 
-      # Distrito Federal held elections in different years than the other states.
-      state <- unique(muni_data$sg_uf)[1]
-      if (state == "DF") {
-        years_to_use <- c(2006, 2008, 2010, 2012, 2014, 2018, 2022, 2024)
-      } else {
-        years_to_use <- years
-      }
-
-      available_years <- sort(unique(muni_data$ano))
-      years_to_use <- intersect(years_to_use, available_years)
-
+      years_to_use <- sort(unique(muni_data$ano))
       if (length(years_to_use) < 2) {
         cat("  Insufficient years for panel creation\n")
         return(NULL)
       }
 
-      result <- make_panel_1block(
-        block = muni_data,
-        years = years_to_use,
-        blocking_column = blocking_column,
-        scoring_columns = scoring_columns,
-        use_word_blocking = use_word_blocking,
-        panel_weight_threshold = panel_weight_threshold
-      )
+      result <- make_panel_1block(muni_data, years_to_use)
 
       if (!is.null(result) && nrow(result) > 0) {
         result[, cod_localidade_ibge := muni_code]
@@ -342,14 +303,7 @@ process_panel_ids_municipality_batch <- function(
 
 # For each consecutive year pair, block candidates, score them with Fellegi-Sunter
 # weights, and return the best 1-to-1 matches per transition.
-create_and_select_best_pairs_optimized <- function(
-  data,
-  years,
-  blocking_column,
-  scoring_columns,
-  use_word_blocking = FALSE,
-  panel_weight_threshold = 0
-) {
+select_best_pairs_by_year <- function(data, years) {
   pairs_list <- list()
 
   standardize_column_names(data, inplace = TRUE)
@@ -360,15 +314,13 @@ create_and_select_best_pairs_optimized <- function(
   year_data <- lapply(years, function(y) {
     subset <- data[ano == y]
     if (nrow(subset) > 0) {
-      keep_cols <- c("local_id", "ano", "sg_uf", blocking_column, scoring_columns)
+      keep_cols <- c("local_id", "ano", "sg_uf", PANEL_BLOCKING_COLUMN, PANEL_SCORING_COLUMNS)
       subset[, .SD, .SDcols = intersect(names(subset), keep_cols)]
     } else {
       NULL
     }
   })
   names(year_data) <- as.character(years)
-
-  blocking_stats <- list()
 
   for (i in seq_along(years)[-length(years)]) {
     year1 <- years[i]
@@ -384,31 +336,7 @@ create_and_select_best_pairs_optimized <- function(
 
     cat("  Processing year pair:", year1, "->", year2, "(", nrow(linkexample1), "x", nrow(linkexample2), "records)\n")
 
-    if (use_word_blocking) {
-      # Municipality-only pairs, kept solely as the denominator for the reduction stat.
-      pairs_no_word <- pair_blocking(linkexample1, linkexample2, blocking_column)
-      original_pairs <- nrow(pairs_no_word)
-
-      pairs <- create_two_level_blocked_pairs(
-        linkexample1,
-        linkexample2,
-        municipality_col = blocking_column,
-        name_col = scoring_columns[1], # normalized_name
-        addr_col = scoring_columns[2], # normalized_addr
-        fallback_on_empty = TRUE
-      )
-
-      blocking_stats[[paste0(year1, "_", year2)]] <- list(
-        original = original_pairs,
-        blocked = nrow(pairs),
-        reduction_pct = round(100 * (1 - nrow(pairs) / original_pairs), 1)
-      )
-
-      rm(pairs_no_word)
-      gc(verbose = FALSE)
-    } else {
-      pairs <- pair_blocking(linkexample1, linkexample2, blocking_column)
-    }
+    pairs <- create_two_level_blocked_pairs(linkexample1, linkexample2)
 
     if (nrow(pairs) == 0) {
       cat("    No pairs found after blocking\n")
@@ -417,10 +345,15 @@ create_and_select_best_pairs_optimized <- function(
 
     cat("    Comparing", format(nrow(pairs), big.mark = ","), "pairs\n")
 
-    pairs <- compare_pairs(pairs, on = scoring_columns, default_comparator = cmp_jarowinkler(0.9), inplace = TRUE)
+    pairs <- compare_pairs(
+      pairs,
+      on = PANEL_SCORING_COLUMNS,
+      default_comparator = cmp_jarowinkler(0.9),
+      inplace = TRUE
+    )
 
-    match_scoring_columns <- paste0("match_", scoring_columns)
-    setnames(pairs, scoring_columns, match_scoring_columns)
+    match_scoring_columns <- paste0("match_", PANEL_SCORING_COLUMNS)
+    setnames(pairs, PANEL_SCORING_COLUMNS, match_scoring_columns)
 
     # Fellegi-Sunter weights, with m/u probabilities estimated by EM on these pairs.
     formula <- as.formula(paste("~", paste(match_scoring_columns, collapse = " + ")))
@@ -433,10 +366,11 @@ create_and_select_best_pairs_optimized <- function(
       y_local_id = linkexample2$local_id[.y]
     )]
 
-    # One-to-one assignment of the highest-weight pairs above panel_weight_threshold.
+    # One-to-one assignment of the pairs whose Fellegi-Sunter weight favours a match at
+    # all. Whether a stricter threshold (~0.5) would be better is an open question.
     best_pairs <- select_n_to_m(
       pairs,
-      threshold = panel_weight_threshold,
+      threshold = 0,
       score = "weights",
       var = "match",
       n = 1,
@@ -451,18 +385,6 @@ create_and_select_best_pairs_optimized <- function(
 
     rm(pairs)
     gc(verbose = FALSE)
-  }
-
-  if (use_word_blocking && length(blocking_stats) > 0) {
-    total_original <- sum(sapply(blocking_stats, function(x) x$original))
-    total_blocked <- sum(sapply(blocking_stats, function(x) x$blocked))
-    overall_reduction <- round(100 * (1 - total_blocked / total_original), 1)
-
-    cat("\n  Overall blocking statistics:\n")
-    cat("    Total pairs without word blocking: ", format(total_original, big.mark = ","), "\n")
-    cat("    Total pairs with word blocking: ", format(total_blocked, big.mark = ","), "\n")
-    cat("    Overall reduction: ", overall_reduction, "%\n")
-    cat("    Estimated speedup: ", round(total_original / total_blocked, 1), "x\n\n")
   }
 
   return(pairs_list)
@@ -608,16 +530,12 @@ extract_significant_words <- function(text, min_word_length = 3) {
 # Block on municipality, then drop pairs sharing no significant word in name or address.
 # This cuts comparisons by 90%+ while keeping recall high, since two records for the same
 # station almost always share a word.
-create_two_level_blocked_pairs <- function(
-  data1,
-  data2,
-  municipality_col = "cod_localidade_ibge",
-  name_col = "normalized_name",
-  addr_col = "normalized_addr",
-  fallback_on_empty = TRUE,
-  min_words_threshold = 2
-) {
-  pairs <- pair_blocking(data1, data2, municipality_col)
+create_two_level_blocked_pairs <- function(data1, data2) {
+  # A record with fewer than this many significant words is too thin to judge on word
+  # overlap (stopword filtering can strip a name bare), so its pairs are all kept.
+  min_words <- 2
+
+  pairs <- pair_blocking(data1, data2, PANEL_BLOCKING_COLUMN)
 
   if (nrow(pairs) == 0) {
     return(pairs)
@@ -626,17 +544,19 @@ create_two_level_blocked_pairs <- function(
   x_indices <- pairs$.x
   y_indices <- pairs$.y
 
-  # A record appears in many pairs; tokenize each one only once.
+  # A record appears in many pairs; tokenize each one only once. Name and address are
+  # tokenized together, since only the union of their words is ever used.
   unique_x <- unique(x_indices)
   unique_y <- unique(y_indices)
 
-  x_name_words <- extract_significant_words(data1[[name_col]][unique_x])
-  x_addr_words <- extract_significant_words(data1[[addr_col]][unique_x])
-  y_name_words <- extract_significant_words(data2[[name_col]][unique_y])
-  y_addr_words <- extract_significant_words(data2[[addr_col]][unique_y])
-
-  x_all_words <- mapply(function(n, a) unique(c(n, a)), x_name_words, x_addr_words, SIMPLIFY = FALSE)
-  y_all_words <- mapply(function(n, a) unique(c(n, a)), y_name_words, y_addr_words, SIMPLIFY = FALSE)
+  x_all_words <- extract_significant_words(paste(
+    data1$normalized_name[unique_x],
+    data1$normalized_addr[unique_x]
+  ))
+  y_all_words <- extract_significant_words(paste(
+    data2$normalized_name[unique_y],
+    data2$normalized_addr[unique_y]
+  ))
 
   x_lookup <- match(x_indices, unique_x)
   y_lookup <- match(y_indices, unique_y)
@@ -649,11 +569,7 @@ create_two_level_blocked_pairs <- function(
     x_words <- x_all_words[[x_lookup[i]]]
     y_words <- y_all_words[[y_lookup[i]]]
 
-    # Too few words to judge (stopword filtering can strip a name bare): keep the pair.
-    if (length(x_words) == 0 || length(y_words) == 0) {
-      keep_pair[i] <- fallback_on_empty
-      if (fallback_on_empty) no_words_count <- no_words_count + 1
-    } else if (length(x_words) < min_words_threshold || length(y_words) < min_words_threshold) {
+    if (length(x_words) < min_words || length(y_words) < min_words) {
       keep_pair[i] <- TRUE
       no_words_count <- no_words_count + 1
     } else {
@@ -731,8 +647,11 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
   cat("  Sections with local_id:", format(success_count, big.mark = ","), "\n")
 
   if (success_rate < 0.8) {
-    warning(sprintf(
-      "Low section-to-location join success rate: %.1f%% (<80%%). Check data quality.",
+    stop(sprintf(
+      paste0(
+        "Section-to-location join matched only %.1f%% of sections (expected >=80%%); ",
+        "the section and polling-station keys have drifted apart."
+      ),
       success_rate * 100
     ))
   }
@@ -755,8 +674,11 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
   cat("  Final mapping records:", format(final_success_count, big.mark = ","), "\n")
 
   if (final_success_rate < 0.9) {
-    warning(sprintf(
-      "Low section-to-panel join success rate: %.1f%% (<90%%). Check panel ID coverage.",
+    stop(sprintf(
+      paste0(
+        "Section-to-panel join matched only %.1f%% of located sections (expected >=90%%); ",
+        "panel ID coverage is incomplete."
+      ),
       final_success_rate * 100
     ))
   }
@@ -764,20 +686,26 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
   final_clean <- final_mapping[!is.na(panel_id)]
 
   output_columns <- c("nr_secao", "nr_zona", "nr_local_votacao", "ano", "estado_abrev", "nm_localidade", "panel_id")
-  available_columns <- intersect(output_columns, colnames(final_clean))
-
-  if (length(available_columns) < length(output_columns)) {
-    missing_cols <- setdiff(output_columns, available_columns)
-    warning("Missing columns in section-panel output: ", paste(missing_cols, collapse = ", "))
+  missing_cols <- setdiff(output_columns, colnames(final_clean))
+  if (length(missing_cols) > 0) {
+    stop(
+      "create_section_panel_mapping(): missing output column(s): ",
+      paste(missing_cols, collapse = ", ")
+    )
   }
 
-  result <- final_clean[, .SD, .SDcols = available_columns]
+  result <- final_clean[, .SD, .SDcols = output_columns]
 
   cat("Validating final mapping...\n")
 
+  # An election section belongs to exactly one polling place in a given year.
   duplicate_sections <- result[, .N, by = .(nr_secao, nr_zona, ano, estado_abrev)][N > 1]
   if (nrow(duplicate_sections) > 0) {
-    warning(nrow(duplicate_sections), " duplicate section identifiers found")
+    stop(
+      "create_section_panel_mapping(): ",
+      nrow(duplicate_sections),
+      " duplicate (nr_secao, nr_zona, ano, estado_abrev) keys in the section-panel mapping."
+    )
   }
 
   panel_distribution <- result[, .N, by = panel_id][order(-N)]

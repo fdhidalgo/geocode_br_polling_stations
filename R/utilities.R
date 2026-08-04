@@ -44,43 +44,37 @@ collect_batch_or_stop <- function(
   Filter(Negate(is.null), results)
 }
 
-# Keep only the development-mode states; NULL or empty dev_states means
-# production, which passes all data through.
-filter_by_dev_mode <- function(data, dev_states, id_column = "estado_abrev") {
-  if (is.null(dev_states) || length(dev_states) == 0) {
+# Keep only the development-mode states; NULL dev_states means production, which
+# passes all data through. state_col names the table's state-abbreviation column,
+# which differs by source (estado_abrev, sg_uf, uf).
+filter_by_dev_mode <- function(data, dev_states, state_col) {
+  if (is.null(dev_states)) {
     return(data)
   }
 
   # A missing filter column would silently return unfiltered data, running the
   # full pipeline in dev mode.
-  if (!id_column %in% names(data)) {
-    stop(sprintf("filter_by_dev_mode(): column '%s' not found in data.", id_column))
+  if (!state_col %in% names(data)) {
+    stop(sprintf("filter_by_dev_mode(): column '%s' not found in data.", state_col))
   }
 
-  data[get(id_column) %in% dev_states]
+  data[get(state_col) %in% dev_states]
 }
 
-# Filter a data.table or data.frame to the given states.
-filter_data_by_state <- function(data, states, state_col = "estado_abrev") {
-  if (is.null(states) || length(states) == 0) {
+# Restrict a municipality-keyed table to the municipalities this run processes;
+# production passes everything through. muni_col holds 7-digit IBGE codes, or (for
+# census tracts) a longer code whose first 7 digits are the municipality.
+filter_to_run_munis <- function(data, muni_col, muni_ids, dev_mode) {
+  if (!dev_mode) {
     return(data)
   }
 
-  if (!state_col %in% names(data)) {
-    stop(sprintf("filter_data_by_state(): state column '%s' not found in data.", state_col))
+  if (!muni_col %in% names(data)) {
+    stop(sprintf("filter_to_run_munis(): column '%s' not found in data.", muni_col))
   }
 
-  if (is.data.table(data)) {
-    data[get(state_col) %in% states]
-  } else {
-    data[data[[state_col]] %in% states, ]
-  }
-}
-
-# Restrict data to what dev mode processes: the configured development states in
-# dev mode, everything in production (dev_states is NULL).
-apply_dev_mode_filters <- function(data, config, state_col) {
-  filter_data_by_state(data, config$dev_states, state_col)
+  keys <- substr(as.character(data[[muni_col]]), 1, 7)
+  data[keys %in% as.character(muni_ids$id_munic_7), ]
 }
 
 # Drop Brasília (DF), which holds municipal elections in different years from
@@ -234,18 +228,11 @@ make_ref_batch_groups <- function(ref, municipality_batch_assignments, copy = TR
   # is never matched, so drop it rather than form an empty group for it.
   ref <- ref[!is.na(batch_id)]
   if (nrow(ref) == 0L) {
-    # No reference municipality overlaps the batch assignments, so this reference
-    # contributes no matches at all. map() cannot branch over an empty target, so
-    # emit one placeholder group with id_munic_7 = NA: every lookup misses and the
-    # result is the same empty table the whole-table path produced. Not expected
-    # in normal operation, hence the warning.
-    warning(
-      "make_ref_batch_groups(): reference has no municipality overlap with the ",
-      "batch assignments; emitting one empty placeholder group (no matches). ",
-      "Not expected in normal operation -- investigate."
+    stop(
+      "make_ref_batch_groups(): reference has no municipality overlap with the batch ",
+      "assignments, so it can contribute no matches at all. The reference's ",
+      "id_munic_7 codes and the polling stations' cod_localidade_ibge disagree."
     )
-    ref <- ref[NA_integer_]
-    ref[, batch_id := municipality_batch_assignments$batch_id[1]]
   }
   ref[, tar_group := data.table::frank(batch_id, ties.method = "dense")]
   ref[]
@@ -320,7 +307,7 @@ process_schools_cnefe_batch <- function(municipality_batch_assignments, locais_f
 }
 
 # Geocode one batch's polling stations with geocodebr.
-process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, locais_filtered, muni_ids) {
+process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, locais_filtered) {
   batch_munis <- municipality_batch_assignments[
     batch_id == batch_ids
   ]$cod_localidade_ibge
@@ -333,10 +320,7 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
   results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
-      match_geocodebr_muni(
-        locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
-        muni_ids = muni_ids[id_munic_7 == muni_code]
-      )
+      match_geocodebr_muni(locais_filtered[.(muni_code), nomatch = NULL])
     },
     task_label = "geocodebr matching"
   )

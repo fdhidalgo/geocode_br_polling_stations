@@ -26,17 +26,6 @@ make_model_data <- function(
   locais,
   tsegeocoded_locais
 ) {
-  # Each match input is a per-municipality rbindlist() target: an empty one means the
-  # matching stage that built it produced nothing, which is a bug, not a data state.
-  stopifnot(
-    nrow(cnefe10_stbairro_match) > 0,
-    nrow(cnefe22_stbairro_match) > 0,
-    nrow(schools_cnefe10_match) > 0,
-    nrow(schools_cnefe22_match) > 0,
-    nrow(inep_string_match) > 0,
-    nrow(geocodebr_match) > 0
-  )
-
   # Assign the year to each dataset
   cnefe10_stbairro_match[, ano := 2010]
   cnefe22_stbairro_match[, ano := 2022]
@@ -45,7 +34,7 @@ make_model_data <- function(
 
   # Combine CNEFE neighborhood and address data
   cnefe_list <- list(cnefe10_stbairro_match, cnefe22_stbairro_match)
-  # agro match may be empty: its upstream source currently yields no matches
+  # agro match is tolerated empty until re-verified on a full production run
   if (nrow(agrocnefe_stbairro_match) > 0L) {
     agrocnefe_stbairro_match[, ano := 2017]
     cnefe_list <- c(cnefe_list, list(agrocnefe_stbairro_match))
@@ -267,7 +256,7 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
     message("Training model in PRODUCTION MODE: using 10 CV folds and grid_n = ", grid_n)
   }
 
-  if (is.null(model_data) || nrow(model_data) == 0) {
+  if (nrow(model_data) == 0) {
     stop("No data available for model training")
   }
 

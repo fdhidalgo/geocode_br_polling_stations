@@ -2,9 +2,6 @@
 
 library(data.table)
 
-# Null-coalescing operator: x, unless it is NULL.
-`%||%` <- function(x, y) if (is.null(x)) y else x
-
 # Run fn(item) over items, recording per-item errors and stopping once at the
 # end with every failure named. A NULL result is a legitimate empty item, not a
 # failure, and is dropped from the returned list.
@@ -466,77 +463,40 @@ process_agrocnefe_stbairro_batch <- function(
   )
 }
 
-# Size-balanced batch assignment for the polling-station municipalities. Dev mode
-# uses smaller batches because it processes only two states.
+# Size-balanced batch assignment for the polling-station municipalities, so the
+# pipeline branches over a few hundred batches instead of thousands of
+# per-municipality tasks. Dev mode uses smaller batches (two states only).
 build_municipality_batches <- function(locais_filtered, dev_mode) {
-  muni_codes <- unique(locais_filtered$cod_localidade_ibge)
-  muni_sizes <- locais_filtered[, .(size = .N), by = .(muni_code = cod_localidade_ibge)]
-
-  create_municipality_batch_assignments(
-    muni_codes,
-    batch_size = if (dev_mode) 5 else 15,
-    muni_sizes = muni_sizes
-  )
-}
-
-# Map each municipality code to a batch number, so the pipeline branches over a
-# few hundred batches instead of thousands of per-municipality tasks. With
-# muni_sizes supplied, batches are balanced by size instead of assigned
-# sequentially.
-create_municipality_batch_assignments <- function(muni_codes, batch_size = 50, muni_sizes = NULL) {
-  n_munis <- length(muni_codes)
-
-  if (is.null(muni_sizes)) {
-    n_batches <- ceiling(n_munis / batch_size)
-    batch_nums <- rep(seq_len(n_batches), each = batch_size, length.out = n_munis)
-
-    result <- data.table::data.table(
-      cod_localidade_ibge = muni_codes,
-      batch_id = batch_nums
-    )
-  } else {
-    if (inherits(muni_sizes, "data.table")) {
-      muni_df <- data.table::data.table(
-        cod_localidade_ibge = muni_codes
-      )
-      muni_df <- merge(muni_df, muni_sizes, by.x = "cod_localidade_ibge", by.y = "muni_code", all.x = TRUE)
-    } else {
-      muni_df <- data.table::data.table(
-        cod_localidade_ibge = muni_codes,
-        size = muni_sizes[as.character(muni_codes)]
-      )
-    }
-    # A missing size means the municipality-code keys of muni_codes and
-    # muni_sizes disagree; imputing one would hide that mismatch.
-    missing_size <- muni_df[is.na(size), cod_localidade_ibge]
-    if (length(missing_size) > 0) {
-      stop(sprintf(
-        "Municipality sizes missing for %d %s (key mismatch): %s",
-        length(missing_size),
-        ngettext(length(missing_size), "municipality", "municipalities"),
-        paste(utils::head(missing_size, 10), collapse = ", ")
-      ))
-    }
-    data.table::setorder(muni_df, -size)
-
-    # Round-robin over size-sorted municipalities spreads the large ones evenly.
-    n_batches <- ceiling(n_munis / batch_size)
-    muni_df[, batch_id := rep_len(seq_len(n_batches), .N)]
-
-    result <- muni_df[, .(cod_localidade_ibge, batch_id)]
-  }
+  muni_df <- locais_filtered[, .(size = .N), by = .(cod_localidade_ibge)]
+  # Sort by size with municipality code as tiebreak, then round-robin so the
+  # large municipalities spread evenly across batches.
+  data.table::setorder(muni_df, -size, cod_localidade_ibge)
+  batch_size <- if (dev_mode) 5 else 15
+  n_batches <- ceiling(nrow(muni_df) / batch_size)
+  muni_df[, batch_id := rep_len(seq_len(n_batches), .N)]
+  result <- muni_df[, .(cod_localidade_ibge, batch_id)]
 
   batch_stats <- result[, .N, by = batch_id]
   message(sprintf(
     "Created %d batches for %d municipalities (min: %d, max: %d, avg: %.1f per batch)",
-    length(unique(result$batch_id)),
-    n_munis,
+    n_batches,
+    nrow(result),
     min(batch_stats$N),
     max(batch_stats$N),
     mean(batch_stats$N)
   ))
 
   result
+}
+
+# Row-bind the per-batch results of a matching stage and assert the stage
+# produced something: an empty combined table means matching broke, not data.
+combine_match_batches <- function(batches, table_name) {
+  out <- rbindlist(batches, use.names = TRUE, fill = TRUE)
+  if (nrow(out) == 0L) {
+    stop(sprintf("%s: matching stage produced no rows", table_name))
+  }
+  out
 }
 
 # Column names and order of the published geocoded file, preserved from the
@@ -592,8 +552,10 @@ to_geocoded_export_schema <- function(geocoded_locais) {
   )]
 }
 
-# Write the published geocoded file and return its path.
-export_geocoded_locais <- function(geocoded_locais) {
+# Write the published geocoded file and return its path. gates is a
+# dependency-only argument: passing the stage-validation targets makes the
+# write depend on them, so a validation failure stops the export.
+export_geocoded_locais <- function(geocoded_locais, gates) {
   fwrite(
     to_geocoded_export_schema(geocoded_locais),
     "./output/geocoded_polling_stations.csv.gz"
@@ -601,8 +563,8 @@ export_geocoded_locais <- function(geocoded_locais) {
   "./output/geocoded_polling_stations.csv.gz"
 }
 
-# Write the published panel-ID file and return its path.
-export_panel_ids <- function(panel_ids) {
+# Write the published panel-ID file and return its path. gates as above.
+export_panel_ids <- function(panel_ids, gates) {
   fwrite(panel_ids, "./output/panel_ids.csv.gz")
   "./output/panel_ids.csv.gz"
 }

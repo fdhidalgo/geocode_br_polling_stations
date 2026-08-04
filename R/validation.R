@@ -51,69 +51,25 @@ validate_merge_stage <- function(
   )
 }
 
-# Confronts model predictions with column-presence, type, and probability-range rules.
-validate_prediction_stage <- function(predictions, stage_name, pred_col = "prediction", prob_col = NULL) {
-  base_rules <- list(
-    has_rows = quote(nrow(.) > 0),
-    has_pred_col = parse(text = sprintf("'%s' %%in%% names(.)", pred_col))[[1]]
+# Confronts model predictions with row, type, and no-NA rules.
+validate_prediction_stage <- function(predictions, stage_name, pred_col = "prediction") {
+  # Asserted directly so a renamed column errors instead of soft-failing a rule.
+  stopifnot(pred_col %in% names(predictions))
+
+  rules <- do.call(
+    validator,
+    list(
+      has_rows = quote(nrow(.) > 0),
+      predictions_numeric = parse(text = sprintf("is.numeric(.[[%s]])", deparse(pred_col)))[[1]],
+      predictions_valid = parse(text = sprintf("all(!is.na(.[[%s]]))", deparse(pred_col)))[[1]]
+    )
   )
-
-  if (pred_col %in% names(predictions)) {
-    base_rules$predictions_numeric <- parse(
-      text = sprintf(
-        "is.numeric(.[[%s]])",
-        deparse(pred_col)
-      )
-    )[[1]]
-    base_rules$predictions_valid <- parse(
-      text = sprintf(
-        "all(!is.na(.[[%s]]))",
-        deparse(pred_col)
-      )
-    )[[1]]
-  }
-
-  if (!is.null(prob_col)) {
-    base_rules$has_prob_col <- parse(
-      text = sprintf(
-        "'%s' %%in%% names(.)",
-        prob_col
-      )
-    )[[1]]
-    if (prob_col %in% names(predictions)) {
-      base_rules$probs_valid <- parse(
-        text = sprintf(
-          "all(.[[%s]] >= 0 & .[[%s]] <= 1, na.rm = TRUE)",
-          deparse(prob_col),
-          deparse(prob_col)
-        )
-      )[[1]]
-    }
-  }
-
-  rules <- do.call(validator, base_rules)
 
   result <- confront(predictions, rules)
-
-  # get() so a missing prediction column errors here rather than reporting a rate of 0.
-  n_predictions <- predictions[!is.na(get(pred_col)), .N]
-  prediction_rate <- n_predictions / nrow(predictions)
-
-  metadata <- list(
-    stage = stage_name,
-    type = "prediction",
-    timestamp = Sys.time(),
-    n_rows = nrow(predictions),
-    n_predictions = n_predictions,
-    prediction_rate = prediction_rate,
-    pred_col = pred_col,
-    prob_col = prob_col
-  )
 
   structure(
     list(
       result = result,
-      metadata = metadata,
       stage = stage_name,
       passed = all(result)
     ),
@@ -129,7 +85,7 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
 
   base_rules <- list(
     has_rows = quote(nrow(.) > 0),
-    has_coordinates = quote(any(c("final_long", "final_lat", "pred_long", "pred_lat") %in% names(.)))
+    has_coordinates = quote(all(c("final_long", "final_lat") %in% names(.)))
   )
 
   for (col in required_cols) {
@@ -141,46 +97,21 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
 
   result <- confront(output_data, rules)
 
-  coord_cols <- intersect(c("final_long", "final_lat", "pred_long", "pred_lat"), names(output_data))
-  # final_long/final_lat are the recommended coordinate; a renamed column must error
-  # here rather than report a geocoding rate of 0.
-  n_geocoded <- output_data[!is.na(final_long) & !is.na(final_lat), .N]
-  geocoding_rate <- n_geocoded / nrow(output_data)
-
-  metadata <- list(
-    stage = stage_name,
-    type = "output",
-    timestamp = Sys.time(),
-    n_rows = nrow(output_data),
-    n_cols = ncol(output_data),
-    n_geocoded = n_geocoded,
-    geocoding_rate = geocoding_rate,
-    coordinate_columns = coord_cols
-  )
-
-  if (!is.null(unique_keys) && all(unique_keys %in% names(output_data))) {
-    n_unique <- nrow(unique(output_data[, ..unique_keys]))
-    metadata$n_unique_keys <- n_unique
-    metadata$duplicate_keys <- nrow(output_data) - n_unique
-
-    if (metadata$duplicate_keys > 0) {
-      warning(paste("Found", metadata$duplicate_keys, "duplicate key combinations"))
+  if (!is.null(unique_keys)) {
+    # Errors on a missing key column; a duplicate key would duplicate rows downstream.
+    duplicate_keys <- nrow(output_data) - nrow(unique(output_data[, ..unique_keys]))
+    if (duplicate_keys > 0) {
+      stop(sprintf("Found %d duplicate key combinations in %s", duplicate_keys, stage_name))
     }
   }
 
   summary_df <- summary(result)
-  passed <- all(summary_df$fails == 0, na.rm = TRUE)
-
-  if (!is.null(unique_keys) && metadata$duplicate_keys > 0) {
-    passed <- FALSE
-  }
 
   structure(
     list(
       result = result,
-      metadata = metadata,
       stage = stage_name,
-      passed = passed
+      passed = all(summary_df$fails == 0, na.rm = TRUE)
     ),
     class = "validation_result"
   )
@@ -221,8 +152,7 @@ validate_predictions_simple <- function(
   result <- validate_prediction_stage(
     predictions = predictions,
     stage_name = stage_name,
-    pred_col = pred_col,
-    prob_col = NULL # No probability column
+    pred_col = pred_col
   )
 
   if (!result$passed && stop_on_failure) {
@@ -359,153 +289,100 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
 }
 
 # Computes coverage and duplicate-coordinate quality metrics; stops on CRITICAL status.
-create_data_quality_monitor <- function(
-  geocoded_export,
-  panelid_export,
-  geocoded_locais,
-  panel_ids,
-  expected_municipality_count = 5570,
-  muni_count_tolerance = 50,
-  duplicate_coord_threshold = 10,
-  alert_muni_discrepancy = 100,
-  alert_panel_coverage = 90,
-  alert_geocoding_coverage = 95
-) {
+# Export-file existence is Gate 4's job (validate_release_gates), not re-checked here.
+create_data_quality_monitor <- function(geocoded_locais, panel_ids, expected_municipality_count = 5570) {
   cat("Running data quality monitoring...\n")
 
   alerts <- list()
+  status <- "OK"
+
+  n_municipalities <- length(unique(geocoded_locais$cd_localidade_tse))
+  muni_diff <- abs(n_municipalities - expected_municipality_count)
+  if (muni_diff > 50) {
+    alerts <- append(
+      alerts,
+      sprintf(
+        "Municipality count (%d) differs from expected (%d) by %d",
+        n_municipalities,
+        expected_municipality_count,
+        muni_diff
+      )
+    )
+    status <- if (muni_diff > 100) "CRITICAL" else "WARNING"
+  }
+
+  geocoding_rate <- mean(!is.na(geocoded_locais$final_long) & !is.na(geocoded_locais$final_lat)) * 100
+  if (geocoding_rate < 95) {
+    alerts <- append(
+      alerts,
+      sprintf("Geocoding coverage (%.1f%%) below threshold (95%%)", geocoding_rate)
+    )
+    if (status == "OK") {
+      status <- "WARNING"
+    }
+  }
+
+  panel_coverage <- (sum(geocoded_locais$local_id %in% panel_ids$local_id) / nrow(geocoded_locais)) * 100
+  if (panel_coverage < 90) {
+    alerts <- append(
+      alerts,
+      sprintf("Panel coverage (%.1f%%) below threshold (90%%)", panel_coverage)
+    )
+    if (status == "OK") {
+      status <- "WARNING"
+    }
+  }
+
+  coords_dt <- geocoded_locais[
+    !is.na(final_long) & !is.na(final_lat),
+    .(n = .N),
+    by = .(final_long, final_lat)
+  ]
+  duplicate_groups <- nrow(coords_dt[n > 1])
+  if (duplicate_groups > 10) {
+    alerts <- append(
+      alerts,
+      sprintf("Found %d duplicate coordinate groups (threshold: 10)", duplicate_groups)
+    )
+    if (status == "OK") {
+      status <- "WARNING"
+    }
+  }
 
   results <- list(
-    timestamp = Sys.time(),
-    geocoded_export_path = geocoded_export,
-    panelid_export_path = panelid_export,
+    status = status,
     metrics = list(
       n_geocoded = nrow(geocoded_locais),
       n_panel_ids = nrow(panel_ids),
       n_unique_stations = length(unique(geocoded_locais$local_id)),
-      n_unique_panels = length(unique(panel_ids$panel_id))
+      n_unique_panels = length(unique(panel_ids$panel_id)),
+      n_municipalities = n_municipalities,
+      geocoding_coverage = geocoding_rate,
+      panel_coverage = panel_coverage,
+      duplicate_coord_groups = duplicate_groups
     ),
-    thresholds = list(
-      expected_municipality_count = expected_municipality_count,
-      muni_count_tolerance = muni_count_tolerance,
-      duplicate_coord_threshold = duplicate_coord_threshold,
-      alert_muni_discrepancy = alert_muni_discrepancy,
-      alert_panel_coverage = alert_panel_coverage,
-      alert_geocoding_coverage = alert_geocoding_coverage
-    ),
-    status = "OK",
-    message = "Data quality monitoring completed",
     alerts = alerts
   )
 
-  # A missing export file is a failed release, not a warning: only CRITICAL stops the build.
-  if (!file.exists(geocoded_export)) {
-    results$status <- "CRITICAL"
-    results$message <- paste("Geocoded export file not found:", geocoded_export)
-    alerts <- append(alerts, "Geocoded export file not found")
-  }
-
-  if (!file.exists(panelid_export)) {
-    results$status <- "CRITICAL"
-    results$message <- paste(results$message, "\nPanel ID export file not found:", panelid_export)
-    alerts <- append(alerts, "Panel ID export file not found")
-  }
-
-  if ("cd_localidade_tse" %in% names(geocoded_locais)) {
-    n_municipalities <- length(unique(geocoded_locais$cd_localidade_tse))
-    results$metrics$n_municipalities <- n_municipalities
-
-    muni_diff <- abs(n_municipalities - expected_municipality_count)
-    if (muni_diff > muni_count_tolerance) {
-      alerts <- append(
-        alerts,
-        sprintf(
-          "Municipality count (%d) differs from expected (%d) by %d",
-          n_municipalities,
-          expected_municipality_count,
-          muni_diff
-        )
-      )
-      if (muni_diff > alert_muni_discrepancy) {
-        results$status <- "CRITICAL"
-      } else if (results$status == "OK") {
-        results$status <- "WARNING"
-      }
-    }
-  }
-
-  if (all(c("final_long", "final_lat") %in% names(geocoded_locais))) {
-    geocoding_rate <- mean(!is.na(geocoded_locais$final_long) & !is.na(geocoded_locais$final_lat)) * 100
-    results$metrics$geocoding_coverage <- geocoding_rate
-
-    if (geocoding_rate < alert_geocoding_coverage) {
-      alerts <- append(
-        alerts,
-        sprintf("Geocoding coverage (%.1f%%) below threshold (%.1f%%)", geocoding_rate, alert_geocoding_coverage)
-      )
-      if (results$status == "OK") {
-        results$status <- "WARNING"
-      }
-    }
-  }
-
-  if ("local_id" %in% names(panel_ids) && "local_id" %in% names(geocoded_locais)) {
-    n_with_panels <- sum(geocoded_locais$local_id %in% panel_ids$local_id)
-    panel_coverage <- (n_with_panels / nrow(geocoded_locais)) * 100
-    results$metrics$panel_coverage <- panel_coverage
-
-    if (panel_coverage < alert_panel_coverage) {
-      alerts <- append(
-        alerts,
-        sprintf("Panel coverage (%.1f%%) below threshold (%.1f%%)", panel_coverage, alert_panel_coverage)
-      )
-      if (results$status == "OK") {
-        results$status <- "WARNING"
-      }
-    }
-  }
-
-  if (all(c("final_long", "final_lat") %in% names(geocoded_locais))) {
-    coords_dt <- geocoded_locais[!is.na(final_long) & !is.na(final_lat), .(n = .N), by = .(final_long, final_lat)]
-    duplicate_groups <- nrow(coords_dt[n > 1])
-    results$metrics$duplicate_coord_groups <- duplicate_groups
-
-    if (duplicate_groups > duplicate_coord_threshold) {
-      alerts <- append(
-        alerts,
-        sprintf("Found %d duplicate coordinate groups (threshold: %d)", duplicate_groups, duplicate_coord_threshold)
-      )
-      if (results$status == "OK") {
-        results$status <- "WARNING"
-      }
-    }
-  }
-
-  results$alerts <- alerts
-
   cat("Data quality monitoring completed.\n")
-  cat("  Status:", results$status, "\n")
+  cat("  Status:", status, "\n")
   cat("  Geocoded locations:", results$metrics$n_geocoded, "\n")
   cat("  Panel IDs:", results$metrics$n_panel_ids, "\n")
-  if (!is.null(results$metrics$n_municipalities)) {
-    cat("  Municipalities:", results$metrics$n_municipalities, "\n")
-  }
-  if (!is.null(results$metrics$geocoding_coverage)) {
-    cat("  Geocoding coverage:", sprintf("%.1f%%", results$metrics$geocoding_coverage), "\n")
-  }
+  cat("  Municipalities:", n_municipalities, "\n")
+  cat("  Geocoding coverage:", sprintf("%.1f%%", geocoding_rate), "\n")
   if (length(alerts) > 0) {
     cat("  Alerts:", length(alerts), "\n")
   }
 
   # A CRITICAL status must stop the build, not merely be recorded in the result.
-  if (identical(results$status, "CRITICAL")) {
+  if (identical(status, "CRITICAL")) {
     stop(sprintf(
       "Data quality monitoring reported CRITICAL status. Alerts:\n%s",
       paste(unlist(alerts), collapse = "\n")
     ))
   }
 
-  return(results)
+  results
 }
 
 # Release gates: fail-loud structural tripwires on the production rebuild.

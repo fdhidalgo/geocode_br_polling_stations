@@ -707,7 +707,7 @@ list(
   ),
   tar_target(
     name = inep_string_match,
-    command = rbindlist(inep_string_match_batch, use.names = TRUE, fill = TRUE),
+    command = combine_match_batches(inep_string_match_batch, "inep_string_match"),
     deployment = "main"
   ),
   # Schools CNEFE 2010 matching with batched dynamic branching
@@ -729,7 +729,7 @@ list(
   ),
   tar_target(
     name = schools_cnefe10_match,
-    command = rbindlist(schools_cnefe10_match_batch),
+    command = combine_match_batches(schools_cnefe10_match_batch, "schools_cnefe10_match"),
     storage = "worker",
     retrieval = "worker"
   ),
@@ -752,11 +752,7 @@ list(
   ),
   tar_target(
     name = schools_cnefe22_match,
-    command = rbindlist(
-      schools_cnefe22_match_batch,
-      use.names = TRUE,
-      fill = TRUE
-    ),
+    command = combine_match_batches(schools_cnefe22_match_batch, "schools_cnefe22_match"),
     deployment = "main"
   ),
   # CNEFE 2010 street/neighborhood matching with batched dynamic branching.
@@ -782,7 +778,7 @@ list(
   ),
   tar_target(
     name = cnefe10_stbairro_match,
-    command = rbindlist(cnefe10_stbairro_match_batch),
+    command = combine_match_batches(cnefe10_stbairro_match_batch, "cnefe10_stbairro_match"),
     storage = "worker",
     retrieval = "worker"
   ),
@@ -805,13 +801,13 @@ list(
   ),
   tar_target(
     name = cnefe22_stbairro_match,
-    command = rbindlist(cnefe22_stbairro_match_batch),
+    command = combine_match_batches(cnefe22_stbairro_match_batch, "cnefe22_stbairro_match"),
     storage = "worker",
     retrieval = "worker"
   ),
   # Agro CNEFE street/neighborhood matching with batched dynamic branching.
-  # A code-scheme mismatch currently makes this match table come out empty; the
-  # controller is sized for the full rural reference it will match once fixed.
+  # A former municipality-code mismatch made this match table come out empty; the
+  # fix produces matches in dev but has not yet been re-run in production.
   tar_target(
     name = agrocnefe_stbairro_match_batch,
     command = process_agrocnefe_stbairro_batch(
@@ -830,6 +826,7 @@ list(
   ),
   tar_target(
     name = agrocnefe_stbairro_match,
+    # Plain rbindlist: tolerated empty until re-verified on a full production run.
     command = rbindlist(agrocnefe_stbairro_match_batch),
     storage = "worker",
     retrieval = "worker"
@@ -854,7 +851,7 @@ list(
   ),
   tar_target(
     name = geocodebr_match,
-    command = rbindlist(geocodebr_match_batch, fill = TRUE, use.names = TRUE),
+    command = combine_match_batches(geocodebr_match_batch, "geocodebr_match"),
     storage = "worker",
     retrieval = "worker"
   ),
@@ -1055,17 +1052,19 @@ list(
   # when the output is deleted; repository = "local" keeps the outputs off S3.
   tar_target(
     name = geocoded_export,
-    command = {
-      validate_geocoded_output # stage validation must pass before the file is written
-      export_geocoded_locais(geocoded_locais)
-    },
+    command = export_geocoded_locais(
+      geocoded_locais,
+      gates = list(validate_inputs, validate_model_data, validate_predictions, validate_geocoded_output)
+    ),
     format = "file",
     repository = "local"
   ),
-  # panel_ids is guarded by panel_release_gates, which runs on every build.
   tar_target(
     name = panelid_export,
-    command = export_panel_ids(panel_ids),
+    command = export_panel_ids(
+      panel_ids,
+      gates = list(validate_inputs, validate_model_data, validate_predictions, validate_geocoded_output)
+    ),
     format = "file",
     repository = "local"
   ),
@@ -1104,8 +1103,6 @@ list(
   tar_target(
     name = data_quality_monitoring,
     command = create_data_quality_monitor(
-      geocoded_export = geocoded_export,
-      panelid_export = panelid_export,
       geocoded_locais = geocoded_locais,
       panel_ids = panel_ids,
       # Expected municipality count is derived from the states this run processes, so a

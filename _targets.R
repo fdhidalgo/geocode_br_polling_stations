@@ -787,13 +787,7 @@ list(
   # Save diagnostics report
   tar_target(
     name = string_match_diagnostics_report,
-    command = {
-      report_text <- format_string_match_diagnostics(string_match_diagnostics)
-      cat(report_text)
-      dir.create("output", showWarnings = FALSE)
-      writeLines(report_text, "output/string_match_diagnostics.txt")
-      "output/string_match_diagnostics.txt"
-    },
+    command = write_string_match_diagnostics(string_match_diagnostics),
     format = "file",
     repository = "local"
   ),
@@ -833,11 +827,7 @@ list(
   ## Train model and make predictions
   tar_target(
     name = trained_model,
-    command = train_model(
-      model_data,
-      grid_n = ifelse(pipeline_config$dev_mode, 5, 50),
-      dev_mode = pipeline_config$dev_mode
-    ),
+    command = train_model(model_data, pipeline_config$dev_mode),
   ),
   tar_target(
     name = model_predictions,
@@ -982,11 +972,7 @@ list(
   ),
   tar_target(
     name = section_panel_export,
-    command = {
-      dir.create("output", showWarnings = FALSE)
-      fwrite(section_panel_mapping, "output/section_panel_mapping.csv.gz")
-      "output/section_panel_mapping.csv.gz"
-    },
+    command = export_section_panel_mapping(section_panel_mapping),
     format = "file",
     repository = "local"
   ),
@@ -1019,7 +1005,7 @@ list(
       panel_ids = panel_ids,
       # Expected municipality count is derived from the states this run processes, so a
       # dev-filtered (AC/RR) output does not trip the municipality-count check.
-      expected_municipality_count = get_expected_municipality_count_for_config(pipeline_config)
+      expected_municipality_count = expected_municipality_count(pipeline_config$dev_mode)
     ),
     # Always run monitoring to catch issues early
     cue = tar_cue(mode = "always")

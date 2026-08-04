@@ -4,9 +4,10 @@
 library(data.table)
 library(crew)
 
-# The two smallest states by population (Acre and Roraima), processed in dev mode
-# for fast testing.
-DEV_STATES <- c("AC", "RR")
+# The two smallest states by population (Acre and Roraima), processed in dev mode for
+# fast testing, with their municipality counts per IBGE's 2022 figures.
+DEV_STATE_MUNICIPALITY_COUNTS <- c(AC = 22, RR = 15)
+DEV_STATES <- names(DEV_STATE_MUNICIPALITY_COUNTS)
 
 # Pipeline configuration for the current mode. This object is the
 # `pipeline_config` target, so every field it carries is hashed and cascades
@@ -97,25 +98,11 @@ get_agro_cnefe_files <- function(dev_mode = FALSE, dev_states = DEV_STATES) {
   sort(files)
 }
 
-# Municipality counts of the dev-mode states, per IBGE's 2022 figures.
-DEV_STATE_MUNICIPALITY_COUNTS <- c(AC = 22, RR = 15)
-
-# Total expected municipality count for the states this run actually processes:
-# the summed per-state IBGE counts in dev mode, the national 5570 in production.
-# Keeps the data-quality monitor from failing on a legitimately dev-filtered run.
-get_expected_municipality_count_for_config <- function(pipeline_config) {
-  if (!pipeline_config$dev_mode) {
-    return(5570)
-  }
-
-  counts <- DEV_STATE_MUNICIPALITY_COUNTS[pipeline_config$dev_states]
-  if (anyNA(counts)) {
-    stop(
-      "get_expected_municipality_count_for_config(): no municipality count for dev state(s): ",
-      paste(setdiff(pipeline_config$dev_states, names(DEV_STATE_MUNICIPALITY_COUNTS)), collapse = ", ")
-    )
-  }
-  sum(counts)
+# Municipalities this run should produce: the dev states' summed IBGE counts in dev mode,
+# the national total in production. Keeps the data-quality monitor from failing on a
+# legitimately dev-filtered run.
+expected_municipality_count <- function(dev_mode) {
+  if (dev_mode) sum(DEV_STATE_MUNICIPALITY_COUNTS) else 5570
 }
 
 # Retain a strong reference to every processx handle the launcher creates, so

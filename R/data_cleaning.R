@@ -3,12 +3,9 @@
 library(data.table)
 library(stringr)
 
-# Renames source-specific column variants (TSE, CNEFE, panel) to the pipeline's names.
-standardize_column_names <- function(dt, inplace = FALSE) {
-  if (!inplace) {
-    dt <- copy(dt)
-  }
-
+# Renames source-specific column variants (TSE, CNEFE, panel) to the pipeline's names,
+# in place.
+standardize_column_names <- function(dt) {
   old_names <- names(dt)
 
   replacements <- c(
@@ -42,10 +39,7 @@ standardize_column_names <- function(dt, inplace = FALSE) {
   }
 
   data.table::setnames(dt, old_names, new_names)
-
-  if (!inplace) {
-    return(dt)
-  }
+  invisible(dt)
 }
 
 # Labels for the CNEFE "espécie de endereço" codes. 2010 uses 7 codes keyed on `especie`;
@@ -317,7 +311,7 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
     )
   }
 
-  standardize_column_names(agro_cnefe, inplace = TRUE)
+  standardize_column_names(agro_cnefe)
 
   agro_cnefe[, norm_street := normalize_address(street)]
   agro_cnefe[, norm_bairro := normalize_address(nome_localidade)]
@@ -543,8 +537,7 @@ school_synonyms <- c(
   "prof"
 )
 
-# Lowercase, ASCII, punctuation-free form of a name. Kept separate from normalize_school()
-# because the model's school-detection feature needs the generic school terms still present.
+# Lowercase, ASCII, punctuation-free form of a name.
 normalize_name <- function(x) {
   result <- stringi::stri_trans_general(x, "Latin-ASCII")
   result <- str_to_lower(result)
@@ -554,12 +547,10 @@ normalize_name <- function(x) {
 
 # normalize_name() plus removal of the generic school terms, so two records for the same
 # school match on what distinguishes it rather than on "escola municipal".
+SCHOOL_SYNONYM_PATTERN <- paste0("\\b", school_synonyms, "\\b", collapse = "|")
+
 normalize_school <- function(x) {
-  result <- str_remove_all(
-    normalize_name(x),
-    paste0("\\b", school_synonyms, "\\b", collapse = "|")
-  )
-  str_squish(result)
+  str_squish(str_remove_all(normalize_name(x), SCHOOL_SYNONYM_PATTERN))
 }
 
 # Cleans the INEP school census and normalizes its school names and addresses.
@@ -703,7 +694,6 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
       "cod_unico_endereco"
     )
 
-    # Unguarded, so a CNEFE schema change errors here instead of silently dropping nothing.
     cnefe_chunk[, (cols_to_drop) := NULL]
 
     cnefe_chunk[, cod_municipio := str_pad(cod_municipio, width = 5, side = "left", pad = "0")]

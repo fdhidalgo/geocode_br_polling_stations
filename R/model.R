@@ -13,18 +13,8 @@ library(stringr)
 GBM_LOG_OFFSET <- 1e-4
 
 # Melt one match table's (match_long_*, match_lat_*, mindist_*) column triples into one row
-# per candidate coordinate, labelled by `types` in column order. `year` tags the source
-# vintage; the INEP table spans no single year and passes NULL.
-melt_match_candidates <- function(matches, types, year = NULL) {
-  n_groups <- sum(startsWith(names(matches), "match_long_"))
-  if (n_groups != length(types)) {
-    stop(sprintf(
-      "melt_match_candidates(): %d coordinate column group(s) but %d label(s); the match table's columns changed.",
-      n_groups,
-      length(types)
-    ))
-  }
-
+# per candidate coordinate, named by `types` in column order.
+melt_match_candidates <- function(matches, types) {
   long <- melt(
     matches,
     id.vars = "local_id",
@@ -32,8 +22,9 @@ melt_match_candidates <- function(matches, types, year = NULL) {
     variable.name = "type",
     variable.factor = FALSE
   )
-  labels <- if (is.null(year)) types else paste0(types, "_", year)
-  long[, type := labels[as.integer(type)]]
+  long[, type := types[as.integer(type)]]
+  # More coordinate column groups than names means the match table's columns changed.
+  stopifnot(!anyNA(long$type))
   long[]
 }
 
@@ -77,10 +68,10 @@ make_model_data <- function(
   # Each source names its coordinate columns after itself, so the tables are melted
   # separately and stacked afterwards rather than row-bound first.
   match_list <- list(
-    melt_match_candidates(cnefe10_stbairro_match, c("st_cnefe", "bairro_cnefe"), 2010),
-    melt_match_candidates(cnefe22_stbairro_match, c("st_cnefe", "bairro_cnefe"), 2022),
-    melt_match_candidates(schools_cnefe10_match, "schools_cnefe_name", 2010),
-    melt_match_candidates(schools_cnefe22_match, "schools_cnefe_name", 2022),
+    melt_match_candidates(cnefe10_stbairro_match, c("st_cnefe_2010", "bairro_cnefe_2010")),
+    melt_match_candidates(cnefe22_stbairro_match, c("st_cnefe_2022", "bairro_cnefe_2022")),
+    melt_match_candidates(schools_cnefe10_match, "schools_cnefe_name_2010"),
+    melt_match_candidates(schools_cnefe22_match, "schools_cnefe_name_2022"),
     melt_match_candidates(inep_string_match, c("schools_inep_name", "schools_inep_addr")),
     geocodebr_candidates(geocodebr_match)
   )
@@ -90,8 +81,7 @@ make_model_data <- function(
       match_list,
       list(melt_match_candidates(
         agrocnefe_stbairro_match,
-        c("st_agrocnefe", "bairro_agrocnefe"),
-        2017
+        c("st_agrocnefe_2017", "bairro_agrocnefe_2017")
       ))
     )
   }
@@ -106,10 +96,10 @@ make_model_data <- function(
     )
   ]
 
-  # Address and name features; school_synonyms comes from R/data_cleaning.R.
+  # Address and name features; SCHOOL_SYNONYM_PATTERN comes from R/data_cleaning.R.
   addr_features <- locais[, .(local_id, nm_locvot, ds_endereco, ds_bairro, normalized_addr)]
-  # The generic school terms are what this feature looks for, so it needs the name before
-  # normalize_school() strips them.
+  # normalize_name(), not normalize_school(): the school feature looks for exactly the
+  # generic terms normalize_school() strips out.
   addr_features[, norm_name := normalize_name(nm_locvot)]
   addr_features[, centro := fifelse(grepl("\\bcentro\\b", normalized_addr), 1, 0)]
   addr_features[,
@@ -122,7 +112,7 @@ make_model_data <- function(
   ]
   addr_features[,
     school := fifelse(
-      grepl(paste0("\\b", school_synonyms, "\\b", collapse = "|"), norm_name),
+      grepl(SCHOOL_SYNONYM_PATTERN, norm_name),
       1,
       0
     )
@@ -206,10 +196,11 @@ build_gbm_workflow <- function(data) {
     workflows::add_model(gbm_spec)
 }
 
-train_model <- function(model_data, grid_n, dev_mode) {
+train_model <- function(model_data, dev_mode) {
   # tune_race_anova needs more than its 3 burn-in resamples, so 4 is the dev-mode floor.
   n_folds <- if (dev_mode) 4 else 10
-  message(sprintf("Training model with %d CV folds and grid_n = %d", n_folds, grid_n))
+  grid_n <- if (dev_mode) 5 else 50
+  message(sprintf("Training model with %d CV folds and a grid of %d candidates", n_folds, grid_n))
 
   if (nrow(model_data) == 0) {
     stop("No data available for model training")

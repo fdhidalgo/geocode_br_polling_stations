@@ -5,13 +5,7 @@ library(data.table)
 # Run fn(item) over items, recording per-item errors and stopping once at the
 # end with every failure named. A NULL result is a legitimate empty item, not a
 # failure, and is dropped from the returned list.
-collect_batch_or_stop <- function(
-  items,
-  fn,
-  task_label,
-  unit_singular = "municipality",
-  unit_plural = "municipalities"
-) {
+collect_batch_or_stop <- function(items, fn, task_label) {
   results <- lapply(items, function(item) {
     tryCatch(
       fn(item),
@@ -36,7 +30,7 @@ collect_batch_or_stop <- function(
       "%s failed for %d %s:\n%s",
       task_label,
       n,
-      ngettext(n, unit_singular, unit_plural),
+      ngettext(n, "municipality", "municipalities"),
       paste(msgs, collapse = "\n")
     ))
   }
@@ -61,9 +55,10 @@ filter_by_dev_mode <- function(data, dev_states, state_col) {
   data[get(state_col) %in% dev_states]
 }
 
-# Restrict a municipality-keyed table to the municipalities this run processes;
-# production passes everything through. muni_col holds 7-digit IBGE codes, or (for
-# census tracts) a longer code whose first 7 digits are the municipality.
+# Restrict a municipality-keyed table to the municipalities this run processes. muni_col
+# holds 7-digit IBGE codes, or (for census tracts) a longer code whose first 7 digits are
+# the municipality. Production passes everything through rather than filtering on the full
+# crosswalk, which would silently drop the two muni_shp codes the crosswalk lacks.
 filter_to_run_munis <- function(data, muni_col, muni_ids, dev_mode) {
   if (!dev_mode) {
     return(data)
@@ -79,20 +74,8 @@ filter_to_run_munis <- function(data, muni_col, muni_ids, dev_mode) {
 
 # Drop Brasília (DF), which holds municipal elections in different years from
 # the other states.
-apply_brasilia_filters <- function(data, remove_brasilia = TRUE, state_col = "sg_uf") {
-  if (!remove_brasilia) {
-    return(data)
-  }
-
-  if (!state_col %in% names(data)) {
-    stop(sprintf("apply_brasilia_filters(): state column '%s' not found in data.", state_col))
-  }
-
-  if (is.data.table(data)) {
-    data[get(state_col) != "DF"]
-  } else {
-    data[data[[state_col]] != "DF", ]
-  }
+apply_brasilia_filters <- function(data) {
+  data[sg_uf != "DF"]
 }
 
 # Read and clean one state's CNEFE file in memory and return only the small
@@ -551,4 +534,11 @@ export_geocoded_locais <- function(geocoded_locais, gates) {
 export_panel_ids <- function(panel_ids, gates) {
   fwrite(panel_ids, "./output/panel_ids.csv.gz")
   "./output/panel_ids.csv.gz"
+}
+
+# Write the section-to-panel mapping and return its path.
+export_section_panel_mapping <- function(section_panel_mapping) {
+  dir.create("output", showWarnings = FALSE)
+  fwrite(section_panel_mapping, "./output/section_panel_mapping.csv.gz")
+  "./output/section_panel_mapping.csv.gz"
 }

@@ -17,9 +17,15 @@ match_strings <- function(query_strings, target_strings, normalize_by_length = T
     rep.int(seq_along(target_words), lengths(target_words)),
     unlist(target_words, use.names = FALSE)
   )
-  query_words <- strsplit(tolower(query_strings), "\\s+")
+  target_nchar <- nchar(target_strings)
 
-  n <- length(query_strings)
+  # A municipality's rows are station-years, so the same address recurs across elections
+  # (roughly 6 times nationally). Matching is pure, so each distinct query is matched once
+  # and the results are expanded back over the input.
+  queries <- unique(query_strings)
+  query_words <- strsplit(tolower(queries), "\\s+")
+
+  n <- length(queries)
   min_dist <- rep(Inf, n)
   best_match <- rep(NA_character_, n)
   best_index <- rep(NA_integer_, n)
@@ -33,13 +39,9 @@ match_strings <- function(query_strings, target_strings, normalize_by_length = T
       next
     }
 
-    dists <- stringdist::stringdist(
-      query_strings[i],
-      target_strings[candidates],
-      method = "jw"
-    )
+    dists <- stringdist::stringdist(queries[i], target_strings[candidates], method = "jw")
     if (normalize_by_length) {
-      dists <- dists / pmax(nchar(query_strings[i]), nchar(target_strings[candidates]))
+      dists <- dists / pmax(nchar(queries[i]), target_nchar[candidates])
     }
 
     best <- which.min(dists)
@@ -48,10 +50,11 @@ match_strings <- function(query_strings, target_strings, normalize_by_length = T
     best_match[i] <- target_strings[candidates[best]]
   }
 
+  expand <- match(query_strings, queries)
   list(
-    min_dist = min_dist,
-    best_match = best_match,
-    best_index = best_index
+    min_dist = min_dist[expand],
+    best_match = best_match[expand],
+    best_index = best_index[expand]
   )
 }
 
@@ -74,43 +77,18 @@ match_inep_muni <- function(locais_muni, inep_muni) {
     inep_muni$norm_addr
   )
 
-  # Get coordinates for best matches
-  match_long_inep_name <- ifelse(
-    is.na(name_results$best_index),
-    NA_real_,
-    inep_muni$longitude[name_results$best_index]
-  )
-  match_lat_inep_name <- ifelse(
-    is.na(name_results$best_index),
-    NA_real_,
-    inep_muni$latitude[name_results$best_index]
-  )
-
-  match_long_inep_addr <- ifelse(
-    is.na(addr_results$best_index),
-    NA_real_,
-    inep_muni$longitude[addr_results$best_index]
-  )
-  match_lat_inep_addr <- ifelse(
-    is.na(addr_results$best_index),
-    NA_real_,
-    inep_muni$latitude[addr_results$best_index]
-  )
-
-  # Create output
-  output <- data.table(
+  # An unmatched station has best_index NA, and indexing by NA yields NA coordinates.
+  data.table(
     local_id = locais_muni$local_id,
     match_inep_name = name_results$best_match,
     mindist_inep_name = name_results$min_dist,
-    match_long_inep_name = match_long_inep_name,
-    match_lat_inep_name = match_lat_inep_name,
+    match_long_inep_name = inep_muni$longitude[name_results$best_index],
+    match_lat_inep_name = inep_muni$latitude[name_results$best_index],
     match_inep_addr = addr_results$best_match,
     mindist_inep_addr = addr_results$min_dist,
-    match_long_inep_addr = match_long_inep_addr,
-    match_lat_inep_addr = match_lat_inep_addr
+    match_long_inep_addr = inep_muni$longitude[addr_results$best_index],
+    match_lat_inep_addr = inep_muni$latitude[addr_results$best_index]
   )
-
-  return(output)
 }
 
 match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
@@ -126,34 +104,14 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
     schools_cnefe_muni$norm_desc
   )
 
-  # Get coordinates for best matches
-  match_long_schools_cnefe <- ifelse(
-    is.na(name_results$best_index),
-    NA_real_,
-    schools_cnefe_muni$cnefe_long[name_results$best_index]
-  )
-  match_lat_schools_cnefe <- ifelse(
-    is.na(name_results$best_index),
-    NA_real_,
-    schools_cnefe_muni$cnefe_lat[name_results$best_index]
-  )
-  match_bairro_schools_cnefe <- ifelse(
-    is.na(name_results$best_index),
-    NA_character_,
-    schools_cnefe_muni$norm_bairro[name_results$best_index]
-  )
-
-  # Create output
-  output <- data.table(
+  data.table(
     local_id = locais_muni$local_id,
     match_schools_cnefe = name_results$best_match,
     mindist_schools_cnefe = name_results$min_dist,
-    match_long_schools_cnefe = match_long_schools_cnefe,
-    match_lat_schools_cnefe = match_lat_schools_cnefe,
-    match_bairro_schools_cnefe = match_bairro_schools_cnefe
+    match_long_schools_cnefe = schools_cnefe_muni$cnefe_long[name_results$best_index],
+    match_lat_schools_cnefe = schools_cnefe_muni$cnefe_lat[name_results$best_index],
+    match_bairro_schools_cnefe = schools_cnefe_muni$norm_bairro[name_results$best_index]
   )
-
-  return(output)
 }
 
 match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_muni) {
@@ -176,43 +134,17 @@ match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_m
     normalize_by_length = FALSE # Don't normalize for neighborhoods
   )
 
-  # Get coordinates for best matches
-  match_long_cnefe_st <- ifelse(
-    is.na(st_results$best_index),
-    NA_real_,
-    cnefe_st_muni$long[st_results$best_index]
-  )
-  match_lat_cnefe_st <- ifelse(
-    is.na(st_results$best_index),
-    NA_real_,
-    cnefe_st_muni$lat[st_results$best_index]
-  )
-
-  match_long_cnefe_bairro <- ifelse(
-    is.na(bairro_results$best_index),
-    NA_real_,
-    cnefe_bairro_muni$long[bairro_results$best_index]
-  )
-  match_lat_cnefe_bairro <- ifelse(
-    is.na(bairro_results$best_index),
-    NA_real_,
-    cnefe_bairro_muni$lat[bairro_results$best_index]
-  )
-
-  # Create output
-  output <- data.table(
+  data.table(
     local_id = locais_muni$local_id,
     match_cnefe_st = st_results$best_match,
     mindist_cnefe_st = st_results$min_dist,
-    match_long_cnefe_st = match_long_cnefe_st,
-    match_lat_cnefe_st = match_lat_cnefe_st,
+    match_long_cnefe_st = cnefe_st_muni$long[st_results$best_index],
+    match_lat_cnefe_st = cnefe_st_muni$lat[st_results$best_index],
     match_cnefe_bairro = bairro_results$best_match,
     mindist_cnefe_bairro = bairro_results$min_dist,
-    match_long_cnefe_bairro = match_long_cnefe_bairro,
-    match_lat_cnefe_bairro = match_lat_cnefe_bairro
+    match_long_cnefe_bairro = cnefe_bairro_muni$long[bairro_results$best_index],
+    match_lat_cnefe_bairro = cnefe_bairro_muni$lat[bairro_results$best_index]
   )
-
-  return(output)
 }
 
 match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocnefe_bairro_muni) {
@@ -235,43 +167,17 @@ match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocn
     normalize_by_length = FALSE
   )
 
-  # Get coordinates for best matches
-  match_long_agrocnefe_st <- ifelse(
-    is.na(st_results$best_index),
-    NA_real_,
-    agrocnefe_st_muni$long[st_results$best_index]
-  )
-  match_lat_agrocnefe_st <- ifelse(
-    is.na(st_results$best_index),
-    NA_real_,
-    agrocnefe_st_muni$lat[st_results$best_index]
-  )
-
-  match_long_agrocnefe_bairro <- ifelse(
-    is.na(bairro_results$best_index),
-    NA_real_,
-    agrocnefe_bairro_muni$long[bairro_results$best_index]
-  )
-  match_lat_agrocnefe_bairro <- ifelse(
-    is.na(bairro_results$best_index),
-    NA_real_,
-    agrocnefe_bairro_muni$lat[bairro_results$best_index]
-  )
-
-  # Create output
-  output <- data.table(
+  data.table(
     local_id = locais_muni$local_id,
     match_agrocnefe_st = st_results$best_match,
     mindist_agrocnefe_st = st_results$min_dist,
-    match_long_agrocnefe_st = match_long_agrocnefe_st,
-    match_lat_agrocnefe_st = match_lat_agrocnefe_st,
+    match_long_agrocnefe_st = agrocnefe_st_muni$long[st_results$best_index],
+    match_lat_agrocnefe_st = agrocnefe_st_muni$lat[st_results$best_index],
     match_agrocnefe_bairro = bairro_results$best_match,
     mindist_agrocnefe_bairro = bairro_results$min_dist,
-    match_long_agrocnefe_bairro = match_long_agrocnefe_bairro,
-    match_lat_agrocnefe_bairro = match_lat_agrocnefe_bairro
+    match_long_agrocnefe_bairro = agrocnefe_bairro_muni$long[bairro_results$best_index],
+    match_lat_agrocnefe_bairro = agrocnefe_bairro_muni$lat[bairro_results$best_index]
   )
-
-  return(output)
 }
 
 match_geocodebr_muni <- function(locais_muni) {

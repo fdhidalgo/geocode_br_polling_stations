@@ -5,9 +5,8 @@ library(data.table)
 library(reclin2)
 library(stringr)
 
-# The panel links a station to its counterpart in the next election year: candidates must
-# share a municipality, and are scored on how similar their name and address are.
-PANEL_BLOCKING_COLUMN <- "cod_localidade_ibge"
+# The fields a candidate pair is scored on when linking a station to its counterpart in
+# the next election year.
 PANEL_SCORING_COLUMNS <- c("normalized_name", "normalized_addr")
 
 # Extend the panel with one year transition's matched pairs.
@@ -27,7 +26,7 @@ process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
     )
   }
 
-  standardize_column_names(best_pairs, inplace = TRUE)
+  standardize_column_names(best_pairs)
 
   clean_pairs <- best_pairs[, .(local_id_from = x_local_id, local_id_to = y_local_id)]
   setnames(
@@ -65,7 +64,7 @@ process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
 make_panel_ids <- function(panel_ids_combined, geocoded_locais) {
   # geocoded_locais is deliberately not standardized: an inplace rename would corrupt the
   # shared in-memory object other consumers (export, release gates) read.
-  standardize_column_names(panel_ids_combined, inplace = TRUE)
+  standardize_column_names(panel_ids_combined)
 
   # Attach each station-year's final coordinate and predicted error. pred_dist is 0 for
   # TSE-covered rows, so ordering by it puts ground-truth coordinates ahead of model ones.
@@ -108,7 +107,7 @@ create_panel_dataset <- function(final_pairs_list, years) {
     }
 
     if (is.null(panel)) {
-      standardize_column_names(best_pairs, inplace = TRUE)
+      standardize_column_names(best_pairs)
       panel <- best_pairs[, .(
         local_id_first = x_local_id,
         local_id_second = y_local_id
@@ -145,10 +144,11 @@ create_panel_dataset <- function(final_pairs_list, years) {
 
 
 # Build the panel for one block (a municipality): match pairs across years, then chain them.
-make_panel_1block <- function(block, years) {
-  standardize_column_names(block, inplace = TRUE)
+make_panel_1block <- function(block) {
+  standardize_column_names(block)
 
-  cat("Processing block with", nrow(block), "rows\n")
+  years <- sort(unique(block$ano))
+  cat("Processing block with", nrow(block), "rows across", length(years), "years\n")
 
   pairs_list <- select_best_pairs_by_year(block, years)
 
@@ -268,13 +268,12 @@ process_panel_ids_municipality_batch <- function(locais_full, municipality_batch
         "\n"
       )
 
-      years_to_use <- sort(unique(muni_data$ano))
-      if (length(years_to_use) < 2) {
+      if (uniqueN(muni_data$ano) < 2) {
         cat("  Insufficient years for panel creation\n")
         return(NULL)
       }
 
-      result <- make_panel_1block(muni_data, years_to_use)
+      result <- make_panel_1block(muni_data)
 
       if (!is.null(result) && nrow(result) > 0) {
         result[, cod_localidade_ibge := muni_code]
@@ -306,19 +305,15 @@ process_panel_ids_municipality_batch <- function(locais_full, municipality_batch
 select_best_pairs_by_year <- function(data, years) {
   pairs_list <- list()
 
-  standardize_column_names(data, inplace = TRUE)
+  standardize_column_names(data)
 
   years <- sort(years)
 
   # Slice once per year, keeping only the columns used, to avoid repeated filtering.
   year_data <- lapply(years, function(y) {
     subset <- data[ano == y]
-    if (nrow(subset) > 0) {
-      keep_cols <- c("local_id", "ano", "sg_uf", PANEL_BLOCKING_COLUMN, PANEL_SCORING_COLUMNS)
-      subset[, .SD, .SDcols = intersect(names(subset), keep_cols)]
-    } else {
-      NULL
-    }
+    keep_cols <- c("local_id", "ano", "sg_uf", "cod_localidade_ibge", PANEL_SCORING_COLUMNS)
+    subset[, .SD, .SDcols = intersect(names(subset), keep_cols)]
   })
   names(year_data) <- as.character(years)
 
@@ -328,11 +323,6 @@ select_best_pairs_by_year <- function(data, years) {
 
     linkexample1 <- year_data[[as.character(year1)]]
     linkexample2 <- year_data[[as.character(year2)]]
-
-    if (is.null(linkexample1) || is.null(linkexample2) || nrow(linkexample1) == 0 || nrow(linkexample2) == 0) {
-      cat("  Skipping year pair", year1, "->", year2, "- no data\n")
-      next
-    }
 
     cat("  Processing year pair:", year1, "->", year2, "(", nrow(linkexample1), "x", nrow(linkexample2), "records)\n")
 
@@ -506,7 +496,7 @@ PORTUGUESE_STOPWORDS <- c(
 )
 
 # Uppercase tokens of each string, minus stopwords and short words, deduplicated.
-extract_significant_words <- function(text, min_word_length = 3) {
+extract_significant_words <- function(text) {
   if (length(text) == 0) {
     return(list())
   }
@@ -519,7 +509,7 @@ extract_significant_words <- function(text, min_word_length = 3) {
   lapply(word_lists, function(words) {
     words <- words[words != ""]
 
-    words <- words[nchar(words) >= min_word_length]
+    words <- words[nchar(words) >= 3]
 
     words <- words[!words %in% PORTUGUESE_STOPWORDS]
 
@@ -535,7 +525,7 @@ create_two_level_blocked_pairs <- function(data1, data2) {
   # overlap (stopword filtering can strip a name bare), so its pairs are all kept.
   min_words <- 2
 
-  pairs <- pair_blocking(data1, data2, PANEL_BLOCKING_COLUMN)
+  pairs <- pair_blocking(data1, data2, "cod_localidade_ibge")
 
   if (nrow(pairs) == 0) {
     return(pairs)
@@ -549,14 +539,11 @@ create_two_level_blocked_pairs <- function(data1, data2) {
   unique_x <- unique(x_indices)
   unique_y <- unique(y_indices)
 
-  x_all_words <- extract_significant_words(paste(
-    data1$normalized_name[unique_x],
-    data1$normalized_addr[unique_x]
-  ))
-  y_all_words <- extract_significant_words(paste(
-    data2$normalized_name[unique_y],
-    data2$normalized_addr[unique_y]
-  ))
+  scored_text <- function(data, rows) {
+    do.call(paste, data[rows, .SD, .SDcols = PANEL_SCORING_COLUMNS])
+  }
+  x_all_words <- extract_significant_words(scored_text(data1, unique_x))
+  y_all_words <- extract_significant_words(scored_text(data2, unique_y))
 
   x_lookup <- match(x_indices, unique_x)
   y_lookup <- match(y_indices, unique_y)
@@ -617,9 +604,9 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
     stop("create_section_panel_mapping(): empty panel IDs.")
   }
 
-  standardize_column_names(secc_loc_map, inplace = TRUE)
-  standardize_column_names(geocoded_locais, inplace = TRUE)
-  standardize_column_names(panel_ids, inplace = TRUE)
+  standardize_column_names(secc_loc_map)
+  standardize_column_names(geocoded_locais)
+  standardize_column_names(panel_ids)
 
   cat("Input data sizes:\n")
   cat("  Sections:", format(nrow(secc_loc_map), big.mark = ","), "\n")

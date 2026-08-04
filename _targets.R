@@ -610,32 +610,10 @@ list(
   ),
 
   # --- String matching targets ---
-  ## Setup for parallel string matching
-  tar_target(
-    name = municipalities_for_matching,
-    command = unique(locais_filtered$cod_localidade_ibge)
-  ),
-
-  # Calculate municipality sizes for smart batching
-  tar_target(
-    name = municipality_sizes,
-    command = {
-      # Count polling stations per municipality
-      locais_filtered[, .(size = .N), by = .(muni_code = cod_localidade_ibge)]
-    }
-  ),
-
-  # Create municipality batch assignments for flattened parallel processing
+  # Size-balanced municipality batches, the unit every match target branches over.
   tar_target(
     name = municipality_batch_assignments,
-    command = {
-      # Explicitly depend on pipeline_config
-      create_municipality_batch_assignments(
-        municipalities_for_matching,
-        batch_size = ifelse(pipeline_config$dev_mode, 5, 15),
-        muni_sizes = municipality_sizes
-      )
-    }
+    command = build_municipality_batches(locais_filtered, pipeline_config$dev_mode)
   ),
 
   # Extract unique batch IDs for dynamic branching
@@ -1071,39 +1049,23 @@ list(
     )
   ),
 
-  # --- Validation and reporting ---
-  ## Generate simplified validation report
-  tar_target(
-    name = validation_report,
-    command = generate_validation_report_simplified(
-      validate_inputs = validate_inputs,
-      validate_model_data = validate_model_data,
-      validate_predictions = validate_predictions,
-      validate_geocoded_output = validate_geocoded_output,
-      locais_filtered = locais_filtered,
-      model_data = model_data,
-      model_predictions = model_predictions,
-      geocoded_locais = geocoded_locais,
-      pipeline_config = pipeline_config
-    )
-  ),
-
   # --- Data export ---
 
   # Each export writes its file and returns the path, so format = "file" rebuilds it
   # when the output is deleted; repository = "local" keeps the outputs off S3.
   tar_target(
     name = geocoded_export,
-    command = export_geocoded_with_validation(
-      geocoded_locais,
-      validation_report
-    ),
+    command = {
+      validate_geocoded_output # stage validation must pass before the file is written
+      export_geocoded_locais(geocoded_locais)
+    },
     format = "file",
     repository = "local"
   ),
+  # panel_ids is guarded by panel_release_gates, which runs on every build.
   tar_target(
     name = panelid_export,
-    command = export_panel_ids_with_validation(panel_ids, validation_report),
+    command = export_panel_ids(panel_ids),
     format = "file",
     repository = "local"
   ),
@@ -1141,34 +1103,15 @@ list(
   ## Data Quality Monitoring
   tar_target(
     name = data_quality_monitoring,
-    command = {
-      # Create monitoring report with export files as dependencies
-      results <- create_data_quality_monitor(
-        geocoded_export = geocoded_export,
-        panelid_export = panelid_export,
-        geocoded_locais = geocoded_locais,
-        panel_ids = panel_ids,
-        # Expected municipality count is derived from the states this run processes, so a
-        # dev-filtered (AC/RR) output does not trip the municipality-count check.
-        expected_municipality_count = get_expected_municipality_count_for_config(pipeline_config),
-        muni_count_tolerance = 50,
-        extreme_change_threshold = 30,
-        duplicate_coord_threshold = 10,
-        near_duplicate_threshold = 50,
-        near_duplicate_distance = 100,
-        alert_muni_discrepancy = 100,
-        alert_extreme_changes = 50,
-        alert_panel_coverage = 90,
-        alert_geocoding_coverage = 95,
-        min_years_required = 2
-      )
-
-      # Save latest results for tracking
-      saveRDS(results, "output/latest_quality_results.rds")
-
-      # Return results for downstream use
-      results
-    },
+    command = create_data_quality_monitor(
+      geocoded_export = geocoded_export,
+      panelid_export = panelid_export,
+      geocoded_locais = geocoded_locais,
+      panel_ids = panel_ids,
+      # Expected municipality count is derived from the states this run processes, so a
+      # dev-filtered (AC/RR) output does not trip the municipality-count check.
+      expected_municipality_count = get_expected_municipality_count_for_config(pipeline_config)
+    ),
     # Always run monitoring to catch issues early
     cue = tar_cue(mode = "always")
   ),

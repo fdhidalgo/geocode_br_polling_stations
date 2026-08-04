@@ -1,10 +1,8 @@
-## Spec tests for the fused CNEFE aggregation helpers (R/utilities.R),
-## introduced by the #67 reshape (spec 2026-07-partition-reference-data, D5/D6).
-##
+## Spec tests for the fused CNEFE aggregation helpers (R/utilities.R).
 ## aggregate_cnefe_coords() collapses cleaned CNEFE rows to per-municipality
 ## group medians, keeping only groups seen more than once. combine_cnefe_state_
 ## component() row-binds a named component across per-state results and asserts
-## the D6 no-cross-state-duplicate invariant for keyed aggregates.
+## that keyed aggregates never duplicate across state slices.
 
 library(data.table)
 
@@ -87,7 +85,7 @@ test_that("combine_cnefe_state_component row-binds schools without a key check",
 
 test_that("combine_cnefe_state_component stops on a cross-slice duplicate key", {
   # The same (id_munic_7, norm_street) in two slices is exactly what a
-  # municipality spanning two state files would produce (D6).
+  # municipality spanning two state files would produce.
   state_results <- list(
     list(st = data.table(id_munic_7 = 1L, norm_street = "x", long = 1, lat = 1, n = 3L)),
     list(st = data.table(id_munic_7 = 1L, norm_street = "x", long = 2, lat = 2, n = 5L))

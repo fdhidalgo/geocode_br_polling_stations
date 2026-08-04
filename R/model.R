@@ -26,126 +26,102 @@ make_model_data <- function(
   locais,
   tsegeocoded_locais
 ) {
-  # Assign the year to each dataset (check for NULL/empty first)
-  if (!is.null(cnefe10_stbairro_match) && nrow(cnefe10_stbairro_match) > 0) {
-    cnefe10_stbairro_match[, ano := 2010]
-  }
-  if (!is.null(agrocnefe_stbairro_match) && nrow(agrocnefe_stbairro_match) > 0) {
-    agrocnefe_stbairro_match[, ano := 2017]
-  }
-  if (!is.null(cnefe22_stbairro_match) && nrow(cnefe22_stbairro_match) > 0) {
-    cnefe22_stbairro_match[, ano := 2022]
-  }
-  if (!is.null(schools_cnefe10_match) && nrow(schools_cnefe10_match) > 0) {
-    schools_cnefe10_match[, ano := 2010]
-  }
-  if (!is.null(schools_cnefe22_match) && nrow(schools_cnefe22_match) > 0) {
-    schools_cnefe22_match[, ano := 2022]
-  }
+  # Each match input is a per-municipality rbindlist() target: an empty one means the
+  # matching stage that built it produced nothing, which is a bug, not a data state.
+  stopifnot(
+    nrow(cnefe10_stbairro_match) > 0,
+    nrow(cnefe22_stbairro_match) > 0,
+    nrow(schools_cnefe10_match) > 0,
+    nrow(schools_cnefe22_match) > 0,
+    nrow(inep_string_match) > 0,
+    nrow(geocodebr_match) > 0
+  )
+
+  # Assign the year to each dataset
+  cnefe10_stbairro_match[, ano := 2010]
+  cnefe22_stbairro_match[, ano := 2022]
+  schools_cnefe10_match[, ano := 2010]
+  schools_cnefe22_match[, ano := 2022]
 
   # Combine CNEFE neighborhood and address data
-  cnefe_list <- list(
-    cnefe10_stbairro_match,
-    cnefe22_stbairro_match,
-    agrocnefe_stbairro_match
+  cnefe_list <- list(cnefe10_stbairro_match, cnefe22_stbairro_match)
+  # agro match may be empty: its upstream source currently yields no matches
+  if (nrow(agrocnefe_stbairro_match) > 0L) {
+    agrocnefe_stbairro_match[, ano := 2017]
+    cnefe_list <- c(cnefe_list, list(agrocnefe_stbairro_match))
+  }
+  cnefe_stbairro_match <- rbindlist(cnefe_list, use.names = TRUE, fill = TRUE)
+
+  schools_cnefe_match <- rbindlist(
+    list(schools_cnefe10_match, schools_cnefe22_match),
+    use.names = TRUE,
+    fill = TRUE
   )
-  # Remove NULL entries
-  cnefe_list <- cnefe_list[!sapply(cnefe_list, is.null)]
-  cnefe_list <- cnefe_list[sapply(cnefe_list, nrow) > 0]
-
-  if (length(cnefe_list) > 0) {
-    cnefe_stbairro_match <- rbindlist(cnefe_list, use.names = TRUE, fill = TRUE)
-  } else {
-    cnefe_stbairro_match <- data.table()
-  }
-
-  schools_list <- list(schools_cnefe10_match, schools_cnefe22_match)
-  schools_list <- schools_list[!sapply(schools_list, is.null)]
-  schools_list <- schools_list[sapply(schools_list, nrow) > 0]
-
-  if (length(schools_list) > 0) {
-    schools_cnefe_match <- rbindlist(schools_list, use.names = TRUE, fill = TRUE)
-  } else {
-    schools_cnefe_match <- data.table()
-  }
 
   # Melt the CNEFE data to long format
-  if (nrow(cnefe_stbairro_match) > 0) {
-    cnefe_stbairro_match <- melt(
-      cnefe_stbairro_match,
-      id.vars = c("local_id", "ano"),
-      measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
-      variable.name = "type",
-      variable.factor = FALSE
-    )
-    cnefe_stbairro_match[,
-      type := paste0(fifelse(type == 1, "st_cnefe", "bairro_cnefe"), "_", ano)
-    ]
-    cnefe_stbairro_match[, ano := NULL]
-  }
+  cnefe_stbairro_match <- melt(
+    cnefe_stbairro_match,
+    id.vars = c("local_id", "ano"),
+    measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
+    variable.name = "type",
+    variable.factor = FALSE
+  )
+  cnefe_stbairro_match[,
+    type := paste0(fifelse(type == 1, "st_cnefe", "bairro_cnefe"), "_", ano)
+  ]
+  cnefe_stbairro_match[, ano := NULL]
 
   # Melt the schools CNEFE data to long format
-  if (nrow(schools_cnefe_match) > 0) {
-    schools_cnefe_match <- melt(
-      schools_cnefe_match,
-      id.vars = c("local_id", "ano"),
-      measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
-      variable.name = "type",
-      variable.factor = FALSE
+  schools_cnefe_match <- melt(
+    schools_cnefe_match,
+    id.vars = c("local_id", "ano"),
+    measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
+    variable.name = "type",
+    variable.factor = FALSE
+  )
+  schools_cnefe_match[,
+    type := paste0(
+      fifelse(type == 1, "schools_cnefe_name", "schools_cnefe_addr"),
+      "_",
+      ano
     )
-    schools_cnefe_match[,
-      type := paste0(
-        fifelse(type == 1, "schools_cnefe_name", "schools_cnefe_addr"),
-        "_",
-        ano
-      )
-    ]
-    schools_cnefe_match[, ano := NULL]
-  }
+  ]
+  schools_cnefe_match[, ano := NULL]
 
   # Melt the INEP data to long format
-  if (!is.null(inep_string_match) && nrow(inep_string_match) > 0) {
-    inep_string_match <- melt(
-      inep_string_match,
-      id.vars = c("local_id"),
-      measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
-      variable.name = "type",
-      variable.factor = FALSE
-    )
-    inep_string_match[,
-      type := fifelse(type == 1, "schools_inep_name", "schools_inep_addr")
-    ]
-  } else {
-    inep_string_match <- data.table()
-  }
+  inep_string_match <- melt(
+    inep_string_match,
+    id.vars = c("local_id"),
+    measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
+    variable.name = "type",
+    variable.factor = FALSE
+  )
+  inep_string_match[,
+    type := fifelse(type == 1, "schools_inep_name", "schools_inep_addr")
+  ]
 
-  # Process geocodebr data to long format
-  if (!is.null(geocodebr_match) && nrow(geocodebr_match) > 0) {
-    # Create long format with precision info - use same column names as melted data
-    geocodebr_long <- geocodebr_match[
-      !is.na(match_lat_geocodebr),
-      .(
-        local_id,
-        type = "geocodebr",
-        long = match_long_geocodebr,
-        lat = match_lat_geocodebr,
-        mindist = mindist_geocodebr, # Always 0 for geocodebr
-        # Add precision as a numeric score (higher = better)
-        precision_score = fcase(
-          precisao_geocodebr == "numero"     , 3 ,
-          precisao_geocodebr == "logradouro" , 2 ,
-          precisao_geocodebr == "municipio"  , 1 ,
-          default = 0
-        )
+  # Process geocodebr data to long format, using the same column names as the melted data
+  geocodebr_long <- geocodebr_match[
+    !is.na(match_lat_geocodebr),
+    .(
+      local_id,
+      type = "geocodebr",
+      long = match_long_geocodebr,
+      lat = match_lat_geocodebr,
+      mindist = mindist_geocodebr, # Always 0 for geocodebr
+      # Add precision as a numeric score (higher = better)
+      precision_score = fcase(
+        precisao_geocodebr == "numero"     , 3 ,
+        precisao_geocodebr == "logradouro" , 2 ,
+        precisao_geocodebr == "municipio"  , 1 ,
+        default = 0
       )
-    ]
-    # Adjust mindist to reflect precision (lower = better in the model)
-    # Since geocodebr returns exact matches (mindist=0), we use a synthetic distance
-    # based on geocoding precision: number-level (best) < street-level < municipality-level (worst)
-    geocodebr_long[, mindist := (3 - precision_score) * 0.1]
-  } else {
-    geocodebr_long <- data.table()
-  }
+    )
+  ]
+  # Adjust mindist to reflect precision (lower = better in the model)
+  # Since geocodebr returns exact matches (mindist=0), we use a synthetic distance
+  # based on geocoding precision: number-level (best) < street-level < municipality-level (worst)
+  geocodebr_long[, mindist := (3 - precision_score) * 0.1]
 
   # Prepare municipal demographic data
   muni_demo[, logpop := log(POP)]
@@ -202,20 +178,12 @@ make_model_data <- function(
   )]
 
   # Combine string matching data from multiple sources
-  # Build list of non-empty data.tables
   match_list <- list(
     cnefe_stbairro_match,
     schools_cnefe_match,
     inep_string_match,
     geocodebr_long
   )
-  # Remove empty data.tables
-  match_list <- match_list[sapply(match_list, function(x) !is.null(x) && nrow(x) > 0)]
-
-  if (length(match_list) == 0) {
-    warning("No matching data available for model training")
-    return(NULL)
-  }
 
   matching_data <- rbindlist(match_list, use.names = TRUE, fill = TRUE) |>
     merge(
@@ -299,20 +267,16 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
     message("Training model in PRODUCTION MODE: using 10 CV folds and grid_n = ", grid_n)
   }
 
-  # Check if model_data is NULL or empty
   if (is.null(model_data) || nrow(model_data) == 0) {
-    warning("No data available for model training")
-    return(NULL)
+    stop("No data available for model training")
   }
 
   ## Remove data with missing outcome and covariate
   model_data <- model_data[!is.na(dist)]
   model_data <- model_data[!is.na(mindist)]
 
-  # Check if we have any data left after filtering
   if (nrow(model_data) == 0) {
-    warning("No data left after filtering missing values")
-    return(NULL)
+    stop("No data left after filtering missing values")
   }
 
   if (is.null(sample) == FALSE) {

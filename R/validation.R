@@ -2,7 +2,6 @@
 
 library(validate)
 library(data.table)
-library(knitr)
 
 # Confronts merged data with row-count, duplicate, and merge-key rules.
 validate_merge_stage <- function(
@@ -96,16 +95,9 @@ validate_prediction_stage <- function(predictions, stage_name, pred_col = "predi
 
   result <- confront(predictions, rules)
 
-  if (pred_col %in% names(predictions)) {
-    n_predictions <- sum(!is.na(predictions[[pred_col]]))
-    prediction_rate <- n_predictions / nrow(predictions)
-  } else if ("long" %in% names(predictions) && "lat" %in% names(predictions)) {
-    n_predictions <- sum(!is.na(predictions$long) | !is.na(predictions$lat))
-    prediction_rate <- n_predictions / nrow(predictions)
-  } else {
-    n_predictions <- 0
-    prediction_rate <- 0
-  }
+  # get() so a missing prediction column errors here rather than reporting a rate of 0.
+  n_predictions <- predictions[!is.na(get(pred_col)), .N]
+  prediction_rate <- n_predictions / nrow(predictions)
 
   metadata <- list(
     stage = stage_name,
@@ -150,14 +142,9 @@ validate_output_stage <- function(output_data, stage_name, required_cols = NULL,
   result <- confront(output_data, rules)
 
   coord_cols <- intersect(c("final_long", "final_lat", "pred_long", "pred_lat"), names(output_data))
-  n_geocoded <- 0
-
-  if ("final_long" %in% names(output_data) && "final_lat" %in% names(output_data)) {
-    n_geocoded <- sum(!is.na(output_data$final_long) & !is.na(output_data$final_lat))
-  } else if ("pred_long" %in% names(output_data) && "pred_lat" %in% names(output_data)) {
-    n_geocoded <- sum(!is.na(output_data$pred_long) & !is.na(output_data$pred_lat))
-  }
-
+  # final_long/final_lat are the recommended coordinate; a renamed column must error
+  # here rather than report a geocoding rate of 0.
+  n_geocoded <- output_data[!is.na(final_long) & !is.na(final_lat), .N]
   geocoding_rate <- n_geocoded / nrow(output_data)
 
   metadata <- list(
@@ -371,139 +358,6 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   return(validation_output)
 }
 
-# Timestamped file names (rds, summary, details) for one validation report.
-get_report_output_files <- function(base_name = "validation_report") {
-  timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-
-  list(
-    rds = paste0(base_name, "_", timestamp, ".rds"),
-    summary = paste0(base_name, "_", timestamp, "_summary.txt"),
-    details = paste0(base_name, "_", timestamp, "_details.csv")
-  )
-}
-
-# Writes validation results to an rds plus a text summary; returns the two paths.
-create_validation_report_target <- function(validation_results, output_dir = "output/validation_reports") {
-  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-
-  files <- get_report_output_files()
-
-  saveRDS(validation_results, file.path(output_dir, files$rds))
-
-  summary_text <- capture.output({
-    cat("Validation Report Summary\n")
-    cat("========================\n")
-    cat("Generated:", format(Sys.time()), "\n\n")
-
-    for (stage in names(validation_results)) {
-      result <- validation_results[[stage]]
-      cat(sprintf("Stage: %s - %s\n", stage, ifelse(result$passed, "PASSED", "FAILED")))
-    }
-  })
-
-  writeLines(summary_text, file.path(output_dir, files$summary))
-
-  list(
-    rds = file.path(output_dir, files$rds),
-    summary = file.path(output_dir, files$summary)
-  )
-}
-
-# create_validation_report_target() plus a per-stage metrics CSV.
-create_validation_report <- function(validation_results, output_dir = "output/validation_reports") {
-  report <- create_validation_report_target(validation_results, output_dir)
-
-  if (length(validation_results) > 0) {
-    metrics <- lapply(validation_results, function(x) {
-      if (!is.null(x$metadata)) {
-        x$metadata
-      } else {
-        list(stage = "unknown", passed = x$passed)
-      }
-    })
-
-    metrics_df <- do.call(
-      rbind,
-      lapply(names(metrics), function(name) {
-        data.frame(
-          stage = name,
-          type = metrics[[name]]$type %||% NA,
-          passed = validation_results[[name]]$passed,
-          n_rows = metrics[[name]]$n_rows %||% NA,
-          stringsAsFactors = FALSE
-        )
-      })
-    )
-
-    csv_file <- file.path(output_dir, gsub("_summary.txt", "_metrics.csv", basename(report$summary)))
-    write.csv(metrics_df, csv_file, row.names = FALSE)
-
-    report$metrics <- csv_file
-  }
-
-  return(report)
-}
-
-# Writes the four critical validation results to a report and prints a console summary.
-generate_validation_report_simplified <- function(
-  validate_inputs,
-  validate_model_data,
-  validate_predictions,
-  validate_geocoded_output,
-  locais_filtered,
-  model_data,
-  model_predictions,
-  geocoded_locais,
-  pipeline_config
-) {
-  validation_results <- list(
-    inputs = validate_inputs,
-    model_data_merge = validate_model_data,
-    model_predictions = validate_predictions,
-    geocoded_output = validate_geocoded_output
-  )
-
-  data_sources <- list(
-    inputs = NULL, # Input validation doesn't need data export
-    model_data_merge = model_data,
-    model_predictions = model_predictions,
-    geocoded_output = geocoded_locais
-  )
-
-  summary_stats <- create_validation_report(
-    validation_results,
-    output_dir = "output/validation_reports"
-  )
-
-  saveRDS(summary_stats, "output/validation_summary.rds")
-
-  cat("\n========== VALIDATION REPORT SUMMARY ==========\n")
-  cat("Report generated:", summary_stats$rds, "\n")
-  cat("Critical validations checked:", length(validation_results), "\n")
-  cat("Passed:", sum(sapply(validation_results, function(x) x$passed)), "\n")
-  cat("Failed:", sum(sapply(validation_results, function(x) !x$passed)), "\n")
-  cat(
-    "Mode:",
-    ifelse(pipeline_config$dev_mode, "DEVELOPMENT", "PRODUCTION"),
-    "\n"
-  )
-
-  cat("\nValidation Results:\n")
-  cat("- Input data sizes:", ifelse(validation_results$inputs$passed, "✅", "❌"), "\n")
-  cat("- Model data merge:", ifelse(validation_results$model_data_merge$passed, "✅", "❌"), "\n")
-  cat("- Model predictions:", ifelse(validation_results$model_predictions$passed, "✅", "❌"), "\n")
-  cat("- Final output:", ifelse(validation_results$geocoded_output$passed, "✅", "❌"), "\n")
-
-  cat(
-    "\nOverall status:",
-    ifelse(sum(sapply(validation_results, function(x) !x$passed)) == 0, "✅ SUCCESS", "❌ FAILURES DETECTED"),
-    "\n"
-  )
-  cat("===============================================\n\n")
-
-  return(summary_stats)
-}
-
 # Computes coverage and duplicate-coordinate quality metrics; stops on CRITICAL status.
 create_data_quality_monitor <- function(
   geocoded_export,
@@ -512,15 +366,10 @@ create_data_quality_monitor <- function(
   panel_ids,
   expected_municipality_count = 5570,
   muni_count_tolerance = 50,
-  extreme_change_threshold = 30,
   duplicate_coord_threshold = 10,
-  near_duplicate_threshold = 50,
-  near_duplicate_distance = 100,
   alert_muni_discrepancy = 100,
-  alert_extreme_changes = 50,
   alert_panel_coverage = 90,
-  alert_geocoding_coverage = 95,
-  min_years_required = 2
+  alert_geocoding_coverage = 95
 ) {
   cat("Running data quality monitoring...\n")
 
@@ -539,12 +388,8 @@ create_data_quality_monitor <- function(
     thresholds = list(
       expected_municipality_count = expected_municipality_count,
       muni_count_tolerance = muni_count_tolerance,
-      extreme_change_threshold = extreme_change_threshold,
       duplicate_coord_threshold = duplicate_coord_threshold,
-      near_duplicate_threshold = near_duplicate_threshold,
-      near_duplicate_distance = near_duplicate_distance,
       alert_muni_discrepancy = alert_muni_discrepancy,
-      alert_extreme_changes = alert_extreme_changes,
       alert_panel_coverage = alert_panel_coverage,
       alert_geocoding_coverage = alert_geocoding_coverage
     ),
@@ -553,14 +398,15 @@ create_data_quality_monitor <- function(
     alerts = alerts
   )
 
+  # A missing export file is a failed release, not a warning: only CRITICAL stops the build.
   if (!file.exists(geocoded_export)) {
-    results$status <- "WARNING"
+    results$status <- "CRITICAL"
     results$message <- paste("Geocoded export file not found:", geocoded_export)
     alerts <- append(alerts, "Geocoded export file not found")
   }
 
   if (!file.exists(panelid_export)) {
-    results$status <- "WARNING"
+    results$status <- "CRITICAL"
     results$message <- paste(results$message, "\nPanel ID export file not found:", panelid_export)
     alerts <- append(alerts, "Panel ID export file not found")
   }
@@ -858,10 +704,7 @@ validate_release_gates <- function(
   }
 
   # Gate 9: the published header comes from to_geocoded_export_schema(); check it matches the 0.141 schema.
-  published_cols <- tryCatch(
-    names(to_geocoded_export_schema(head(dt, 1L))),
-    error = function(e) character(0)
-  )
+  published_cols <- names(to_geocoded_export_schema(head(dt, 1L)))
   if (!identical(published_cols, GEOCODED_EXPORT_SCHEMA)) {
     add_fail(
       "Gate 9 (published schema): export mapper output does not match the 0.141 schema.\n    expected: %s\n    got: %s",

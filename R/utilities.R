@@ -80,25 +80,6 @@ filter_data_by_state <- function(data, states, state_col = "estado_abrev") {
   }
 }
 
-# Filter a data.table or data.frame to the given municipality codes. The caller
-# names the column, since Brazilian tables carry several municipality ID systems
-# and filtering on the wrong one silently returns the wrong rows.
-filter_data_by_municipalities <- function(data, muni_codes, muni_col = "id_munic_7") {
-  if (is.null(muni_codes) || length(muni_codes) == 0) {
-    return(data)
-  }
-
-  if (!muni_col %in% names(data)) {
-    stop(sprintf("filter_data_by_municipalities(): municipality column '%s' not found in data.", muni_col))
-  }
-
-  if (is.data.table(data)) {
-    data[get(muni_col) %in% muni_codes]
-  } else {
-    data[data[[muni_col]] %in% muni_codes, ]
-  }
-}
-
 # Restrict data to what dev mode processes: the configured development states in
 # dev mode, everything in production (dev_states is NULL).
 apply_dev_mode_filters <- function(data, config, state_col) {
@@ -485,6 +466,19 @@ process_agrocnefe_stbairro_batch <- function(
   )
 }
 
+# Size-balanced batch assignment for the polling-station municipalities. Dev mode
+# uses smaller batches because it processes only two states.
+build_municipality_batches <- function(locais_filtered, dev_mode) {
+  muni_codes <- unique(locais_filtered$cod_localidade_ibge)
+  muni_sizes <- locais_filtered[, .(size = .N), by = .(muni_code = cod_localidade_ibge)]
+
+  create_municipality_batch_assignments(
+    muni_codes,
+    batch_size = if (dev_mode) 5 else 15,
+    muni_sizes = muni_sizes
+  )
+}
+
 # Map each municipality code to a batch number, so the pipeline branches over a
 # few hundred batches instead of thousands of per-municipality tasks. With
 # muni_sizes supplied, batches are balanced by size instead of assigned
@@ -611,16 +605,4 @@ export_geocoded_locais <- function(geocoded_locais) {
 export_panel_ids <- function(panel_ids) {
   fwrite(panel_ids, "./output/panel_ids.csv.gz")
   "./output/panel_ids.csv.gz"
-}
-
-# Export the geocoded file. validation_report is unused except to force the
-# validation target to build first.
-export_geocoded_with_validation <- function(geocoded_locais, validation_report) {
-  export_geocoded_locais(geocoded_locais)
-}
-
-# Export the panel-ID file. validation_report is unused except to force the
-# validation target to build first.
-export_panel_ids_with_validation <- function(panel_ids, validation_report) {
-  export_panel_ids(panel_ids)
 }

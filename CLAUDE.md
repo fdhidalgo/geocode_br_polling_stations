@@ -143,6 +143,27 @@ run time.
 
 For setting up this project on a new computer with AWS S3 integration, see [AWS_SETUP.md](AWS_SETUP.md).
 
+## Paper code
+
+Research code for a paper and a public dataset — not a software product. **Machinery
+test**: *machinery whose weight exceeds the analysis it serves gets cut.*
+
+Most likely violations here:
+- **No roxygen on internal functions** — there is no API. One line per simple function; a
+  file over ~10% comment lines is ornament (`panel_creation.R`, `utilities.R` ≈27%).
+- **Assert invariants once, where each table is built.** Matching, model, and panel code
+  trusts its inputs. Never guard, fall back, or fill in — let it error.
+- **`_targets.R` is a manifest** — a multi-line `command` is a function not yet written.
+- **No speculative generality** — no parameter ever called with one value, no registry
+  with one consumer; literal values at call sites unless used 3+ times.
+
+Carve-outs, because this ships a public dataset: released column schemas are a contract
+(renaming is versioned, not cleanup), and the pipeline is too slow to be the test harness
+— pure, non-obvious, hand-verifiable functions (fuzzy matching, linkage) earn unit tests.
+
+At review time apply `~/.claude/skills/paper-code/references/standards.md` (and
+`targets-pipeline.md` beside it) in place of generic simplification angles.
+
 ## Development Guidelines
 
 ### Core Stack
@@ -150,20 +171,22 @@ For setting up this project on a new computer with AWS S3 integration, see [AWS_
 - **Pipeline**: `targets` (+ `tarchetypes`)
 - **Modeling**: `tidymodels` stack (`parsnip`, `recipes`, `workflows`, `tune`, `finetune`, `rsample`, `yardstick`) with `bonsai` for lightgbm
 - **Record linkage**: `reclin2`; **spatial**: `sf`, `geosphere` (boundaries are pre-saved `.rds`, not fetched via `geobr`); **string distance**: `stringdist`, `stringr`
-- **Validation**: `validate` package (see `R/validation.R`)
+- **Assertions**: base `stop()`/`stopifnot()` at cleaning boundaries (see Paper code)
+- **Validation**: `validate` package for the stage-validation targets (see `R/validation.R`)
 - **Parallelization**: `crew` (mirai-backed local controllers)
 - **Dependencies**: pinned with `renv` (`renv.lock`); `.Rprofile` prefers binary installs / `pak`
 
 Note: the maintained test suite lives in `tests/` (see the Testing section above and
 [docs/specs/2026-07-testing-spec.md](docs/specs/2026-07-testing-spec.md)) — fast
-`testthat` unit tests plus a dev-mode integration check.
+`testthat` unit tests over the few functions that earn one, plus a dev-mode
+integration check.
 
 ### Code Standards
 - Use snake_case naming
-- Document with Roxygen2
+- One line saying what a function does; no roxygen (see Paper code)
 - Use relative paths
 - Prefer pure functions without side effects
-- **_targets.R readability**: When creating new targets, almost always create a helper function rather than long blocks of code. Only use inline code if the command is 3-4 lines or less. This keeps _targets.R readable and maintainable.
+- **_targets.R readability**: Every function body lives in `R/`. A target command longer than 3-4 lines is a helper function that hasn't been written yet.
 
 ### Claude Code Requirements
 - **IMPORTANT**: Always explain major function changes and get user approval before proceeding
@@ -178,9 +201,10 @@ Note: the maintained test suite lives in `tests/` (see the Testing section above
 4. Run full verification: `R -e "targets::tar_destroy(); targets::tar_make()"`
 
 ### Validation Best Practices
-- Validate after: data import, transformations, merges
-- Critical for merges: Check join keys, row counts, NA patterns
-- Add validation as targets in pipeline
+- Assert at the end of the cleaning step that builds each table, once: key uniqueness, join cardinality, expected row counts, value ranges
+- Critical for merges: check join keys, row counts, NA patterns — at the merge, not again downstream
+- Estimation, matching, and figure code re-validates nothing. An invariant worth checking there is worth checking at the cleaning boundary instead
+- A computed zero means an observed zero; missing stays `NA` and named
 
 ### Pipeline Debugging Workflow
 When encountering pipeline errors:

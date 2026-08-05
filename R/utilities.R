@@ -315,15 +315,13 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
   }
 }
 
-# Shared engine for the CNEFE and Agro CNEFE street/neighborhood match batches,
-# which differ only in the per-municipality matcher and the log label. stbairro
-# is this batch's slice: the union of the street and neighborhood aggregates,
-# tagged by `component`.
+# Street/neighborhood match batch, shared by the CNEFE and Agro CNEFE vintages.
+# stbairro is this batch's slice: the union of the street and neighborhood
+# aggregates, tagged by `component`. `label` names the vintage in the log only.
 process_stbairro_batch <- function(
   municipality_batch_assignments,
   locais_filtered,
   stbairro,
-  match_fn,
   label
 ) {
   this_batch <- stbairro$batch_id[1]
@@ -362,7 +360,7 @@ process_stbairro_batch <- function(
       nrow(bairro_muni)
     ))
 
-    result <- match_fn(locais_muni, st_muni, bairro_muni)
+    result <- match_stbairro_muni(locais_muni, st_muni, bairro_muni)
 
     if (!is.null(result)) {
       message(sprintf(
@@ -398,36 +396,6 @@ process_stbairro_batch <- function(
   } else {
     data.table()
   }
-}
-
-# CNEFE street/neighborhood matching for one batch.
-process_cnefe_stbairro_batch <- function(
-  municipality_batch_assignments,
-  locais_filtered,
-  cnefe_stbairro
-) {
-  process_stbairro_batch(
-    municipality_batch_assignments,
-    locais_filtered,
-    cnefe_stbairro,
-    match_fn = match_stbairro_cnefe_muni,
-    label = "CNEFE"
-  )
-}
-
-# Agro CNEFE street/neighborhood matching for one batch.
-process_agrocnefe_stbairro_batch <- function(
-  municipality_batch_assignments,
-  locais_filtered,
-  agrocnefe_stbairro
-) {
-  process_stbairro_batch(
-    municipality_batch_assignments,
-    locais_filtered,
-    agrocnefe_stbairro,
-    match_fn = match_stbairro_agrocnefe_muni,
-    label = "Agro CNEFE"
-  )
 }
 
 # Size-balanced batch assignment for the polling-station municipalities, so the

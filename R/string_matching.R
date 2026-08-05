@@ -114,69 +114,37 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
   )
 }
 
-match_stbairro_cnefe_muni <- function(locais_muni, cnefe_st_muni, cnefe_bairro_muni) {
-  # Match polling stations with CNEFE street and neighborhood data
+match_stbairro_muni <- function(locais_muni, st_muni, bairro_muni) {
+  # Match polling stations against one census vintage's street and neighborhood
+  # aggregates. Which vintage is named by the caller, not by these columns.
 
-  if (nrow(cnefe_st_muni) == 0) {
+  if (nrow(st_muni) == 0) {
     return(NULL)
   }
 
   # Match on street
   st_results <- match_strings(
     locais_muni$normalized_st,
-    cnefe_st_muni$norm_street
+    st_muni$norm_street
   )
 
   # Match on neighborhood
   bairro_results <- match_strings(
     locais_muni$normalized_bairro,
-    cnefe_bairro_muni$norm_bairro,
+    bairro_muni$norm_bairro,
     normalize_by_length = FALSE # Don't normalize for neighborhoods
   )
 
   data.table(
     local_id = locais_muni$local_id,
-    match_cnefe_st = st_results$best_match,
-    mindist_cnefe_st = st_results$min_dist,
-    match_long_cnefe_st = cnefe_st_muni$long[st_results$best_index],
-    match_lat_cnefe_st = cnefe_st_muni$lat[st_results$best_index],
-    match_cnefe_bairro = bairro_results$best_match,
-    mindist_cnefe_bairro = bairro_results$min_dist,
-    match_long_cnefe_bairro = cnefe_bairro_muni$long[bairro_results$best_index],
-    match_lat_cnefe_bairro = cnefe_bairro_muni$lat[bairro_results$best_index]
-  )
-}
-
-match_stbairro_agrocnefe_muni <- function(locais_muni, agrocnefe_st_muni, agrocnefe_bairro_muni) {
-  # Match polling stations with Agro CNEFE street and neighborhood data
-
-  if (nrow(agrocnefe_st_muni) == 0) {
-    return(NULL)
-  }
-
-  # Match on street
-  st_results <- match_strings(
-    locais_muni$normalized_st,
-    agrocnefe_st_muni$norm_street
-  )
-
-  # Match on neighborhood
-  bairro_results <- match_strings(
-    locais_muni$normalized_bairro,
-    agrocnefe_bairro_muni$norm_bairro,
-    normalize_by_length = FALSE
-  )
-
-  data.table(
-    local_id = locais_muni$local_id,
-    match_agrocnefe_st = st_results$best_match,
-    mindist_agrocnefe_st = st_results$min_dist,
-    match_long_agrocnefe_st = agrocnefe_st_muni$long[st_results$best_index],
-    match_lat_agrocnefe_st = agrocnefe_st_muni$lat[st_results$best_index],
-    match_agrocnefe_bairro = bairro_results$best_match,
-    mindist_agrocnefe_bairro = bairro_results$min_dist,
-    match_long_agrocnefe_bairro = agrocnefe_bairro_muni$long[bairro_results$best_index],
-    match_lat_agrocnefe_bairro = agrocnefe_bairro_muni$lat[bairro_results$best_index]
+    match_st = st_results$best_match,
+    mindist_st = st_results$min_dist,
+    match_long_st = st_muni$long[st_results$best_index],
+    match_lat_st = st_muni$lat[st_results$best_index],
+    match_bairro = bairro_results$best_match,
+    mindist_bairro = bairro_results$min_dist,
+    match_long_bairro = bairro_muni$long[bairro_results$best_index],
+    match_lat_bairro = bairro_muni$lat[bairro_results$best_index]
   )
 }
 

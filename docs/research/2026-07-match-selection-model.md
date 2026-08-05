@@ -48,8 +48,8 @@ ones — a train/apply population mismatch that matters for calibration (§4).
 demand different things: as a *ranking key* it only needs to order candidates correctly
 (ordinal); as a *published quality column* a user thresholds on ("keep < 1 km") it needs
 to be an *honest predicted error in km* (cardinal/calibrated). Today one number serves both
-and is validated only for existence, not calibration (`validate_predictions_simple()`,
-`R/validation.R:269`).
+and is validated only for existence, not calibration (`validate_model_predictions()`,
+`R/validation.R`).
 
 **1d. Predictor set entering `dist ~ .`** (all columns except the id-roled
 `cod_localidade_ibge` / `local_id` and the outcome `dist`):

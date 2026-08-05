@@ -1,192 +1,72 @@
 ## Data-quality validation and release gates for the geocoding pipeline.
 
-library(validate)
 library(data.table)
 
-# Confronts merged data with row-count, duplicate, and merge-key rules.
-validate_merge_stage <- function(
-  merged_data,
-  left_data,
-  right_data = NULL,
-  stage_name,
-  merge_keys,
-  join_type = "left"
-) {
-  base_rules <- list(
-    has_rows = quote(nrow(.) > 0),
-    no_complete_duplicates = quote(nrow(.) == nrow(unique(.)))
+# The exact geocoded_locais schema written to geocoded_polling_stations.csv.gz, in the
+# order finalize_coords() produces it. Checked twice: validate_final_output() requires
+# every column before the export runs, release Gate 2 asserts set equality after it.
+RELEASE_EXPORT_COLS <- c(
+  "cd_localidade_tse",
+  "ano",
+  "nr_zona",
+  "nr_locvot",
+  "nr_cep",
+  "sg_uf",
+  "nm_localidade",
+  "nm_locvot",
+  "ds_endereco",
+  "ds_bairro",
+  "cod_localidade_ibge",
+  "local_id",
+  "pred_long",
+  "pred_lat",
+  "pred_dist",
+  "tse_lat",
+  "tse_long",
+  "final_long",
+  "final_lat"
+)
+
+# Asserts the assembled model table is non-empty, keyed, and free of duplicate rows.
+# anyDuplicated() rather than unique(), which would copy the ~950 MB national table.
+validate_model_data_merge <- function(model_data) {
+  stopifnot(
+    nrow(model_data) > 0,
+    "local_id" %in% names(model_data),
+    anyDuplicated(model_data) == 0L
   )
-
-  if (!is.null(merge_keys)) {
-    for (key in merge_keys) {
-      base_rules[[paste0("has_key_", key)]] <- parse(
-        text = sprintf(
-          "'%s' %%in%% names(.)",
-          key
-        )
-      )[[1]]
-    }
-  }
-
-  rules <- do.call(validator, base_rules)
-
-  result <- confront(merged_data, rules)
-
-  metadata <- list(
-    stage = stage_name,
-    type = "merge",
-    timestamp = Sys.time(),
-    n_rows = nrow(merged_data),
-    n_cols = ncol(merged_data)
-  )
-
-  structure(
-    list(
-      result = result,
-      metadata = metadata,
-      stage = stage_name,
-      passed = all(result)
-    ),
-    class = "validation_result"
-  )
+  nrow(model_data)
 }
 
-# Confronts model predictions with row, type, and no-NA rules.
-validate_prediction_stage <- function(predictions, stage_name, pred_col = "prediction") {
-  # Asserted directly so a renamed column errors instead of soft-failing a rule.
-  stopifnot(pred_col %in% names(predictions))
-
-  rules <- do.call(
-    validator,
-    list(
-      has_rows = quote(nrow(.) > 0),
-      predictions_numeric = parse(text = sprintf("is.numeric(.[[%s]])", deparse(pred_col)))[[1]],
-      predictions_valid = parse(text = sprintf("all(!is.na(.[[%s]]))", deparse(pred_col)))[[1]]
-    )
+# Asserts every polling station carries a usable predicted match distance.
+validate_model_predictions <- function(predictions) {
+  stopifnot(
+    nrow(predictions) > 0,
+    "pred_dist" %in% names(predictions),
+    is.numeric(predictions$pred_dist),
+    !anyNA(predictions$pred_dist)
   )
-
-  result <- confront(predictions, rules)
-
-  structure(
-    list(
-      result = result,
-      stage = stage_name,
-      passed = all(result)
-    ),
-    class = "validation_result"
-  )
+  nrow(predictions)
 }
 
-# Confronts final output with required-column, coordinate, and key-uniqueness rules.
-validate_output_stage <- function(output_data, stage_name, required_cols = NULL, unique_keys = NULL) {
-  if (is.null(required_cols)) {
-    required_cols <- c("local_id", "ano", "nr_zona", "nr_locvot")
+# Asserts the final geocoded table is shippable; stops before export on failure.
+validate_final_output <- function(output_data) {
+  stopifnot(nrow(output_data) > 0)
+  missing_cols <- setdiff(RELEASE_EXPORT_COLS, names(output_data))
+  if (length(missing_cols) > 0) {
+    stop(sprintf("geocoded_locais is missing required columns: %s", paste(missing_cols, collapse = ", ")))
   }
-
-  base_rules <- list(
-    has_rows = quote(nrow(.) > 0),
-    has_coordinates = quote(all(c("final_long", "final_lat") %in% names(.)))
-  )
-
-  for (col in required_cols) {
-    rule_name <- paste0("has_", col)
-    base_rules[[rule_name]] <- substitute(col %in% names(.), list(col = col))
-  }
-
-  rules <- do.call(validator, base_rules)
-
-  result <- confront(output_data, rules)
-
-  if (!is.null(unique_keys)) {
-    # Errors on a missing key column; a duplicate key would duplicate rows downstream.
-    duplicate_keys <- nrow(output_data) - nrow(unique(output_data[, ..unique_keys]))
-    if (duplicate_keys > 0) {
-      stop(sprintf("Found %d duplicate key combinations in %s", duplicate_keys, stage_name))
-    }
-  }
-
-  summary_df <- summary(result)
-
-  structure(
-    list(
-      result = result,
-      stage = stage_name,
-      passed = all(summary_df$fails == 0, na.rm = TRUE)
-    ),
-    class = "validation_result"
-  )
-}
-
-# Validates a merge and warns with a caller-supplied message on failure.
-validate_merge_simple <- function(
-  merged_data,
-  left_data,
-  stage_name,
-  merge_keys,
-  join_type = "left_many",
-  warning_message = NULL
-) {
-  result <- validate_merge_stage(
-    merged_data = merged_data,
-    left_data = left_data,
-    right_data = NULL, # Multiple sources merged
-    stage_name = stage_name,
-    merge_keys = merge_keys,
-    join_type = join_type
-  )
-
-  if (!result$passed && !is.null(warning_message)) {
-    warning(warning_message)
-  }
-
-  return(result)
-}
-
-# Validates model predictions and stops the pipeline on failure.
-validate_predictions_simple <- function(
-  predictions,
-  stage_name = "model_predictions",
-  pred_col = "pred_dist",
-  stop_on_failure = TRUE
-) {
-  result <- validate_prediction_stage(
-    predictions = predictions,
-    stage_name = stage_name,
-    pred_col = pred_col
-  )
-
-  if (!result$passed && stop_on_failure) {
-    stop("Model predictions validation failed")
-  }
-
-  return(result)
-}
-
-# Validates the final geocoded output and stops before export on failure.
-validate_final_output <- function(
-  output_data,
-  stage_name = "geocoded_locais",
-  required_cols,
-  unique_keys,
-  stop_on_failure = TRUE
-) {
-  result <- validate_output_stage(
-    output_data = output_data,
-    stage_name = stage_name,
-    required_cols = required_cols,
-    unique_keys = unique_keys
-  )
-
-  if (!result$passed && stop_on_failure) {
-    stop("Final output validation failed - do not export!")
+  # The station-year key; a duplicate here duplicates rows in the published file.
+  duplicate_keys <- sum(duplicated(output_data, by = c("local_id", "ano", "nr_zona", "nr_locvot")))
+  if (duplicate_keys > 0) {
+    stop(sprintf("Found %d duplicate key combinations in geocoded_locais", duplicate_keys))
   }
 
   message(sprintf(
     "Geocoding complete: %d polling stations geocoded",
     nrow(output_data)
   ))
-
-  return(result)
+  nrow(output_data)
 }
 
 # Checks municipality, INEP, and polling-station row counts against expected ranges.
@@ -246,34 +126,12 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   )
   all_passed <- all_passed && checks$locais_size
 
-  metadata <- list(
-    stage = "input_validation",
-    type = "consolidated",
-    timestamp = Sys.time(),
-    mode = ifelse(pipeline_config$dev_mode, "DEVELOPMENT", "PRODUCTION"),
-    counts = list(
-      municipalities = muni_count,
-      inep_schools = inep_count,
-      polling_stations = locais_count
-    ),
-    messages = messages
-  )
-
   cat("\n=== INPUT DATA VALIDATION ===\n")
-  cat("Mode:", metadata$mode, "\n")
+  cat("Mode:", if (pipeline_config$dev_mode) "DEVELOPMENT" else "PRODUCTION", "\n")
   for (msg in messages) {
     cat("-", msg, ifelse(grepl("expected", msg) && !all_passed, "❌", "✓"), "\n")
   }
   cat("=============================\n\n")
-
-  validation_output <- list(
-    result = NULL, # No detailed rules, just size checks
-    metadata = metadata,
-    passed = all_passed,
-    checks = checks
-  )
-
-  class(validation_output) <- "validation_result"
 
   # Fail loud: a warning here would let the pipeline continue on inputs that failed validation.
   if (!all_passed) {
@@ -285,7 +143,7 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
     ))
   }
 
-  return(validation_output)
+  list(municipalities = muni_count, inep_schools = inep_count, polling_stations = locais_count)
 }
 
 # Computes coverage and duplicate-coordinate quality metrics; stops on CRITICAL status.
@@ -386,31 +244,6 @@ create_data_quality_monitor <- function(geocoded_locais, panel_ids, expected_mun
 }
 
 # Release gates: fail-loud structural tripwires on the production rebuild.
-
-# The exact geocoded_locais schema written to geocoded_polling_stations.csv.gz, in the
-# order finalize_coords() produces it. The gate asserts set equality, so a dropped or
-# added column trips it.
-RELEASE_EXPORT_COLS <- c(
-  "cd_localidade_tse",
-  "ano",
-  "nr_zona",
-  "nr_locvot",
-  "nr_cep",
-  "sg_uf",
-  "nm_localidade",
-  "nm_locvot",
-  "ds_endereco",
-  "ds_bairro",
-  "cod_localidade_ibge",
-  "local_id",
-  "pred_long",
-  "pred_lat",
-  "pred_dist",
-  "tse_lat",
-  "tse_long",
-  "final_long",
-  "final_lat"
-)
 
 # All election years the pipeline geocodes.
 RELEASE_EXPECTED_YEARS <- seq(2006L, 2024L, by = 2L)

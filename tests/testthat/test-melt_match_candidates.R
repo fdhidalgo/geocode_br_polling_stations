@@ -1,8 +1,9 @@
 ## Spec tests for melt_match_candidates() (R/model.R).
 ## Turns one match table's per-candidate column groups into one row per candidate
-## coordinate. The contract that matters is alignment: every group -- coordinates, the
-## whole-string distance, and the four field similarities -- must be split by candidate
-## in the same order, so a value never lands on the wrong candidate type.
+## coordinate. The contract that matters is alignment: every group must be split by
+## candidate in the same order, so a value never lands on the wrong candidate type.
+## Both failure modes below are silent if the columns are matched by prefix instead of
+## named, because melt() pads a short group with NA and assigns members by position.
 
 make_two_candidate_matches <- function() {
   data.table::data.table(
@@ -24,8 +25,10 @@ make_two_candidate_matches <- function() {
   )
 }
 
+TYPES <- c(st = "street", bairro = "neighbourhood")
+
 test_that("melt_match_candidates keeps every column group aligned to its candidate type", {
-  long <- melt_match_candidates(make_two_candidate_matches(), c("street", "neighbourhood"))
+  long <- melt_match_candidates(make_two_candidate_matches(), TYPES)
   expect_equal(nrow(long), 4L)
 
   st <- long[type == "street"][order(local_id)]
@@ -41,8 +44,16 @@ test_that("melt_match_candidates keeps every column group aligned to its candida
   expect_true(all(is.na(bairro$sim_street)))
 })
 
+test_that("melt_match_candidates fails when a similarity column is missing", {
+  # Without sim_bairro_st, the neighbourhood's 0.31 would otherwise shift onto the street
+  # candidate: the group is padded from the left, not matched to its candidate.
+  matches <- make_two_candidate_matches()
+  matches[, sim_bairro_st := NULL]
+  expect_error(melt_match_candidates(matches, TYPES))
+})
+
 test_that("melt_match_candidates fails when a candidate type is unnamed", {
-  # More column groups than names means the match table gained a candidate type without
-  # the model being told about it -- a silent mislabel, so it must error.
-  expect_error(melt_match_candidates(make_two_candidate_matches(), "street"))
+  # A match table that gained a candidate the model was not told about would otherwise be
+  # silently dropped rather than mislabelled.
+  expect_error(melt_match_candidates(make_two_candidate_matches(), c(st = "street")))
 })

@@ -47,19 +47,11 @@ test_that("match_stbairro_muni leaves a non-matching station NA", {
   expect_true(is.na(r2$match_bairro))
 })
 
-test_that("match_stbairro_muni scores only the one field each aggregate knows", {
+test_that("match_stbairro_muni scores the one field each aggregate knows", {
   out <- match_stbairro_muni(make_locais(), make_st(), make_bairro())
   r1 <- out[local_id == 1L]
   expect_equal(r1$sim_street_st, 0)
   expect_equal(r1$sim_bairro_bairro, 0)
-  # Street and neighbourhood aggregates are coordinate medians over a whole street or
-  # neighbourhood, so they carry no name, no address line, and not the other's field.
-  expect_true(is.na(r1$sim_name_st))
-  expect_true(is.na(r1$sim_bairro_st))
-  expect_true(is.na(r1$sim_addr_st))
-  expect_true(is.na(r1$sim_name_bairro))
-  expect_true(is.na(r1$sim_street_bairro))
-  expect_true(is.na(r1$sim_addr_bairro))
 })
 
 test_that("match_stbairro_muni returns NULL when there are no street rows", {

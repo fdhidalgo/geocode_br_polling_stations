@@ -13,28 +13,35 @@ library(stringr)
 GBM_LOG_OFFSET <- 1e-4
 
 # Melt one match table's per-candidate column groups -- coordinates, the whole-string
-# distance that selected the candidate, and the four field-decomposed similarities -- into
-# one row per candidate coordinate, named by `types` in column order. Every match table must
-# carry all seven groups; patterns() requires them to be the same length.
+# distance that selected the candidate, and the four field similarities -- into one row per
+# candidate coordinate. `types` maps each match table's column suffix (its names) to the
+# candidate type the model knows it by (its values).
+#
+# The columns are listed rather than matched by prefix because melt() pads a short group
+# with NA and assigns group members by position: one missing similarity column would
+# silently move another candidate's value onto the wrong row. Listing them makes it an error.
 melt_match_candidates <- function(matches, types) {
+  cols <- function(prefix) paste0(prefix, "_", names(types))
+  # Every candidate in the table must be named, or melt would quietly drop one. mindist_ is
+  # the one group every match function emits exactly once per candidate.
+  stopifnot(setequal(cols("mindist"), grep("^mindist_", names(matches), value = TRUE)))
+
   long <- melt(
     matches,
     id.vars = "local_id",
-    measure.vars = patterns(
-      long = "match_long_",
-      lat = "match_lat_",
-      mindist = "mindist_",
-      sim_name = "sim_name_",
-      sim_street = "sim_street_",
-      sim_bairro = "sim_bairro_",
-      sim_addr = "sim_addr_"
+    measure.vars = list(
+      long = cols("match_long"),
+      lat = cols("match_lat"),
+      mindist = cols("mindist"),
+      sim_name = cols("sim_name"),
+      sim_street = cols("sim_street"),
+      sim_bairro = cols("sim_bairro"),
+      sim_addr = cols("sim_addr")
     ),
     variable.name = "type",
     variable.factor = FALSE
   )
-  long[, type := types[as.integer(type)]]
-  # More coordinate column groups than names means the match table's columns changed.
-  stopifnot(!anyNA(long$type))
+  long[, type := unname(types)[as.integer(type)]]
   long[]
 }
 
@@ -49,9 +56,10 @@ geocodebr_candidates <- function(geocodebr_match) {
       type = "geocodebr",
       long = match_long_geocodebr,
       lat = match_lat_geocodebr,
-      # geocodebr resolves an address line, not separable name/street/bairro fields; the
-      # other three similarity columns are filled with NA by the rbindlist() that stacks
-      # these candidates with the melted ones, as precision_score already is.
+      # geocodebr resolves an address line, not separable name/street/bairro fields.
+      sim_name = NA_real_,
+      sim_street = NA_real_,
+      sim_bairro = NA_real_,
       sim_addr = sim_addr_geocodebr,
       precision_score = fcase(
         precisao_geocodebr == "numero"     , 3 ,
@@ -82,14 +90,23 @@ make_model_data <- function(
   # Each source names its coordinate columns after itself, so the tables are melted
   # separately and stacked afterwards rather than row-bound first.
   match_list <- list(
-    melt_match_candidates(cnefe10_stbairro_match, c("st_cnefe_2010", "bairro_cnefe_2010")),
-    melt_match_candidates(cnefe22_stbairro_match, c("st_cnefe_2022", "bairro_cnefe_2022")),
-    melt_match_candidates(schools_cnefe10_match, "schools_cnefe_name_2010"),
-    melt_match_candidates(schools_cnefe22_match, "schools_cnefe_name_2022"),
-    melt_match_candidates(inep_string_match, c("schools_inep_name", "schools_inep_addr")),
+    melt_match_candidates(
+      cnefe10_stbairro_match,
+      c(st = "st_cnefe_2010", bairro = "bairro_cnefe_2010")
+    ),
+    melt_match_candidates(
+      cnefe22_stbairro_match,
+      c(st = "st_cnefe_2022", bairro = "bairro_cnefe_2022")
+    ),
+    melt_match_candidates(schools_cnefe10_match, c(schools_cnefe = "schools_cnefe_name_2010")),
+    melt_match_candidates(schools_cnefe22_match, c(schools_cnefe = "schools_cnefe_name_2022")),
+    melt_match_candidates(
+      inep_string_match,
+      c(inep_name = "schools_inep_name", inep_addr = "schools_inep_addr")
+    ),
     melt_match_candidates(
       agrocnefe_stbairro_match,
-      c("st_agrocnefe_2017", "bairro_agrocnefe_2017")
+      c(st = "st_agrocnefe_2017", bairro = "bairro_agrocnefe_2017")
     ),
     geocodebr_candidates(geocodebr_match)
   )
@@ -125,10 +142,10 @@ make_model_data <- function(
       0
     )
   ]
-  # "sem numero" -- roughly a quarter of stations have no house number at all. normalize_address()
-  # already folds "s/n", "s n" and "sem numero" onto the token "sn". It flags informal or rural
-  # addressing, which is where street-median and municipality-level candidates are least precise.
-  addr_features[, addr_sn := fifelse(grepl("\\bsn\\b", normalized_addr), 1, 0)]
+  # The address gives no house number, which flags informal or rural addressing.
+  # normalize_address() folds "s/n" and "s n" onto the token "sn" but leaves "sem numero"
+  # spelled out, so both forms are matched here.
+  addr_features[, addr_sn := fifelse(grepl("\\b(sn|sem numero)\\b", normalized_addr), 1, 0)]
   addr_features <- addr_features[, .(
     local_id,
     centro,

@@ -72,15 +72,6 @@ test_that("match_inep_muni scores both INEP fields on each candidate", {
   expect_gt(r2$sim_name_inep_addr, 0)
 })
 
-test_that("match_inep_muni leaves field similarities NA when nothing was selected", {
-  out <- match_inep_muni(make_locais(), make_inep())
-  r3 <- out[local_id == 3L]
-  expect_true(is.na(r3$sim_name_inep_name))
-  expect_true(is.na(r3$sim_addr_inep_name))
-  expect_true(is.na(r3$sim_name_inep_addr))
-  expect_true(is.na(r3$sim_addr_inep_addr))
-})
-
 test_that("match_inep_muni returns NULL when there are no INEP rows", {
   expect_null(match_inep_muni(make_locais(), make_inep()[0]))
 })

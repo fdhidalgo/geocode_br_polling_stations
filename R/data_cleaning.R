@@ -661,15 +661,15 @@ convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
 }
 
 
-# Cleans an already-read CNEFE 2010 state table into an address table; the caller's
-# table is left untouched.
-clean_cnefe10 <- function(cnefe10, muni_ids, tract_centroids, extract_schools = FALSE) {
+# Cleans one CNEFE 2010 state file into an address table with municipality ids and
+# normalized street/bairro. The 2010 state files are comma-separated.
+clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids, extract_schools = FALSE) {
   # Memory-efficient processing of CNEFE 2010 data
 
   mem_before <- gc()[2, 2]
   message(sprintf("Memory before CNEFE processing: %.1f GB", mem_before / 1024))
 
-  cnefe <- copy(cnefe10)
+  cnefe <- fread(cnefe10_file, sep = ",", encoding = "UTF-8", showProgress = FALSE)
   setnames(cnefe, names(cnefe), tolower(names(cnefe)))
 
   # Drop unnecessary columns early to save memory

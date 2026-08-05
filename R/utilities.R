@@ -98,14 +98,6 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
   }
 
   if (year == 2010) {
-    state_data <- fread(
-      state_file,
-      sep = ",",
-      encoding = "UTF-8",
-      verbose = FALSE,
-      showProgress = FALSE
-    )
-
     state_codes <- unique(substr(
       as.character(state_muni_ids$id_munic_7),
       1,
@@ -117,7 +109,7 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
 
     # Schools come out of the same in-memory pass, so the state file is read once.
     cleaned <- clean_cnefe10(
-      cnefe10 = state_data,
+      cnefe10_file = state_file,
       muni_ids = state_muni_ids,
       tract_centroids = state_tract_centroids,
       extract_schools = TRUE

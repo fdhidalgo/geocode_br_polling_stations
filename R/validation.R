@@ -71,79 +71,54 @@ validate_final_output <- function(output_data) {
 
 # Checks municipality, INEP, and polling-station row counts against expected ranges.
 validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, pipeline_config) {
-  # Define expected sizes based on mode, for the datasets that dev mode filters.
-  expected_sizes <- if (pipeline_config$dev_mode) {
-    list(
-      muni_ids = list(min = 30, max = 100, name = "municipalities"),
-      locais = list(min = 1000, max = 20000, name = "polling stations")
+  # Dev mode restricts the pipeline to two states, so municipality and polling-station
+  # counts shrink; inep_codes is never filtered, so its range is always national.
+  checks <- list(
+    muni_ids_size = list(
+      name = "municipalities",
+      count = nrow(muni_ids),
+      range = if (pipeline_config$dev_mode) c(30L, 100L) else c(5000L, 6000L)
+    ),
+    inep_codes_size = list(
+      name = "INEP schools",
+      count = nrow(inep_codes),
+      range = c(100000L, 300000L)
+    ),
+    locais_size = list(
+      name = "polling stations",
+      count = nrow(locais_filtered),
+      range = if (pipeline_config$dev_mode) c(1000L, 20000L) else c(100000L, 1000000L)
     )
-  } else {
-    list(
-      muni_ids = list(min = 5000, max = 6000, name = "municipalities"),
-      locais = list(min = 100000, max = 1000000, name = "polling stations")
-    )
-  }
-  # inep_codes is never filtered by dev mode, so its expected range is always national.
-  expected_sizes$inep_codes <- list(min = 100000, max = 300000, name = "INEP schools")
-
-  checks <- list()
-  messages <- list()
-  all_passed <- TRUE
-
-  muni_count <- nrow(muni_ids)
-  checks$muni_ids_size <- muni_count >= expected_sizes$muni_ids$min &&
-    muni_count <= expected_sizes$muni_ids$max
-  messages$muni_ids <- sprintf(
-    "%s: %d (expected %d-%d)",
-    expected_sizes$muni_ids$name,
-    muni_count,
-    expected_sizes$muni_ids$min,
-    expected_sizes$muni_ids$max
   )
-  all_passed <- all_passed && checks$muni_ids_size
 
-  inep_count <- nrow(inep_codes)
-  checks$inep_codes_size <- inep_count >= expected_sizes$inep_codes$min &&
-    inep_count <= expected_sizes$inep_codes$max
-  messages$inep_codes <- sprintf(
-    "%s: %d (expected %d-%d)",
-    expected_sizes$inep_codes$name,
-    inep_count,
-    expected_sizes$inep_codes$min,
-    expected_sizes$inep_codes$max
+  passed <- vapply(checks, function(ck) ck$count >= ck$range[1] && ck$count <= ck$range[2], logical(1))
+  messages <- vapply(
+    checks,
+    function(ck) sprintf("%s: %d (expected %d-%d)", ck$name, ck$count, ck$range[1], ck$range[2]),
+    character(1)
   )
-  all_passed <- all_passed && checks$inep_codes_size
-
-  locais_count <- nrow(locais_filtered)
-  checks$locais_size <- locais_count >= expected_sizes$locais$min &&
-    locais_count <= expected_sizes$locais$max
-  messages$locais <- sprintf(
-    "%s: %d (expected %d-%d)",
-    expected_sizes$locais$name,
-    locais_count,
-    expected_sizes$locais$min,
-    expected_sizes$locais$max
-  )
-  all_passed <- all_passed && checks$locais_size
 
   cat("\n=== INPUT DATA VALIDATION ===\n")
   cat("Mode:", if (pipeline_config$dev_mode) "DEVELOPMENT" else "PRODUCTION", "\n")
-  for (msg in messages) {
-    cat("-", msg, ifelse(grepl("expected", msg) && !all_passed, "❌", "✓"), "\n")
+  for (i in seq_along(checks)) {
+    cat("-", messages[i], if (passed[i]) "✓" else "❌", "\n")
   }
   cat("=============================\n\n")
 
   # Fail loud: a warning here would let the pipeline continue on inputs that failed validation.
-  if (!all_passed) {
-    failed <- names(checks)[!unlist(checks)]
+  if (!all(passed)) {
     stop(sprintf(
       "Input data validation failed for: %s.\n%s",
-      paste(failed, collapse = ", "),
-      paste(unlist(messages), collapse = "\n")
+      paste(names(checks)[!passed], collapse = ", "),
+      paste(messages, collapse = "\n")
     ))
   }
 
-  list(municipalities = muni_count, inep_schools = inep_count, polling_stations = locais_count)
+  list(
+    municipalities = checks$muni_ids_size$count,
+    inep_schools = checks$inep_codes_size$count,
+    polling_stations = checks$locais_size$count
+  )
 }
 
 # Computes coverage and duplicate-coordinate quality metrics; stops on CRITICAL status.

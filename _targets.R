@@ -787,7 +787,7 @@ list(
   # Save diagnostics report
   tar_target(
     name = string_match_diagnostics_report,
-    command = write_string_match_diagnostics(string_match_diagnostics),
+    command = write_string_match_diagnostics(string_match_diagnostics, pipeline_config$dev_mode),
     format = "file",
     repository = "local"
   ),
@@ -925,11 +925,13 @@ list(
 
   # Each export writes its file and returns the path, so format = "file" rebuilds it
   # when the output is deleted; repository = "local" keeps the outputs off S3.
+  # dev_mode routes dev runs to output/dev/, off the released paths.
   tar_target(
     name = geocoded_export,
     command = export_geocoded_locais(
       geocoded_locais,
-      gates = list(validate_inputs, validate_model_data, validate_predictions, validate_geocoded_output)
+      gates = list(validate_inputs, validate_model_data, validate_predictions, validate_geocoded_output),
+      dev_mode = pipeline_config$dev_mode
     ),
     format = "file",
     repository = "local"
@@ -938,14 +940,15 @@ list(
     name = panelid_export,
     command = export_panel_ids(
       panel_ids,
-      gates = list(validate_inputs, validate_model_data, validate_predictions, validate_geocoded_output)
+      gates = list(validate_inputs, validate_model_data, validate_predictions, validate_geocoded_output),
+      dev_mode = pipeline_config$dev_mode
     ),
     format = "file",
     repository = "local"
   ),
   tar_target(
     name = section_panel_export,
-    command = export_section_panel_mapping(section_panel_mapping),
+    command = export_section_panel_mapping(section_panel_mapping, pipeline_config$dev_mode),
     format = "file",
     repository = "local"
   ),

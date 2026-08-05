@@ -449,26 +449,34 @@ to_geocoded_export_schema <- function(geocoded_locais) {
   )]
 }
 
+# Destination for a written output, creating the directory. Dev runs cover only
+# AC/RR, so they write under output/dev/ and can never replace a released file.
+# Nested inside output/ because the worktree seed script clones that directory whole.
+export_path <- function(filename, dev_mode) {
+  dir <- if (dev_mode) "output/dev" else "output"
+  dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+  file.path(dir, filename)
+}
+
 # Write the published geocoded file and return its path. gates is a
 # dependency-only argument: passing the stage-validation targets makes the
 # write depend on them, so a validation failure stops the export.
-export_geocoded_locais <- function(geocoded_locais, gates) {
-  fwrite(
-    to_geocoded_export_schema(geocoded_locais),
-    "./output/geocoded_polling_stations.csv.gz"
-  )
-  "./output/geocoded_polling_stations.csv.gz"
+export_geocoded_locais <- function(geocoded_locais, gates, dev_mode) {
+  path <- export_path("geocoded_polling_stations.csv.gz", dev_mode)
+  fwrite(to_geocoded_export_schema(geocoded_locais), path)
+  path
 }
 
 # Write the published panel-ID file and return its path. gates as above.
-export_panel_ids <- function(panel_ids, gates) {
-  fwrite(panel_ids, "./output/panel_ids.csv.gz")
-  "./output/panel_ids.csv.gz"
+export_panel_ids <- function(panel_ids, gates, dev_mode) {
+  path <- export_path("panel_ids.csv.gz", dev_mode)
+  fwrite(panel_ids, path)
+  path
 }
 
 # Write the section-to-panel mapping and return its path.
-export_section_panel_mapping <- function(section_panel_mapping) {
-  dir.create("output", showWarnings = FALSE)
-  fwrite(section_panel_mapping, "./output/section_panel_mapping.csv.gz")
-  "./output/section_panel_mapping.csv.gz"
+export_section_panel_mapping <- function(section_panel_mapping, dev_mode) {
+  path <- export_path("section_panel_mapping.csv.gz", dev_mode)
+  fwrite(section_panel_mapping, path)
+  path
 }

@@ -12,10 +12,8 @@
 ## Run with:  Rscript tests/integration/dev_pipeline_check.R
 ##
 ## Isolation: it sets TAR_PROJECT=dev, so all targets read/write the isolated dev
-## store (_targets_dev/). The export step still writes the shared output/*.csv.gz
-## paths, so this OVERWRITES any production output/ files with AC/RR data -- an
-## accepted limitation of the dev/prod split (the output paths are not yet
-## profile-isolated). Regenerate production outputs with a full `tar_make()`.
+## store (_targets_dev/) and the exports land in output/dev/. The released files
+## under output/ are untouched.
 ##
 ## Exit code is non-zero if any check fails, so it can later become a CI job.
 

@@ -192,10 +192,10 @@ format_string_match_diagnostics <- function(diagnostics) {
 }
 
 # Print the match-quality report and write it alongside the released outputs.
-write_string_match_diagnostics <- function(string_match_diagnostics) {
+write_string_match_diagnostics <- function(string_match_diagnostics, dev_mode) {
   report_text <- format_string_match_diagnostics(string_match_diagnostics)
   cat(report_text)
-  dir.create("output", showWarnings = FALSE)
-  writeLines(report_text, "./output/string_match_diagnostics.txt")
-  "./output/string_match_diagnostics.txt"
+  path <- export_path("string_match_diagnostics.txt", dev_mode)
+  writeLines(report_text, path)
+  path
 }

@@ -58,8 +58,8 @@ Rscript tests/testthat.R
 
 # Slow dev-mode (AC/RR) end-to-end check: builds the pipeline fresh in dev mode
 # and asserts structural properties of the two final outputs (minutes, needs the
-# CNEFE/TSE inputs and real memory). NOTE: it writes the shared output/*.csv.gz
-# paths, overwriting any production outputs with AC/RR data.
+# CNEFE/TSE inputs and real memory). Its exports land in output/dev/, so the
+# released files under output/ are untouched.
 Rscript tests/integration/dev_pipeline_check.R
 ```
 
@@ -132,6 +132,9 @@ run time.
 **Outputs**:
 - `output/geocoded_polling_stations.csv.gz`: Final geocoded coordinates
 - `output/panel_ids.csv.gz`: Panel identifiers linking stations across time
+
+Dev runs write the same filenames under `output/dev/`, so an AC/RR rebuild can
+never replace a released file.
 
 **AWS S3 Storage Architecture**:
 - Bucket: `geocode-br-polling-stations`

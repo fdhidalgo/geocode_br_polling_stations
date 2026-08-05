@@ -74,28 +74,24 @@ cnefe_especie_labels <- function(year) {
 
 # Cleans CNEFE 2022 into an address table with municipality ids and normalized street/bairro.
 clean_cnefe22 <- function(cnefe22_file, muni_ids) {
-  if (is.character(cnefe22_file)) {
-    cnefe22 <- fread(
-      cnefe22_file,
-      drop = c(
-        "nom_comp_elem1",
-        "val_comp_elem1",
-        "nom_comp_elem2",
-        "val_comp_elem2",
-        "nom_comp_elem3",
-        "val_comp_elem3",
-        "nom_comp_elem4",
-        "val_comp_elem4",
-        "nom_comp_elem5",
-        "val_comp_elem5",
-        "num_quadra",
-        "num_face",
-        "cod_unico_endereco"
-      )
+  cnefe22 <- fread(
+    cnefe22_file,
+    drop = c(
+      "nom_comp_elem1",
+      "val_comp_elem1",
+      "nom_comp_elem2",
+      "val_comp_elem2",
+      "nom_comp_elem3",
+      "val_comp_elem3",
+      "nom_comp_elem4",
+      "val_comp_elem4",
+      "nom_comp_elem5",
+      "val_comp_elem5",
+      "num_quadra",
+      "num_face",
+      "cod_unico_endereco"
     )
-  } else {
-    cnefe22 <- cnefe22_file
-  }
+  )
 
   setnames(cnefe22, names(cnefe22), tolower(names(cnefe22)))
 
@@ -662,79 +658,72 @@ convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
 }
 
 
-clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools = FALSE) {
+# Cleans one CNEFE 2010 state file into an address table with municipality ids and
+# normalized street/bairro. The 2010 state files are comma-separated.
+clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids, extract_schools = FALSE) {
   # Memory-efficient processing of CNEFE 2010 data
 
   mem_before <- gc()[2, 2]
   message(sprintf("Memory before CNEFE processing: %.1f GB", mem_before / 1024))
 
-  process_chunk <- function(cnefe_chunk) {
-    setnames(cnefe_chunk, names(cnefe_chunk), tolower(names(cnefe_chunk)))
+  cnefe <- fread(cnefe10_file, sep = ",", encoding = "UTF-8", showProgress = FALSE)
+  setnames(cnefe, names(cnefe), tolower(names(cnefe)))
 
-    # Drop unnecessary columns early to save memory
-    cols_to_drop <- c(
-      "situacao_setor",
-      "nom_comp_elem1",
-      "val_comp_elem1",
-      "nom_comp_elem2",
-      "val_comp_elem2",
-      "nom_comp_elem3",
-      "val_comp_elem3",
-      "nom_comp_elem4",
-      "val_comp_elem4",
-      "nom_comp_elem5",
-      "val_comp_elem5",
-      "indicador_endereco",
-      "num_quadra",
-      "num_face",
-      "cep_face",
-      "cod_unico_endereco"
-    )
+  # Drop unnecessary columns early to save memory
+  cols_to_drop <- c(
+    "situacao_setor",
+    "nom_comp_elem1",
+    "val_comp_elem1",
+    "nom_comp_elem2",
+    "val_comp_elem2",
+    "nom_comp_elem3",
+    "val_comp_elem3",
+    "nom_comp_elem4",
+    "val_comp_elem4",
+    "nom_comp_elem5",
+    "val_comp_elem5",
+    "indicador_endereco",
+    "num_quadra",
+    "num_face",
+    "cep_face",
+    "cod_unico_endereco"
+  )
 
-    cnefe_chunk[, (cols_to_drop) := NULL]
+  cnefe[, (cols_to_drop) := NULL]
 
-    cnefe_chunk[, cod_municipio := str_pad(cod_municipio, width = 5, side = "left", pad = "0")]
-    cnefe_chunk[, cod_distrito := str_pad(cod_distrito, width = 2, side = "left", pad = "0")]
-    cnefe_chunk[, cod_subdistrito := str_pad(cod_subdistrito, width = 2, side = "left", pad = "0")]
-    cnefe_chunk[, cod_setor := str_pad(cod_setor, width = 4, side = "left", pad = "0")]
-    cnefe_chunk[, setor_code := paste0(cod_uf, cod_municipio, cod_distrito, cod_subdistrito, cod_setor)]
-    cnefe_chunk[, c("cod_distrito", "cod_subdistrito", "cod_setor") := NULL]
+  cnefe[, cod_municipio := str_pad(cod_municipio, width = 5, side = "left", pad = "0")]
+  cnefe[, cod_distrito := str_pad(cod_distrito, width = 2, side = "left", pad = "0")]
+  cnefe[, cod_subdistrito := str_pad(cod_subdistrito, width = 2, side = "left", pad = "0")]
+  cnefe[, cod_setor := str_pad(cod_setor, width = 4, side = "left", pad = "0")]
+  cnefe[, setor_code := paste0(cod_uf, cod_municipio, cod_distrito, cod_subdistrito, cod_setor)]
+  cnefe[, c("cod_distrito", "cod_subdistrito", "cod_setor") := NULL]
 
-    # Street address used by matching; the house-number/modifier fields feed nothing downstream.
-    cnefe_chunk[, street := str_squish(paste(nom_tipo_seglogr, nom_titulo_seglogr, nom_seglogr))]
+  # Street address used by matching; the house-number/modifier fields feed nothing downstream.
+  cnefe[, street := str_squish(paste(nom_tipo_seglogr, nom_titulo_seglogr, nom_seglogr))]
 
-    cnefe_chunk[, c("nom_tipo_seglogr", "nom_titulo_seglogr", "num_endereco", "nom_seglogr", "dsc_modificador") := NULL]
+  cnefe[, c("nom_tipo_seglogr", "nom_titulo_seglogr", "num_endereco", "nom_seglogr", "dsc_modificador") := NULL]
 
-    cnefe_chunk[val_longitude == "", val_longitude := NA]
-    cnefe_chunk[val_latitude == "", val_latitude := NA]
-    cnefe_chunk[dsc_estabelecimento == "", dsc_estabelecimento := NA]
-    cnefe_chunk[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
+  cnefe[val_longitude == "", val_longitude := NA]
+  cnefe[val_latitude == "", val_latitude := NA]
+  cnefe[dsc_estabelecimento == "", dsc_estabelecimento := NA]
+  cnefe[, dsc_estabelecimento := str_squish(dsc_estabelecimento)]
 
-    # cod_municipio was padded above for setor_code; make_id_munic_7 re-pads idempotently.
-    cnefe_chunk[, id_munic_7 := make_id_munic_7(cod_uf, cod_municipio)]
+  # cod_municipio was padded above for setor_code; make_id_munic_7 re-pads idempotently.
+  cnefe[, id_munic_7 := make_id_munic_7(cod_uf, cod_municipio)]
 
-    essential_cols <- c(
-      "id_munic_7",
-      "setor_code",
-      "especie",
-      "street",
-      "dsc_localidade",
-      "dsc_estabelecimento",
-      "val_longitude",
-      "val_latitude"
-    )
-    cnefe_chunk <- cnefe_chunk[, ..essential_cols]
+  essential_cols <- c(
+    "id_munic_7",
+    "setor_code",
+    "especie",
+    "street",
+    "dsc_localidade",
+    "dsc_estabelecimento",
+    "val_longitude",
+    "val_latitude"
+  )
+  cnefe <- cnefe[, ..essential_cols]
 
-    gc(verbose = FALSE)
-    return(cnefe_chunk)
-  }
-
-  if (is.character(cnefe_file)) {
-    cnefe <- fread(cnefe_file, sep = ";", encoding = "UTF-8")
-    cnefe <- process_chunk(cnefe)
-  } else {
-    cnefe <- process_chunk(copy(cnefe_file))
-  }
+  gc(verbose = FALSE)
 
   message("Merging municipality identifiers...")
   cnefe <- muni_ids[, .(id_munic_7, id_TSE, municipio, estado_abrev)][

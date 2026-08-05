@@ -356,6 +356,16 @@ if [ "$snapshot_action" = "clone" ] || [ "$topup_count" -gt 0 ]; then
         cp -p "$repo_root/$tracked" "$staged_file"
       done < <(git -C "$repo_root" ls-files -z -- "$rel")
 
+      # The other direction: a file the branch deleted or renamed is still
+      # tracked in the main checkout, so the staged copy would reappear here as
+      # untracked litter. Being absent from this worktree's index is what
+      # separates a branch deletion from a file merely missing off disk.
+      while IFS= read -r -d '' tracked; do
+        if ! git -C "$repo_root" ls-files --error-unmatch -- "$tracked" >/dev/null 2>&1; then
+          rm -f "$staged/${tracked#"$rel/"}"
+        fi
+      done < <(git -C "$main_root" ls-files -z -- "$rel")
+
       rm -rf "${repo_root:?}/$rel"
       mv "$staged" "$repo_root/$rel"
       staged=""

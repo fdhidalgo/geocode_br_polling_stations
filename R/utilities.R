@@ -241,19 +241,20 @@ process_inep_batch <- function(municipality_batch_assignments, locais_filtered, 
   data.table::setkey(inep_data, id_munic_7)
   data.table::setkey(locais_filtered, cod_localidade_ibge)
 
-  batch_results <- lapply(batch_munis, function(muni_code) {
-    match_inep_muni(
-      locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
-      inep_muni = inep_data[.(muni_code), nomatch = NULL]
-    )
-  })
+  batch_results <- collect_batch_or_stop(
+    batch_munis,
+    function(muni_code) {
+      match_inep_muni(
+        locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
+        inep_muni = inep_data[.(muni_code), nomatch = NULL]
+      )
+    },
+    task_label = "INEP matching"
+  )
 
-  batch_results <- batch_results[!sapply(batch_results, is.null)]
-  if (length(batch_results) > 0) {
-    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
-  } else {
-    data.table()
-  }
+  # A batch whose municipalities all matched nothing needs no special case:
+  # rbindlist() of an empty list is an empty data.table.
+  rbindlist(batch_results, use.names = TRUE, fill = TRUE)
 }
 
 # Match one batch's polling stations against the CNEFE school rows.
@@ -266,19 +267,18 @@ process_schools_cnefe_batch <- function(municipality_batch_assignments, locais_f
   data.table::setkey(schools_cnefe, id_munic_7)
   data.table::setkey(locais_filtered, cod_localidade_ibge)
 
-  batch_results <- lapply(batch_munis, function(muni_code) {
-    match_schools_cnefe_muni(
-      locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
-      schools_cnefe_muni = schools_cnefe[.(muni_code), nomatch = NULL]
-    )
-  })
+  batch_results <- collect_batch_or_stop(
+    batch_munis,
+    function(muni_code) {
+      match_schools_cnefe_muni(
+        locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
+        schools_cnefe_muni = schools_cnefe[.(muni_code), nomatch = NULL]
+      )
+    },
+    task_label = "CNEFE school matching"
+  )
 
-  batch_results <- batch_results[!sapply(batch_results, is.null)]
-  if (length(batch_results) > 0) {
-    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
-  } else {
-    data.table()
-  }
+  rbindlist(batch_results, use.names = TRUE, fill = TRUE)
 }
 
 # Geocode one batch's polling stations with geocodebr.
@@ -289,9 +289,6 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
 
   data.table::setkey(locais_filtered, cod_localidade_ibge)
 
-  # A NULL result (no polling stations, or no geocoding hits) is a legitimate
-  # empty case and is filtered out; a municipality that errors is reported at
-  # batch end rather than silently dropped.
   results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
@@ -300,16 +297,13 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
     task_label = "geocodebr matching"
   )
 
-  if (length(results) > 0) {
-    rbindlist(results, use.names = TRUE, fill = TRUE)
-  } else {
-    data.table()
-  }
+  rbindlist(results, use.names = TRUE, fill = TRUE)
 }
 
 # Street/neighborhood match batch, shared by the CNEFE and Agro CNEFE vintages.
 # stbairro is this batch's slice: the union of the street and neighborhood
-# aggregates, tagged by `component`. `label` names the vintage in the log only.
+# aggregates, tagged by `component`. `label` names the vintage in the log and in
+# any failure message.
 process_stbairro_batch <- function(
   municipality_batch_assignments,
   locais_filtered,
@@ -334,60 +328,37 @@ process_stbairro_batch <- function(
     length(batch_munis)
   ))
 
-  batch_results <- lapply(seq_along(batch_munis), function(i) {
-    muni_code <- batch_munis[i]
+  batch_results <- collect_batch_or_stop(
+    batch_munis,
+    function(muni_code) {
+      locais_muni <- locais_filtered[.(muni_code), nomatch = NULL]
+      st_muni <- st[.(muni_code), nomatch = NULL]
+      bairro_muni <- bairro[.(muni_code), nomatch = NULL]
 
-    locais_muni <- locais_filtered[.(muni_code), nomatch = NULL]
-    st_muni <- st[.(muni_code), nomatch = NULL]
-    bairro_muni <- bairro[.(muni_code), nomatch = NULL]
-
-    message(sprintf(
-      "[Batch %d - %d/%d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
-      this_batch,
-      i,
-      length(batch_munis),
-      muni_code,
-      nrow(locais_muni),
-      nrow(st_muni),
-      nrow(bairro_muni)
-    ))
-
-    result <- match_stbairro_muni(locais_muni, st_muni, bairro_muni)
-
-    if (!is.null(result)) {
+      # Logged before the match, not after: a municipality with a large distance
+      # matrix can run for minutes, and this is the line that says which one.
       message(sprintf(
-        "[Batch %d - %d/%d] Completed municipality %s: %d matches",
+        "[Batch %d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
         this_batch,
-        i,
-        length(batch_munis),
         muni_code,
-        nrow(result)
+        nrow(locais_muni),
+        nrow(st_muni),
+        nrow(bairro_muni)
       ))
-    }
 
-    result
-  })
-
-  batch_results <- batch_results[!sapply(batch_results, is.null)]
-
-  total_matches <- if (length(batch_results) > 0) {
-    sum(sapply(batch_results, nrow))
-  } else {
-    0
-  }
+      match_stbairro_muni(locais_muni, st_muni, bairro_muni)
+    },
+    task_label = sprintf("%s street/neighborhood matching", label)
+  )
 
   message(sprintf(
     "[Batch %d] Completed with %d total matches from %d municipalities",
     this_batch,
-    total_matches,
+    sum(vapply(batch_results, nrow, integer(1))),
     length(batch_results)
   ))
 
-  if (length(batch_results) > 0) {
-    rbindlist(batch_results, use.names = TRUE, fill = TRUE)
-  } else {
-    data.table()
-  }
+  rbindlist(batch_results, use.names = TRUE, fill = TRUE)
 }
 
 # Size-balanced batch assignment for the polling-station municipalities, so the

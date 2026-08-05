@@ -317,7 +317,8 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
 
 # Street/neighborhood match batch, shared by the CNEFE and Agro CNEFE vintages.
 # stbairro is this batch's slice: the union of the street and neighborhood
-# aggregates, tagged by `component`. `label` names the vintage in the log only.
+# aggregates, tagged by `component`. `label` names the vintage in the log and in
+# any failure message.
 process_stbairro_batch <- function(
   municipality_batch_assignments,
   locais_filtered,
@@ -342,52 +343,43 @@ process_stbairro_batch <- function(
     length(batch_munis)
   ))
 
-  batch_results <- lapply(seq_along(batch_munis), function(i) {
-    muni_code <- batch_munis[i]
+  # A NULL result (no polling stations, or no matches) is a legitimate empty case
+  # and is filtered out; a municipality that errors is named at batch end rather
+  # than aborting the batch anonymously.
+  batch_results <- collect_batch_or_stop(
+    batch_munis,
+    function(muni_code) {
+      locais_muni <- locais_filtered[.(muni_code), nomatch = NULL]
+      st_muni <- st[.(muni_code), nomatch = NULL]
+      bairro_muni <- bairro[.(muni_code), nomatch = NULL]
 
-    locais_muni <- locais_filtered[.(muni_code), nomatch = NULL]
-    st_muni <- st[.(muni_code), nomatch = NULL]
-    bairro_muni <- bairro[.(muni_code), nomatch = NULL]
-
-    message(sprintf(
-      "[Batch %d - %d/%d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
-      this_batch,
-      i,
-      length(batch_munis),
-      muni_code,
-      nrow(locais_muni),
-      nrow(st_muni),
-      nrow(bairro_muni)
-    ))
-
-    result <- match_stbairro_muni(locais_muni, st_muni, bairro_muni)
-
-    if (!is.null(result)) {
       message(sprintf(
-        "[Batch %d - %d/%d] Completed municipality %s: %d matches",
+        "[Batch %d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
         this_batch,
-        i,
-        length(batch_munis),
         muni_code,
-        nrow(result)
+        nrow(locais_muni),
+        nrow(st_muni),
+        nrow(bairro_muni)
       ))
-    }
 
-    result
-  })
+      result <- match_stbairro_muni(locais_muni, st_muni, bairro_muni)
 
-  batch_results <- batch_results[!sapply(batch_results, is.null)]
+      message(sprintf(
+        "[Batch %d] Completed municipality %s: %d matches",
+        this_batch,
+        muni_code,
+        if (is.null(result)) 0L else nrow(result)
+      ))
 
-  total_matches <- if (length(batch_results) > 0) {
-    sum(sapply(batch_results, nrow))
-  } else {
-    0
-  }
+      result
+    },
+    task_label = sprintf("%s street/neighborhood matching", label)
+  )
 
   message(sprintf(
     "[Batch %d] Completed with %d total matches from %d municipalities",
     this_batch,
-    total_matches,
+    sum(vapply(batch_results, nrow, integer(1))),
     length(batch_results)
   ))
 

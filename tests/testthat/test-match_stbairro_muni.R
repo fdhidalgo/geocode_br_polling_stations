@@ -47,6 +47,13 @@ test_that("match_stbairro_muni leaves a non-matching station NA", {
   expect_true(is.na(r2$match_bairro))
 })
 
+test_that("match_stbairro_muni scores the one field each aggregate knows", {
+  out <- match_stbairro_muni(make_locais(), make_st(), make_bairro())
+  r1 <- out[local_id == 1L]
+  expect_equal(r1$sim_street_st, 0)
+  expect_equal(r1$sim_bairro_bairro, 0)
+})
+
 test_that("match_stbairro_muni returns NULL when there are no street rows", {
   expect_null(match_stbairro_muni(make_locais(), make_st()[0], make_bairro()))
 })

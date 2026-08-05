@@ -143,6 +143,37 @@ run time.
 
 For setting up this project on a new computer with AWS S3 integration, see [AWS_SETUP.md](AWS_SETUP.md).
 
+### Worktrees
+
+Start one however you like — `claude --worktree`, or `git worktree add`. Seeding is
+automatic: a `SessionStart` hook runs [scripts/seed-worktree.sh](scripts/seed-worktree.sh),
+which fills in the gitignored state a checkout cannot carry. It takes a few seconds and
+reports what it did. Running it in the main checkout does nothing.
+
+**Each worktree owns its own stores.** A branch that changes pipeline code rebuilds its
+own `_targets_dev/` rather than invalidating anyone else's.
+
+**Run dev mode in worktrees** (`TAR_PROJECT=dev`). The production profile is seeded only
+so `tar_outdated()` tells the truth — every checkout's `_targets/` points at the same S3
+prefix, so a production `tar_destroy()` from a worktree deletes objects the main checkout
+is still using.
+
+Two lists at the top of the script are maintained by hand, and a directory the pipeline
+starts writing into later has to join `SNAPSHOT_DIRS` — otherwise every target writing
+there rebuilds in every worktree, forever.
+
+- `TOPUP_DIRS` (`data/`, `renv/library`) are immutable inputs. They are **hardlinked**:
+  this filesystem is ext4 and has no reflinks, so hardlinks are what keep a worktree at
+  ~0.8GB instead of ~6.7GB. Nothing in the pipeline writes under either path. If that
+  ever changes, that directory has to move to `SNAPSHOT_DIRS`, or a worktree build will
+  write straight through the link into the main checkout.
+- `SNAPSHOT_DIRS` (`output/`, `_targets/`, `_targets_dev/`) are written by the pipeline
+  and copied for real. They are replaced as one snapshot, and only while the worktree has
+  built nothing of its own.
+
+The hook reaches a new worktree only once the script is on the branch it was cut from, so
+it has to be on `master` to apply generally.
+
 ## Paper code
 
 Research code for a paper and a public dataset — not a software product. **Machinery

@@ -97,3 +97,10 @@ codex-full.log
 
 # crew per-worker logs (issue #48 diagnostics)
 crew_logs/
+
+# git worktrees and the state the seeding script keeps in each one
+.claude/worktrees/
+.seed-worktree-stamp
+.seed-worktree-lock/
+.reflink-probe.*
+*.seed-incoming

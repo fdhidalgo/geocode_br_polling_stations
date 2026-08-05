@@ -145,34 +145,39 @@ For setting up this project on a new computer with AWS S3 integration, see [AWS_
 
 ### Worktrees
 
-Start one however you like — `claude --worktree`, or `git worktree add`. Seeding is
-automatic: a `SessionStart` hook runs [scripts/seed-worktree.sh](scripts/seed-worktree.sh),
-which fills in the gitignored state a checkout cannot carry. It takes a few seconds and
-reports what it did. Running it in the main checkout does nothing.
+A worktree checks out tracked files only, so it starts with all the code and none of the
+pipeline — no stores, no CNEFE/TSE downloads, no R library. Without seeding, every target
+rebuilds, including ones the branch never touched.
 
-**Each worktree owns its own stores.** A branch that changes pipeline code rebuilds its
-own `_targets_dev/` rather than invalidating anyone else's.
+[scripts/seed-worktree.sh](scripts/seed-worktree.sh) fills that in from the main checkout.
+It takes a few seconds, reports what it did and what it skipped, and does nothing when run
+in the main checkout.
 
-**Run dev mode in worktrees** (`TAR_PROJECT=dev`). The production profile is seeded only
-so `tar_outdated()` tells the truth — every checkout's `_targets/` points at the same S3
+```bash
+scripts/seed-worktree.sh
+```
+
+A `SessionStart` hook runs it automatically **in Claude Code sessions**. A worktree created
+from a terminal stays unseeded until a session opens in it, so run the command above by
+hand there. The hook also only reaches a worktree once the script is on the branch it was
+cut from — which means `master`.
+
+**Each worktree owns its stores.** A branch that changes pipeline code rebuilds its own
+`_targets_dev/` rather than invalidating anyone else's.
+
+**Run dev mode in worktrees** (`TAR_PROJECT=dev`). Production is seeded only so
+`tar_outdated()` tells the truth: every checkout's `_targets/` points at the same S3
 prefix, so a production `tar_destroy()` from a worktree deletes objects the main checkout
 is still using.
 
-Two lists at the top of the script are maintained by hand, and a directory the pipeline
-starts writing into later has to join `SNAPSHOT_DIRS` — otherwise every target writing
+**The seed lists are maintained by hand**, at the top of the script, and the rules for
+editing them are documented there. The one worth knowing from outside: a directory the
+pipeline starts writing into later has to join `SNAPSHOT_DIRS`, or every target writing
 there rebuilds in every worktree, forever.
 
-- `TOPUP_DIRS` (`data/`, `renv/library`) are immutable inputs. They are **hardlinked**:
-  this filesystem is ext4 and has no reflinks, so hardlinks are what keep a worktree at
-  ~0.8GB instead of ~6.7GB. Nothing in the pipeline writes under either path. If that
-  ever changes, that directory has to move to `SNAPSHOT_DIRS`, or a worktree build will
-  write straight through the link into the main checkout.
-- `SNAPSHOT_DIRS` (`output/`, `_targets/`, `_targets_dev/`) are written by the pipeline
-  and copied for real. They are replaced as one snapshot, and only while the worktree has
-  built nothing of its own.
-
-The hook reaches a new worktree only once the script is on the branch it was cut from, so
-it has to be on `master` to apply generally.
+Inputs are hardlinked rather than copied, which is what keeps a worktree at ~0.8GB instead
+of ~6.7GB on this filesystem — so nothing in `TOPUP_DIRS` may ever be written by the
+pipeline, or the build would write through the link into the main checkout.
 
 ## Paper code
 

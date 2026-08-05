@@ -12,13 +12,23 @@ library(stringr)
 # shared by the forward transform and both inverse paths so they cannot drift apart.
 GBM_LOG_OFFSET <- 1e-4
 
-# Melt one match table's (match_long_*, match_lat_*, mindist_*) column triples into one row
-# per candidate coordinate, named by `types` in column order.
+# Melt one match table's per-candidate column groups -- coordinates, the whole-string
+# distance that selected the candidate, and the four field-decomposed similarities -- into
+# one row per candidate coordinate, named by `types` in column order. Every match table must
+# carry all seven groups; patterns() requires them to be the same length.
 melt_match_candidates <- function(matches, types) {
   long <- melt(
     matches,
     id.vars = "local_id",
-    measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
+    measure.vars = patterns(
+      long = "match_long_",
+      lat = "match_lat_",
+      mindist = "mindist_",
+      sim_name = "sim_name_",
+      sim_street = "sim_street_",
+      sim_bairro = "sim_bairro_",
+      sim_addr = "sim_addr_"
+    ),
     variable.name = "type",
     variable.factor = FALSE
   )
@@ -39,6 +49,10 @@ geocodebr_candidates <- function(geocodebr_match) {
       type = "geocodebr",
       long = match_long_geocodebr,
       lat = match_lat_geocodebr,
+      # geocodebr resolves an address line, not separable name/street/bairro fields; the
+      # other three similarity columns are filled with NA by the rbindlist() that stacks
+      # these candidates with the melted ones, as precision_score already is.
+      sim_addr = sim_addr_geocodebr,
       precision_score = fcase(
         precisao_geocodebr == "numero"     , 3 ,
         precisao_geocodebr == "logradouro" , 2 ,
@@ -111,11 +125,16 @@ make_model_data <- function(
       0
     )
   ]
+  # "sem numero" -- roughly a quarter of stations have no house number at all. normalize_address()
+  # already folds "s/n", "s n" and "sem numero" onto the token "sn". It flags informal or rural
+  # addressing, which is where street-median and municipality-level candidates are least precise.
+  addr_features[, addr_sn := fifelse(grepl("\\bsn\\b", normalized_addr), 1, 0)]
   addr_features <- addr_features[, .(
     local_id,
     centro,
     zona_rural,
     school,
+    addr_sn,
     length_norm_name = nchar(norm_name),
     length_norm_addr = nchar(normalized_addr)
   )]

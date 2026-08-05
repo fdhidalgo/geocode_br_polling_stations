@@ -77,11 +77,13 @@ The general approach is a follows:
 
 3.  Find the "medioid" (i.e. the median point) for all unique streets and neighborhoods in the CNEFE datasets.
 
-4.  Compute the normalized Levenshtein string distance between polling station name and the names of schools in the INEP and  CNEFE data in the same municipality as the polling station.
+4.  Compute the length-normalized Jaro-Winkler string distance between polling station name and the names of schools in the INEP and  CNEFE data in the same municipality as the polling station.
 
 5.  Compute the string distance between the address of polling stations and address of schools in INPE and  CNEFE data.
 
 6.  Compute the string distance between the street name and neighborhood name of the polling station and street and neighborhood names from the CNEFE datasets.
+
+7.  For each candidate produced by steps 4--6, compute a *further* string distance for every address component the matched reference record happens to carry, not only the component the match was made on: school name, street, neighborhood, and (where the source stores a single unsplit address line) the whole address. A CNEFE school record, for example, is a single establishment and so carries a street and a neighborhood alongside its name; scoring all three reveals a school whose name matches perfectly but which sits in the wrong neighborhood. Where a source has no such field --- the street and neighborhood reference tables are coordinate medians over a whole street or neighborhood, and know only the one field they are keyed on --- the corresponding distance is missing, which the boosted tree handles natively.
 
 [^3]: We remove common, but uninformative words, such as "povoado" and "localidade". We standardize common street abbreviations such as replacing "Av" with "Avenida". Finally, for polling station names, we remove words most common in school names, such as "unidade escolar" and "colegio estadual". These are very common, yet not used consistently and as a result, are relatively uninformative. We found that removing them improves matching performance.
 
@@ -93,11 +95,13 @@ After string matching, we use a boosted tree model to predict the distance betwe
 We treat the coordinates provided by the election authorities as the "ground truth".
 This distance is modeled as a function of the following set of covariates:
 
--   Normalized Levenshtein string distance.
+-   Length-normalized Jaro-Winkler string distance of the match that produced the candidate.
+-   Four per-component string distances between the polling station and the matched reference record: school name, street, neighborhood, and whole address line (step 7 above). Each is missing when the source carries no such field.
 -   Coordinate data source
 -   Indicator for whether the address mentions the city center ("centro")
 -   Indicator for whether the address mentions being in the countryside (includes the word "rural")
 -   Indicator for whether the address mentions a school
+-   Indicator for whether the address gives no house number ("s/n"), which is true of roughly a quarter of polling stations and signals informal or rural addressing
 -   Log of municipal population
 -   Proportion of the population classified as rural
 -   Area of the municipality
@@ -154,7 +158,7 @@ geocoded_locais <- inner_join(locais, best_prediction) |>
 ```
 
 To illustrate the string matching procedure, the table below shows the string matching procedure for one polling station where the coordinates are known.
-"String distance" is the normalized Levenshtein string distance between the address component and its potential match.
+"String distance" is the length-normalized Jaro-Winkler string distance between the address component and its potential match.
 "Predicted distance" is the distance from the truth predicted by the gradient-boosted tree model.
 The blue row shows the selected match, which is the potential match with the smallest predicted distance.
 The last column labeled "Error (km)" is the difference between the known geocoded coordinates and the coordinates from the selected match.

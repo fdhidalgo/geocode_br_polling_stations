@@ -58,6 +58,16 @@ match_strings <- function(query_strings, target_strings, normalize_by_length = T
   )
 }
 
+# Jaro-Winkler distance between two already-paired string vectors, for the per-field
+# similarity features the selection model consumes. Unlike match_strings() it chooses
+# nothing: the caller has already picked the reference row. It also never divides by
+# string length, so the features stay comparable across sources -- the length division in
+# match_strings() is a ranking quirk, not a distance. NA on either side (no match at all,
+# or a reference table without that field) yields NA, which lightgbm consumes directly.
+field_distance <- function(x, y) {
+  stringdist::stringdist(x, y, method = "jw")
+}
+
 match_inep_muni <- function(locais_muni, inep_muni) {
   # Match polling stations with INEP school data for a single municipality
 
@@ -77,17 +87,32 @@ match_inep_muni <- function(locais_muni, inep_muni) {
     inep_muni$norm_addr
   )
 
+  name_idx <- name_results$best_index
+  addr_idx <- addr_results$best_index
+
+  # Each candidate is scored on *both* INEP fields, not just the one it was selected on:
+  # a row that wins on the school name but whose address disagrees is now visible to the
+  # selection model. INEP has no separate street or neighborhood column -- `norm_addr` is a
+  # whole address line -- so sim_street and sim_bairro have nothing to compare against.
   # An unmatched station has best_index NA, and indexing by NA yields NA coordinates.
   data.table(
     local_id = locais_muni$local_id,
     match_inep_name = name_results$best_match,
     mindist_inep_name = name_results$min_dist,
-    match_long_inep_name = inep_muni$longitude[name_results$best_index],
-    match_lat_inep_name = inep_muni$latitude[name_results$best_index],
+    match_long_inep_name = inep_muni$longitude[name_idx],
+    match_lat_inep_name = inep_muni$latitude[name_idx],
+    sim_name_inep_name = field_distance(locais_muni$normalized_name, inep_muni$norm_school[name_idx]),
+    sim_street_inep_name = NA_real_,
+    sim_bairro_inep_name = NA_real_,
+    sim_addr_inep_name = field_distance(locais_muni$normalized_addr, inep_muni$norm_addr[name_idx]),
     match_inep_addr = addr_results$best_match,
     mindist_inep_addr = addr_results$min_dist,
-    match_long_inep_addr = inep_muni$longitude[addr_results$best_index],
-    match_lat_inep_addr = inep_muni$latitude[addr_results$best_index]
+    match_long_inep_addr = inep_muni$longitude[addr_idx],
+    match_lat_inep_addr = inep_muni$latitude[addr_idx],
+    sim_name_inep_addr = field_distance(locais_muni$normalized_name, inep_muni$norm_school[addr_idx]),
+    sim_street_inep_addr = NA_real_,
+    sim_bairro_inep_addr = NA_real_,
+    sim_addr_inep_addr = field_distance(locais_muni$normalized_addr, inep_muni$norm_addr[addr_idx])
   )
 }
 
@@ -104,13 +129,23 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
     schools_cnefe_muni$norm_desc
   )
 
+  idx <- name_results$best_index
+
+  # A CNEFE school row is a single establishment, so it carries a street and a
+  # neighborhood alongside its name. Scoring all three is the point of the decomposition:
+  # a school matched on name but sitting in the wrong bairro was previously indistinguishable
+  # from one in the right place. There is no whole address line to compare, hence sim_addr NA.
   data.table(
     local_id = locais_muni$local_id,
     match_schools_cnefe = name_results$best_match,
     mindist_schools_cnefe = name_results$min_dist,
-    match_long_schools_cnefe = schools_cnefe_muni$cnefe_long[name_results$best_index],
-    match_lat_schools_cnefe = schools_cnefe_muni$cnefe_lat[name_results$best_index],
-    match_bairro_schools_cnefe = schools_cnefe_muni$norm_bairro[name_results$best_index]
+    match_long_schools_cnefe = schools_cnefe_muni$cnefe_long[idx],
+    match_lat_schools_cnefe = schools_cnefe_muni$cnefe_lat[idx],
+    match_bairro_schools_cnefe = schools_cnefe_muni$norm_bairro[idx],
+    sim_name_schools_cnefe = field_distance(locais_muni$normalized_name, schools_cnefe_muni$norm_desc[idx]),
+    sim_street_schools_cnefe = field_distance(locais_muni$normalized_st, schools_cnefe_muni$norm_street[idx]),
+    sim_bairro_schools_cnefe = field_distance(locais_muni$normalized_bairro, schools_cnefe_muni$norm_bairro[idx]),
+    sim_addr_schools_cnefe = NA_real_
   )
 }
 
@@ -135,16 +170,31 @@ match_stbairro_muni <- function(locais_muni, st_muni, bairro_muni) {
     normalize_by_length = FALSE # Don't normalize for neighborhoods
   )
 
+  st_idx <- st_results$best_index
+  bairro_idx <- bairro_results$best_index
+
+  # These two references are coordinate medians over a whole street or neighborhood, so
+  # each knows exactly one field and the other three similarities have nothing to compare
+  # against. They are still emitted: melt_match_candidates() needs one column per
+  # (similarity field, candidate type) to line the candidates up.
   data.table(
     local_id = locais_muni$local_id,
     match_st = st_results$best_match,
     mindist_st = st_results$min_dist,
-    match_long_st = st_muni$long[st_results$best_index],
-    match_lat_st = st_muni$lat[st_results$best_index],
+    match_long_st = st_muni$long[st_idx],
+    match_lat_st = st_muni$lat[st_idx],
+    sim_name_st = NA_real_,
+    sim_street_st = field_distance(locais_muni$normalized_st, st_muni$norm_street[st_idx]),
+    sim_bairro_st = NA_real_,
+    sim_addr_st = NA_real_,
     match_bairro = bairro_results$best_match,
     mindist_bairro = bairro_results$min_dist,
-    match_long_bairro = bairro_muni$long[bairro_results$best_index],
-    match_lat_bairro = bairro_muni$lat[bairro_results$best_index]
+    match_long_bairro = bairro_muni$long[bairro_idx],
+    match_lat_bairro = bairro_muni$lat[bairro_idx],
+    sim_name_bairro = NA_real_,
+    sim_street_bairro = NA_real_,
+    sim_bairro_bairro = field_distance(locais_muni$normalized_bairro, bairro_muni$norm_bairro[bairro_idx]),
+    sim_addr_bairro = NA_real_
   )
 }
 
@@ -224,6 +274,17 @@ match_geocodebr_muni <- function(locais_muni) {
     !anyNA(geocoded_result$local_id)
   )
 
+  # geocodebr returns one formatted string, "STREET - BAIRRO, MUNICIPIO - UF", rather than
+  # structured fields, so the only field feature available is a whole-address-line
+  # similarity: the station's street+neighborhood against the found address with its
+  # municipality/state tail dropped. Municipality-precision rows resolved no street at all,
+  # so their address line is just the municipality and carries no similarity signal.
+  found_addr <- normalize_address(sub(",.*$", "", geocoded_result$endereco_encontrado))
+  found_addr[geocoded_result$precisao == "municipio"] <- NA_character_
+  station_addr <- locais_muni$normalized_addr[
+    match(geocoded_result$local_id, locais_muni$local_id)
+  ]
+
   # Create output in format consistent with other matching functions
   data.table(
     local_id = geocoded_result$local_id,
@@ -231,6 +292,7 @@ match_geocodebr_muni <- function(locais_muni) {
     mindist_geocodebr = 0, # geocodebr doesn't provide distance metric
     match_long_geocodebr = geocoded_result$lon,
     match_lat_geocodebr = geocoded_result$lat,
+    sim_addr_geocodebr = field_distance(station_addr, found_addr),
     precisao_geocodebr = geocoded_result$precisao,
     tipo_resultado_geocodebr = geocoded_result$tipo_resultado,
     contagem_cnefe_geocodebr = geocoded_result$contagem_cnefe

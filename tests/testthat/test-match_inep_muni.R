@@ -55,6 +55,32 @@ test_that("match_inep_muni leaves a non-matching station fully NA", {
   expect_true(is.na(r3$match_long_inep_addr))
 })
 
+test_that("match_inep_muni scores both INEP fields on each candidate", {
+  out <- match_inep_muni(make_locais(), make_inep())
+  r1 <- out[local_id == 1L]
+  # Station 1 was selected on the school name, but the address of that same INEP row is
+  # scored too: "rua a" vs "rua x" disagrees, which the name distance alone cannot show.
+  expect_equal(r1$sim_name_inep_name, 0)
+  expect_gt(r1$sim_addr_inep_name, 0)
+  # INEP has no separate street or neighbourhood column.
+  expect_true(is.na(r1$sim_street_inep_name))
+  expect_true(is.na(r1$sim_bairro_inep_name))
+
+  r2 <- out[local_id == 2L]
+  # Selected on address; the school name of that row is scored as well.
+  expect_equal(r2$sim_addr_inep_addr, 0)
+  expect_gt(r2$sim_name_inep_addr, 0)
+})
+
+test_that("match_inep_muni leaves field similarities NA when nothing was selected", {
+  out <- match_inep_muni(make_locais(), make_inep())
+  r3 <- out[local_id == 3L]
+  expect_true(is.na(r3$sim_name_inep_name))
+  expect_true(is.na(r3$sim_addr_inep_name))
+  expect_true(is.na(r3$sim_name_inep_addr))
+  expect_true(is.na(r3$sim_addr_inep_addr))
+})
+
 test_that("match_inep_muni returns NULL when there are no INEP rows", {
   expect_null(match_inep_muni(make_locais(), make_inep()[0]))
 })

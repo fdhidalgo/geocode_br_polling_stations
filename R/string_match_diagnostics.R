@@ -6,11 +6,11 @@ library(data.table)
 string_match_coord_cols <- function(match_name) {
   cols <- list(
     inep_string_match = c(long = "match_long_inep_addr", lat = "match_lat_inep_addr"),
-    cnefe10_stbairro_match = c(long = "match_long_cnefe_bairro", lat = "match_lat_cnefe_bairro"),
-    cnefe22_stbairro_match = c(long = "match_long_cnefe_bairro", lat = "match_lat_cnefe_bairro"),
+    cnefe10_stbairro_match = c(long = "match_long_bairro", lat = "match_lat_bairro"),
+    cnefe22_stbairro_match = c(long = "match_long_bairro", lat = "match_lat_bairro"),
     schools_cnefe10_match = c(long = "match_long_schools_cnefe", lat = "match_lat_schools_cnefe"),
     schools_cnefe22_match = c(long = "match_long_schools_cnefe", lat = "match_lat_schools_cnefe"),
-    agrocnefe_stbairro_match = c(long = "match_long_agrocnefe_bairro", lat = "match_lat_agrocnefe_bairro")
+    agrocnefe_stbairro_match = c(long = "match_long_bairro", lat = "match_lat_bairro")
   )[[match_name]]
 
   if (is.null(cols)) {
@@ -38,8 +38,8 @@ calculate_string_match_diagnostics <- function(match_data, match_name, long_col,
   # Match tables name their distance column differently; use whichever is present.
   dist_cols <- c(
     "mindist",
-    "mindist_cnefe_bairro",
-    "mindist_cnefe_st",
+    "mindist_bairro",
+    "mindist_st",
     "mindist_inep_addr",
     "mindist_inep_name",
     "distance"

@@ -675,10 +675,11 @@ list(
   # the 50 GB machine.
   tar_target(
     name = cnefe10_stbairro_match_batch,
-    command = process_cnefe_stbairro_batch(
+    command = process_stbairro_batch(
       municipality_batch_assignments = municipality_batch_assignments,
       locais_filtered = locais_filtered,
-      cnefe_stbairro = cnefe10_stbairro_grouped
+      stbairro = cnefe10_stbairro_grouped,
+      label = "CNEFE 2010"
     ),
     pattern = map(cnefe10_stbairro_grouped),
     iteration = "list",
@@ -698,10 +699,11 @@ list(
   # CNEFE 2022 street/neighborhood matching with batched dynamic branching.
   tar_target(
     name = cnefe22_stbairro_match_batch,
-    command = process_cnefe_stbairro_batch(
+    command = process_stbairro_batch(
       municipality_batch_assignments = municipality_batch_assignments,
       locais_filtered = locais_filtered,
-      cnefe_stbairro = cnefe22_stbairro_grouped
+      stbairro = cnefe22_stbairro_grouped,
+      label = "CNEFE 2022"
     ),
     pattern = map(cnefe22_stbairro_grouped),
     iteration = "list",
@@ -721,10 +723,11 @@ list(
   # Agro CNEFE street/neighborhood matching with batched dynamic branching.
   tar_target(
     name = agrocnefe_stbairro_match_batch,
-    command = process_agrocnefe_stbairro_batch(
+    command = process_stbairro_batch(
       municipality_batch_assignments = municipality_batch_assignments,
       locais_filtered = locais_filtered,
-      agrocnefe_stbairro = agrocnefe_stbairro_grouped
+      stbairro = agrocnefe_stbairro_grouped,
+      label = "Agro CNEFE"
     ),
     pattern = map(agrocnefe_stbairro_grouped),
     iteration = "list",

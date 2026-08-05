@@ -114,11 +114,9 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
   )
 }
 
-match_stbairro_cnefe_muni <- function(locais_muni, st_muni, bairro_muni, source) {
-  # Match polling stations against one CNEFE vintage's street and neighborhood
-  # aggregates. The regular and agricultural censuses are matched identically;
-  # `source` ("cnefe" / "agrocnefe") only names the output columns, which is how
-  # the model tells the two vintages' candidates apart once they are stacked.
+match_stbairro_muni <- function(locais_muni, st_muni, bairro_muni) {
+  # Match polling stations against one census vintage's street and neighborhood
+  # aggregates. Which vintage is named by the caller, not by these columns.
 
   if (nrow(st_muni) == 0) {
     return(NULL)
@@ -137,24 +135,17 @@ match_stbairro_cnefe_muni <- function(locais_muni, st_muni, bairro_muni, source)
     normalize_by_length = FALSE # Don't normalize for neighborhoods
   )
 
-  # Four columns per component, in the order they are built below.
-  col_names <- function(component) {
-    paste0(c("match", "mindist", "match_long", "match_lat"), "_", source, "_", component)
-  }
-
-  out <- data.table(
+  data.table(
     local_id = locais_muni$local_id,
-    st_results$best_match,
-    st_results$min_dist,
-    st_muni$long[st_results$best_index],
-    st_muni$lat[st_results$best_index],
-    bairro_results$best_match,
-    bairro_results$min_dist,
-    bairro_muni$long[bairro_results$best_index],
-    bairro_muni$lat[bairro_results$best_index]
+    match_st = st_results$best_match,
+    mindist_st = st_results$min_dist,
+    match_long_st = st_muni$long[st_results$best_index],
+    match_lat_st = st_muni$lat[st_results$best_index],
+    match_bairro = bairro_results$best_match,
+    mindist_bairro = bairro_results$min_dist,
+    match_long_bairro = bairro_muni$long[bairro_results$best_index],
+    match_lat_bairro = bairro_muni$lat[bairro_results$best_index]
   )
-  setnames(out, c("local_id", col_names("st"), col_names("bairro")))
-  out
 }
 
 match_geocodebr_muni <- function(locais_muni) {

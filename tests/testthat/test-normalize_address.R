@@ -1,8 +1,8 @@
 ## Spec tests for normalize_address() (R/data_cleaning.R).
 ## Expected outputs are hand-authored from the documented normalization rules
-## (lowercase -> transliterate to ASCII -> strip punctuation -> drop generic
-## location descriptors -> expand av/r prefixes -> collapse "s n" -> squish),
-## not snapshotted from current output.
+## (lowercase -> transliterate to ASCII -> strip punctuation -> squish -> drop
+## generic location descriptors -> expand av/r prefixes -> collapse "s n" ->
+## squish), not snapshotted from current output.
 
 test_that("normalize_address applies each rule on targeted inputs", {
   expect_equal(normalize_address("Av. São João"), "avenida sao joao") # av becomes avenida; accents stripped
@@ -19,6 +19,13 @@ test_that("normalize_address drops generic location descriptors", {
   expect_equal(normalize_address("Escola Zona Rural"), "escola")
   expect_equal(normalize_address("Povoado São Félix"), "sao felix")
   expect_equal(normalize_address("Localidade Boa Vista"), "boa vista")
+})
+
+test_that("normalize_address applies its rules despite irregular source spacing", {
+  # Doubled spaces and punctuation-separated tokens are common in ds_endereco.
+  expect_equal(normalize_address("POVOADO JARDIM PRIMAVERA - ZONA  RURAL"), "jardim primavera")
+  expect_equal(normalize_address("RUA DAS HORTENCIAS, S / N"), "rua das hortencias sn")
+  expect_equal(normalize_address("  Av Brasil"), "avenida brasil") # leading space does not block ^av
 })
 
 test_that("normalize_address is vectorized and preserves order", {

@@ -462,21 +462,18 @@ make_tract_centroids <- function(tracts) {
 
 # Normalizes an address string for cross-dataset matching.
 normalize_address <- function(x) {
-  # Order matters: lowercase, then transliterate, then strip punctuation.
-  result <- str_to_lower(x)
-  result <- stringi::stri_trans_general(result, "Latin-ASCII")
-  result <- str_remove_all(result, "[[:punct:]]")
+  # normalize_name() squishes whitespace first, so the single-space patterns below
+  # still match sources that write "zona  rural" or "s / n".
+  result <- normalize_name(x)
   # Generic location descriptors are used inconsistently across datasets, so drop them.
   result <- str_remove(result, "\\bzona rural\\b")
   result <- str_remove(result, "\\bpovoado\\b")
   result <- str_remove(result, "\\blocalidade\\b")
-  result <- str_remove_all(result, "\\.|\\/")
   result <- str_replace_all(result, "^av\\b", "avenida")
   result <- str_replace_all(result, "^r\\b", "rua")
   result <- str_replace_all(result, "\\bs n\\b", "sn")
-  result <- str_squish(result)
-
-  return(result)
+  # Squish again: the descriptor removals leave a doubled space behind.
+  str_squish(result)
 }
 
 ## Generic school terms stripped by normalize_school() and used as a school-detection feature

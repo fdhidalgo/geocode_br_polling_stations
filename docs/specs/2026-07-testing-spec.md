@@ -105,9 +105,10 @@ return.
 **Group 2 — matching core** (the algorithm that determines geocoding quality):
 the four `match_*_muni` functions — `match_inep_muni` (`R/string_matching.R:193`),
 `match_schools_cnefe_muni` (`:261`), `match_stbairro_cnefe_muni` (`:309`),
-`match_stbairro_agrocnefe_muni` (`:377`) — plus the shared engine `match_strings_memory_efficient`
-(`:68`) and helpers `prefilter_by_common_words` (`:17`) and `get_adaptive_chunk_size` (`:172`). Testing
-the engine + `match_inep_muni` covers most of the risk; the two `stbairro` variants are ~95% identical.
+`match_stbairro_agrocnefe_muni` (`:377`) — plus the shared engine, since renamed to `match_strings`
+(the chunking apparatus and its `prefilter_by_common_words` / `get_adaptive_chunk_size` helpers were
+cut). Testing the engine + `match_inep_muni` covers most of the risk; the two `stbairro` variants are
+~95% identical.
 
 **Group 3 — panel identity** (the H6 row-order concern lives here):
 `process_year_pairs` (`R/panel_creation.R:24`), `make_panel_ids` (`:74`), `make_panel_1block` (`:196`).

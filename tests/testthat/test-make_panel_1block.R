@@ -1,8 +1,8 @@
 ## Spec tests for make_panel_1block() (R/panel_creation.R).
-## For one blocking group it runs the Fellegi-Sunter record linkage across years
-## and returns a long local_id -> panel_id table in which polling stations that
-## are the same place across years share a panel_id. When the block has data for
-## only one of the requested years there are no pairs to link, and it returns NULL.
+## For one blocking group it runs the Fellegi-Sunter record linkage across the years
+## the block holds and returns a long local_id -> panel_id table in which polling
+## stations that are the same place across years share a panel_id. A block covering
+## only one year has no pairs to link, and it returns NULL.
 ##
 ## The function prints progress via cat(); capture.output() keeps test output
 ## clean. Assertions are on the distinct local_id -> panel_id mapping, not on row
@@ -22,12 +22,7 @@ make_block <- function() {
 
 test_that("make_panel_1block links the same station across years under one panel_id", {
   invisible(capture.output(
-    out <- make_panel_1block(
-      copy(make_block()),
-      years = c(2018L, 2020L),
-      blocking_column = "cod_localidade_ibge",
-      scoring_columns = c("normalized_name", "normalized_addr")
-    )
+    out <- make_panel_1block(copy(make_block()))
   ))
 
   expect_s3_class(out, "data.table")
@@ -43,14 +38,9 @@ test_that("make_panel_1block links the same station across years under one panel
   expect_false(identical(pid("2018_1"), pid("2018_2")))
 })
 
-test_that("make_panel_1block returns NULL when a year has no data to link", {
+test_that("make_panel_1block returns NULL when the block covers only one year", {
   invisible(capture.output(
-    out <- make_panel_1block(
-      copy(make_block()[ano == 2018L]),
-      years = c(2018L, 2020L),
-      blocking_column = "cod_localidade_ibge",
-      scoring_columns = c("normalized_name", "normalized_addr")
-    )
+    out <- make_panel_1block(copy(make_block()[ano == 2018L]))
   ))
   expect_null(out)
 })

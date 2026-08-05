@@ -3,9 +3,9 @@
 
 library(data.table)
 
-EVAL_N_FOLDS <- 5L
+## Cells with fewer than this many geocoded stations have their accuracy metrics
+## suppressed: the percentile ladder is too noisy to report at that size.
 EVAL_MIN_CELL_N <- 50L
-EVAL_FOLD_SEED <- 20260710L
 
 ## Metric-ladder columns from accuracy_metrics(), suppressed together below the cell-size floor.
 EVAL_METRIC_COLS <- c(
@@ -90,7 +90,8 @@ get_station_zone <- function(tse_points, tract_shp) {
 
 # Assign each TSE-covered municipality to one of k folds. Grouping by municipality keeps
 # every station's candidate rows in one fold, so a held-out fold leaks no TSE target.
-assign_eval_folds <- function(model_data, k = EVAL_N_FOLDS, seed = EVAL_FOLD_SEED) {
+assign_eval_folds <- function(model_data) {
+  k <- 5L
   covered_munis <- sort(unique(
     model_data[!is.na(dist), cod_localidade_ibge]
   ))
@@ -105,7 +106,7 @@ assign_eval_folds <- function(model_data, k = EVAL_N_FOLDS, seed = EVAL_FOLD_SEE
     )
   }
   # Fixed seed so the split is reproducible across pipeline runs.
-  set.seed(seed)
+  set.seed(20260710L)
   folds <- sample(rep_len(seq_len(k), n_muni))
   data.table(cod_localidade_ibge = covered_munis, fold = folds)
 }
@@ -114,14 +115,7 @@ assign_eval_folds <- function(model_data, k = EVAL_N_FOLDS, seed = EVAL_FOLD_SEE
 # workflow on the other k-1 folds and predict the held-out one, reusing the production
 # model's tuned hyperparameters. Those hyperparameters were tuned on all municipalities,
 # a residual leakage channel deliberately accepted rather than paying for nested tuning.
-compute_oof_predictions <- function(
-  model_data,
-  trained_model,
-  fold_assignment,
-  offset = GBM_LOG_OFFSET
-) {
-  library(bonsai) # registers the lightgbm engine on the worker
-
+compute_oof_predictions <- function(model_data, trained_model, fold_assignment) {
   covered <- model_data[!is.na(dist) & !is.na(mindist)]
   covered <- merge(covered, fold_assignment, by = "cod_localidade_ibge")
   stopifnot(
@@ -145,7 +139,7 @@ compute_oof_predictions <- function(
 
     pred_logdist <- predict(fitted_wf, new_data = test_features)$.pred
     test_df[, pred_logdist := pred_logdist]
-    test_df[, pred_dist := exp(pred_logdist) - offset]
+    test_df[, pred_dist := exp(pred_logdist) - GBM_LOG_OFFSET]
     preds[[i]] <- test_df[, .(
       local_id,
       cod_localidade_ibge,
@@ -210,11 +204,7 @@ select_oof_matches <- function(
 
 # Coverage of field-collected TSE coordinates by election year x state, the ground-truth
 # density each accuracy stratum is read against. Small cells are flagged, not dropped.
-compute_tse_coverage <- function(
-  locais,
-  tsegeocoded_locais,
-  min_cell_n = EVAL_MIN_CELL_N
-) {
+compute_tse_coverage <- function(locais, tsegeocoded_locais) {
   totals <- locais[, .(n_total = .N), by = .(ano, sg_uf)]
   covered_ids <- unique(tsegeocoded_locais$local_id)
   covered <- locais[
@@ -225,7 +215,7 @@ compute_tse_coverage <- function(
   cov <- merge(totals, covered, by = c("ano", "sg_uf"), all.x = TRUE)
   cov[is.na(n_covered), n_covered := 0L]
   cov[, coverage_pct := 100 * n_covered / n_total]
-  cov[, suppressed := n_covered < min_cell_n]
+  cov[, suppressed := n_covered < EVAL_MIN_CELL_N]
   setorder(cov, ano, sg_uf)
   cov[]
 }
@@ -283,7 +273,7 @@ accuracy_metrics <- function(error_km) {
 # Metric ladder plus match rate for one grouping of the covered universe. `by_cols` is
 # empty for the overall row. Accuracy is measured on geocoded stations; match rate is the
 # share of covered stations geocoded at all, always reported alongside accuracy.
-.accuracy_by <- function(dt, by_cols, min_cell_n) {
+.accuracy_by <- function(dt, by_cols) {
   stratum <- if (length(by_cols) == 0L) "overall" else paste(by_cols, collapse = ":")
   # Copy only for the overall case, which adds a synthetic grouping column.
   if (length(by_cols) == 0L) {
@@ -308,8 +298,8 @@ accuracy_metrics <- function(error_km) {
   res[, level := do.call(paste, c(.SD, sep = ":")), .SDcols = by_cols]
   res[, stratum := stratum]
   # Suppress noisy metrics below the cell-size floor; counts and match rate stay visible.
-  res[n_geocoded < min_cell_n, (EVAL_METRIC_COLS) := NA_real_]
-  res[, suppressed := n_geocoded < min_cell_n]
+  res[n_geocoded < EVAL_MIN_CELL_N, (EVAL_METRIC_COLS) := NA_real_]
+  res[, suppressed := n_geocoded < EVAL_MIN_CELL_N]
   res[, (by_cols) := NULL]
   setcolorder(res, c("stratum", "level", "n_total", "n_geocoded", "match_rate"))
   res[]
@@ -318,21 +308,18 @@ accuracy_metrics <- function(error_km) {
 # Stratified accuracy tables over the covered set: overall, one per axis (urban/rural,
 # region, vintage, match source), and two urban/rural crosses, stacked long by
 # (stratum, level).
-compute_accuracy_tables <- function(
-  selected_matches,
-  min_cell_n = EVAL_MIN_CELL_N
-) {
+compute_accuracy_tables <- function(selected_matches) {
   tabs <- list(
-    .accuracy_by(selected_matches, character(0), min_cell_n),
-    .accuracy_by(selected_matches, "urban_rural", min_cell_n),
-    .accuracy_by(selected_matches, "region", min_cell_n),
-    .accuracy_by(selected_matches, "vintage", min_cell_n),
-    .accuracy_by(selected_matches, c("urban_rural", "vintage"), min_cell_n),
-    .accuracy_by(selected_matches, c("urban_rural", "region"), min_cell_n)
+    .accuracy_by(selected_matches, character(0)),
+    .accuracy_by(selected_matches, "urban_rural"),
+    .accuracy_by(selected_matches, "region"),
+    .accuracy_by(selected_matches, "vintage"),
+    .accuracy_by(selected_matches, c("urban_rural", "vintage")),
+    .accuracy_by(selected_matches, c("urban_rural", "region"))
   )
 
   # Match source exists only for geocoded stations, so its match rate has no denominator.
-  ms <- .accuracy_by(selected_matches[geocoded == TRUE], "match_source", min_cell_n)
+  ms <- .accuracy_by(selected_matches[geocoded == TRUE], "match_source")
   ms[, match_rate := NA_real_]
   tabs[[length(tabs) + 1L]] <- ms
 
@@ -342,7 +329,8 @@ compute_accuracy_tables <- function(
 # Check the predicted-distance ranking the pipeline trusts for match selection, two ways:
 # rank-and-filter (dropping the worst-predicted tail should lower realized median error)
 # and a reliability table summarized by Expected Normalized Calibration Error.
-compute_calibration <- function(selected_matches, n_bins = 10L) {
+compute_calibration <- function(selected_matches) {
+  n_bins <- 10L
   geo <- selected_matches[
     geocoded == TRUE & !is.na(pred_dist),
     .(pred_dist, error_km)

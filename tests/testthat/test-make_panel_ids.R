@@ -1,16 +1,15 @@
 ## Spec tests for make_panel_ids() (R/panel_creation.R).
-## Stacks the main and state panel-id tables, joins the final coordinate
-## (TSE-when-available, otherwise the model's selection) from geocoded_locais,
+## Joins the final coordinate (TSE-when-available, otherwise the model's
+## selection) from geocoded_locais onto the combined panel-id table,
 ## and assigns every station in a panel the single most accurate coordinate the
 ## panel offers: smallest pred_dist, ties broken toward the most recent year.
 ## Assertions are keyed on local_id, not row order.
 
 test_that("make_panel_ids picks each panel's smallest-pred_dist coordinate", {
-  panel_ids_df <- data.table::data.table(
-    local_id = c("l1", "l2"),
-    panel_id = c("p1", "p1")
+  panel_ids_combined <- data.table::data.table(
+    local_id = c("l1", "l2", "l3"),
+    panel_id = c("p1", "p1", "p2")
   )
-  panel_ids_states <- data.table::data.table(local_id = "l3", panel_id = "p2")
   geocoded_locais <- data.table::data.table(
     local_id = c("l1", "l2", "l3"),
     ano = c(2018L, 2022L, 2020L),
@@ -20,7 +19,7 @@ test_that("make_panel_ids picks each panel's smallest-pred_dist coordinate", {
     pred_dist = c(0.2, 0.5, 3.0)
   )
 
-  out <- make_panel_ids(copy(panel_ids_df), copy(panel_ids_states), copy(geocoded_locais))
+  out <- make_panel_ids(copy(panel_ids_combined), copy(geocoded_locais))
 
   expect_equal(nrow(out), 3L)
   expect_true(all(c("local_id", "panel_id", "long", "lat", "pred_dist") %in% names(out)))
@@ -43,11 +42,10 @@ test_that("make_panel_ids uses model coordinates when a panel has no TSE year", 
   # Regression guard: a panel whose only coordinates come from the model (all
   # pred_dist > 0, i.e. no TSE ground truth) must still receive a coordinate.
   # The bug this replaced read tse_long/tse_lat only, blanking such panels.
-  panel_ids_df <- data.table::data.table(
+  panel_ids_combined <- data.table::data.table(
     local_id = c("a1", "a2"),
     panel_id = c("pm", "pm")
   )
-  panel_ids_states <- data.table::data.table(local_id = character(0), panel_id = character(0))
   geocoded_locais <- data.table::data.table(
     local_id = c("a1", "a2"),
     ano = c(2006L, 2008L),
@@ -56,7 +54,7 @@ test_that("make_panel_ids uses model coordinates when a panel has no TSE year", 
     pred_dist = c(1.5, 0.8)
   )
 
-  out <- make_panel_ids(copy(panel_ids_df), copy(panel_ids_states), copy(geocoded_locais))
+  out <- make_panel_ids(copy(panel_ids_combined), copy(geocoded_locais))
 
   # Best (smallest pred_dist) is a2; both stations take it. No NA coordinates.
   expect_equal(sum(is.na(out$long)), 0L)
@@ -66,11 +64,10 @@ test_that("make_panel_ids uses model coordinates when a panel has no TSE year", 
 
 test_that("make_panel_ids leaves a panel uncoordinated only when every year is ungeocoded", {
   # The one legitimate NA case: a panel whose every station failed to geocode.
-  panel_ids_df <- data.table::data.table(
+  panel_ids_combined <- data.table::data.table(
     local_id = c("n1", "n2"),
     panel_id = c("pn", "pn")
   )
-  panel_ids_states <- data.table::data.table(local_id = character(0), panel_id = character(0))
   geocoded_locais <- data.table::data.table(
     local_id = c("n1", "n2"),
     ano = c(2010L, 2012L),
@@ -79,7 +76,7 @@ test_that("make_panel_ids leaves a panel uncoordinated only when every year is u
     pred_dist = c(NA_real_, NA_real_)
   )
 
-  out <- make_panel_ids(copy(panel_ids_df), copy(panel_ids_states), copy(geocoded_locais))
+  out <- make_panel_ids(copy(panel_ids_combined), copy(geocoded_locais))
 
   expect_true(all(is.na(out$long)))
   expect_true(all(is.na(out$lat)))

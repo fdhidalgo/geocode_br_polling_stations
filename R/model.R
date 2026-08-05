@@ -12,6 +12,45 @@ library(stringr)
 # shared by the forward transform and both inverse paths so they cannot drift apart.
 GBM_LOG_OFFSET <- 1e-4
 
+# Melt one match table's (match_long_*, match_lat_*, mindist_*) column triples into one row
+# per candidate coordinate, named by `types` in column order.
+melt_match_candidates <- function(matches, types) {
+  long <- melt(
+    matches,
+    id.vars = "local_id",
+    measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
+    variable.name = "type",
+    variable.factor = FALSE
+  )
+  long[, type := types[as.integer(type)]]
+  # More coordinate column groups than names means the match table's columns changed.
+  stopifnot(!anyNA(long$type))
+  long[]
+}
+
+# geocodebr returns an exact address match rather than a distance, so its candidates get a
+# synthetic mindist ranked by geocoding precision: house number, then street, then
+# municipality centroid. Lower is better, matching the string-matching distances.
+geocodebr_candidates <- function(geocodebr_match) {
+  candidates <- geocodebr_match[
+    !is.na(match_lat_geocodebr),
+    .(
+      local_id,
+      type = "geocodebr",
+      long = match_long_geocodebr,
+      lat = match_lat_geocodebr,
+      precision_score = fcase(
+        precisao_geocodebr == "numero"     , 3 ,
+        precisao_geocodebr == "logradouro" , 2 ,
+        precisao_geocodebr == "municipio"  , 1 ,
+        default = 0
+      )
+    )
+  ]
+  candidates[, mindist := (3 - precision_score) * 0.1]
+  candidates[]
+}
+
 # Assemble the modeling table: all candidate matches, address/municipal features, TSE distance.
 make_model_data <- function(
   cnefe10_stbairro_match,
@@ -26,153 +65,66 @@ make_model_data <- function(
   locais,
   tsegeocoded_locais
 ) {
-  # Assign the year to each dataset
-  cnefe10_stbairro_match[, ano := 2010]
-  cnefe22_stbairro_match[, ano := 2022]
-  schools_cnefe10_match[, ano := 2010]
-  schools_cnefe22_match[, ano := 2022]
-
-  # Combine CNEFE neighborhood and address data
-  cnefe_list <- list(cnefe10_stbairro_match, cnefe22_stbairro_match)
+  # Each source names its coordinate columns after itself, so the tables are melted
+  # separately and stacked afterwards rather than row-bound first.
+  match_list <- list(
+    melt_match_candidates(cnefe10_stbairro_match, c("st_cnefe_2010", "bairro_cnefe_2010")),
+    melt_match_candidates(cnefe22_stbairro_match, c("st_cnefe_2022", "bairro_cnefe_2022")),
+    melt_match_candidates(schools_cnefe10_match, "schools_cnefe_name_2010"),
+    melt_match_candidates(schools_cnefe22_match, "schools_cnefe_name_2022"),
+    melt_match_candidates(inep_string_match, c("schools_inep_name", "schools_inep_addr")),
+    geocodebr_candidates(geocodebr_match)
+  )
   # agro match is tolerated empty until re-verified on a full production run
   if (nrow(agrocnefe_stbairro_match) > 0L) {
-    agrocnefe_stbairro_match[, ano := 2017]
-    cnefe_list <- c(cnefe_list, list(agrocnefe_stbairro_match))
+    match_list <- c(
+      match_list,
+      list(melt_match_candidates(
+        agrocnefe_stbairro_match,
+        c("st_agrocnefe_2017", "bairro_agrocnefe_2017")
+      ))
+    )
   }
-  cnefe_stbairro_match <- rbindlist(cnefe_list, use.names = TRUE, fill = TRUE)
 
-  schools_cnefe_match <- rbindlist(
-    list(schools_cnefe10_match, schools_cnefe22_match),
-    use.names = TRUE,
-    fill = TRUE
-  )
-
-  # Melt the CNEFE data to long format
-  cnefe_stbairro_match <- melt(
-    cnefe_stbairro_match,
-    id.vars = c("local_id", "ano"),
-    measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
-    variable.name = "type",
-    variable.factor = FALSE
-  )
-  cnefe_stbairro_match[,
-    type := paste0(fifelse(type == 1, "st_cnefe", "bairro_cnefe"), "_", ano)
-  ]
-  cnefe_stbairro_match[, ano := NULL]
-
-  # Melt the schools CNEFE data to long format
-  schools_cnefe_match <- melt(
-    schools_cnefe_match,
-    id.vars = c("local_id", "ano"),
-    measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
-    variable.name = "type",
-    variable.factor = FALSE
-  )
-  schools_cnefe_match[,
-    type := paste0(
-      fifelse(type == 1, "schools_cnefe_name", "schools_cnefe_addr"),
-      "_",
-      ano
-    )
-  ]
-  schools_cnefe_match[, ano := NULL]
-
-  # Melt the INEP data to long format
-  inep_string_match <- melt(
-    inep_string_match,
-    id.vars = c("local_id"),
-    measure.vars = patterns(long = "match_long_", lat = "match_lat_", mindist = "mindist_"),
-    variable.name = "type",
-    variable.factor = FALSE
-  )
-  inep_string_match[,
-    type := fifelse(type == 1, "schools_inep_name", "schools_inep_addr")
-  ]
-
-  # Process geocodebr data to long format, using the same column names as the melted data
-  geocodebr_long <- geocodebr_match[
-    !is.na(match_lat_geocodebr),
-    .(
-      local_id,
-      type = "geocodebr",
-      long = match_long_geocodebr,
-      lat = match_lat_geocodebr,
-      mindist = mindist_geocodebr, # Always 0 for geocodebr
-      # Add precision as a numeric score (higher = better)
-      precision_score = fcase(
-        precisao_geocodebr == "numero"     , 3 ,
-        precisao_geocodebr == "logradouro" , 2 ,
-        precisao_geocodebr == "municipio"  , 1 ,
-        default = 0
-      )
-    )
-  ]
-  # Adjust mindist to reflect precision (lower = better in the model)
-  # Since geocodebr returns exact matches (mindist=0), we use a synthetic distance
-  # based on geocoding precision: number-level (best) < street-level < municipality-level (worst)
-  geocodebr_long[, mindist := (3 - precision_score) * 0.1]
-
-  # Prepare municipal demographic data
-  muni_demo[, logpop := log(POP)]
-  muni_demo[, pct_rural := 100 * pesoRUR / POP]
+  # A fresh table, so the pipeline's muni_demo target is not mutated by reference.
   muni_demo <- muni_demo[
     ANO == 2010,
-    .(cod_localidade_ibge = Codmun7, logpop, pct_rural)
+    .(
+      cod_localidade_ibge = Codmun7,
+      logpop = log(POP),
+      pct_rural = 100 * pesoRUR / POP
+    )
   ]
 
-  # Prepare address features; school_synonyms comes from R/data_cleaning.R.
-  addr_features <- locais[, .(
-    local_id,
-    nm_locvot,
-    ds_endereco,
-    ds_bairro,
-    normalized_addr,
-    normalized_name
-  )]
-  addr_features[,
-    norm_name := stringi::stri_trans_general(nm_locvot, "Latin-ASCII") |>
-      str_to_lower() |>
-      str_remove_all("\\.") |>
-      str_remove_all("[[:punct:]]") |>
-      str_squish()
-  ]
-  addr_features[,
-    centro := fifelse(grepl("\\bcentro\\b", normalized_addr) == TRUE, 1, 0)
-  ]
+  # Address and name features; SCHOOL_SYNONYM_PATTERN comes from R/data_cleaning.R.
+  addr_features <- locais[, .(local_id, nm_locvot, ds_endereco, ds_bairro, normalized_addr)]
+  # normalize_name(), not normalize_school(): the school feature looks for exactly the
+  # generic terms normalize_school() strips out.
+  addr_features[, norm_name := normalize_name(nm_locvot)]
+  addr_features[, centro := fifelse(grepl("\\bcentro\\b", normalized_addr), 1, 0)]
   addr_features[,
     zona_rural := fifelse(
-      grepl("\\brural\\b", ds_endereco, ignore.case = TRUE, useBytes = TRUE) == TRUE |
-        grepl("\\brural\\b", ds_bairro, ignore.case = TRUE, useBytes = TRUE) == TRUE,
+      grepl("\\brural\\b", ds_endereco, ignore.case = TRUE, useBytes = TRUE) |
+        grepl("\\brural\\b", ds_bairro, ignore.case = TRUE, useBytes = TRUE),
       1,
       0
     )
   ]
   addr_features[,
     school := fifelse(
-      grepl(paste0("\\b", school_synonyms, "\\b", collapse = "|"), norm_name) == TRUE,
+      grepl(SCHOOL_SYNONYM_PATTERN, norm_name),
       1,
       0
     )
   ]
-  addr_features[, length_norm_name := nchar(norm_name)]
-  addr_features[, length_norm_addr := nchar(normalized_addr)]
-
   addr_features <- addr_features[, .(
     local_id,
     centro,
     zona_rural,
     school,
-    length_norm_name,
-    length_norm_addr
+    length_norm_name = nchar(norm_name),
+    length_norm_addr = nchar(normalized_addr)
   )]
-
-  # Combine string matching data from multiple sources
-  match_list <- list(
-    cnefe_stbairro_match,
-    schools_cnefe_match,
-    inep_string_match,
-    geocodebr_long
-  )
 
   matching_data <- rbindlist(match_list, use.names = TRUE, fill = TRUE) |>
     merge(
@@ -244,17 +196,11 @@ build_gbm_workflow <- function(data) {
     workflows::add_model(gbm_spec)
 }
 
-train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE) {
-  # Function to train a model using the provided data
-
-  library(bonsai)
-
-  # Log training configuration
-  if (dev_mode) {
-    message("Training model in DEV MODE: using 4 CV folds and grid_n = ", grid_n)
-  } else {
-    message("Training model in PRODUCTION MODE: using 10 CV folds and grid_n = ", grid_n)
-  }
+train_model <- function(model_data, dev_mode) {
+  # tune_race_anova needs more than its 3 burn-in resamples, so 4 is the dev-mode floor.
+  n_folds <- if (dev_mode) 4 else 10
+  grid_n <- if (dev_mode) 5 else 50
+  message(sprintf("Training model with %d CV folds and a grid of %d candidates", n_folds, grid_n))
 
   if (nrow(model_data) == 0) {
     stop("No data available for model training")
@@ -268,11 +214,6 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
     stop("No data left after filtering missing values")
   }
 
-  if (is.null(sample) == FALSE) {
-    # Sample the data if a sample size is provided
-    model_data <- model_data[sample(1:nrow(model_data), sample), ]
-  }
-
   ## Split the data into training and testing sets
   splits <- rsample::group_initial_split(
     model_data,
@@ -283,10 +224,6 @@ train_model <- function(model_data, grid_n = 10, sample = NULL, dev_mode = FALSE
   training_set <- rsample::training(splits)
   testing_set <- rsample::testing(splits)
 
-  ## Create a cross-validation plan
-  # Use fewer folds in dev mode for faster training
-  # Note: tune_race_anova requires at least 4 folds (more than 3 burn-in resamples)
-  n_folds <- ifelse(dev_mode, 4, 10)
   vfolds <- rsample::group_vfold_cv(
     training_set,
     group = cod_localidade_ibge,

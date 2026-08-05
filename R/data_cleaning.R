@@ -3,12 +3,9 @@
 library(data.table)
 library(stringr)
 
-# Renames source-specific column variants (TSE, CNEFE, panel) to the pipeline's names.
-standardize_column_names <- function(dt, inplace = FALSE) {
-  if (!inplace) {
-    dt <- copy(dt)
-  }
-
+# Renames source-specific column variants (TSE, CNEFE, panel) to the pipeline's names,
+# in place.
+standardize_column_names <- function(dt) {
   old_names <- names(dt)
 
   replacements <- c(
@@ -42,10 +39,7 @@ standardize_column_names <- function(dt, inplace = FALSE) {
   }
 
   data.table::setnames(dt, old_names, new_names)
-
-  if (!inplace) {
-    return(dt)
-  }
+  invisible(dt)
 }
 
 # Labels for the CNEFE "espécie de endereço" codes. 2010 uses 7 codes keyed on `especie`;
@@ -317,7 +311,7 @@ clean_agro_cnefe <- function(agro_cnefe_files, muni_ids) {
     )
   }
 
-  standardize_column_names(agro_cnefe, inplace = TRUE)
+  standardize_column_names(agro_cnefe)
 
   agro_cnefe[, norm_street := normalize_address(street)]
   agro_cnefe[, norm_bairro := normalize_address(nome_localidade)]
@@ -355,18 +349,25 @@ import_locais <- function(locais_file, muni_ids) {
 
   setnames(locais_data, janitor::make_clean_names(names(locais_data)))
 
-  locais_data[, ds_bairro := ifelse(is.na(ds_bairro), "", ds_bairro)]
-  locais_data[, ds_endereco := ifelse(is.na(ds_endereco), "", ds_endereco)]
+  # The source writes "no address recorded" as an empty string. Keep it NA, so downstream
+  # code cannot confuse it with an address that normalized away to nothing.
+  locais_data[ds_endereco == "", ds_endereco := NA_character_]
+  locais_data[ds_bairro == "", ds_bairro := NA_character_]
 
   locais_data[, normalized_name := normalize_school(nm_locvot)]
-  locais_data[,
-    normalized_addr := paste(
-      normalize_address(ds_endereco),
-      normalize_address(ds_bairro)
-    )
-  ]
   locais_data[, normalized_st := normalize_address(ds_endereco)]
   locais_data[, normalized_bairro := normalize_address(ds_bairro)]
+  # The combined address keeps whichever half is recorded, and is NA only if neither is.
+  locais_data[,
+    normalized_addr := str_squish(paste(
+      fcoalesce(normalized_st, ""),
+      fcoalesce(normalized_bairro, "")
+    ))
+  ]
+  locais_data[
+    is.na(normalized_st) & is.na(normalized_bairro),
+    normalized_addr := NA_character_
+  ]
 
   locais_data <- merge(
     locais_data,
@@ -536,20 +537,20 @@ school_synonyms <- c(
   "prof"
 )
 
-normalize_school <- function(x) {
-  ## Normalize school names by removing generic terms and standardizing format
+# Lowercase, ASCII, punctuation-free form of a name.
+normalize_name <- function(x) {
   result <- stringi::stri_trans_general(x, "Latin-ASCII")
   result <- str_to_lower(result)
-  result <- str_remove_all(result, "\\.")
   result <- str_remove_all(result, "[[:punct:]]")
-  result <- str_squish(result)
-  result <- str_remove_all(
-    result,
-    paste0("\\b", school_synonyms, "\\b", collapse = "|")
-  )
-  result <- str_squish(result)
+  str_squish(result)
+}
 
-  return(result)
+# normalize_name() plus removal of the generic school terms, so two records for the same
+# school match on what distinguishes it rather than on "escola municipal".
+SCHOOL_SYNONYM_PATTERN <- paste0("\\b", school_synonyms, "\\b", collapse = "|")
+
+normalize_school <- function(x) {
+  str_squish(str_remove_all(normalize_name(x), SCHOOL_SYNONYM_PATTERN))
 }
 
 # Cleans the INEP school census and normalizes its school names and addresses.
@@ -693,10 +694,7 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
       "cod_unico_endereco"
     )
 
-    cols_to_drop <- cols_to_drop[cols_to_drop %in% names(cnefe_chunk)]
-    if (length(cols_to_drop) > 0) {
-      cnefe_chunk[, (cols_to_drop) := NULL]
-    }
+    cnefe_chunk[, (cols_to_drop) := NULL]
 
     cnefe_chunk[, cod_municipio := str_pad(cod_municipio, width = 5, side = "left", pad = "0")]
     cnefe_chunk[, cod_distrito := str_pad(cod_distrito, width = 2, side = "left", pad = "0")]
@@ -796,16 +794,11 @@ clean_cnefe10 <- function(cnefe_file, muni_ids, tract_centroids, extract_schools
 
   if (extract_schools) {
     message("Extracting schools...")
+    # An empty norm_desc has no name to match, so drop it (as get_cnefe22_schools() does).
     schools <- addr[especie_lab == "estabelecimento de ensino"]
-
-    if (nrow(schools) > 0) {
-      # An empty norm_desc has no name to match, so drop it (as get_cnefe22_schools() does).
-      schools[, norm_desc := normalize_school(desc)]
-      schools <- schools[norm_desc != ""]
-      message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
-    } else {
-      message("No schools found in this dataset")
-    }
+    schools[, norm_desc := normalize_school(desc)]
+    schools <- schools[norm_desc != ""]
+    message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
 
     gc(verbose = FALSE)
     message("CNEFE processing complete")

@@ -190,3 +190,12 @@ format_string_match_diagnostics <- function(diagnostics) {
 
   paste(lines, collapse = "\n")
 }
+
+# Print the match-quality report and write it alongside the released outputs.
+write_string_match_diagnostics <- function(string_match_diagnostics) {
+  report_text <- format_string_match_diagnostics(string_match_diagnostics)
+  cat(report_text)
+  dir.create("output", showWarnings = FALSE)
+  writeLines(report_text, "./output/string_match_diagnostics.txt")
+  "./output/string_match_diagnostics.txt"
+}

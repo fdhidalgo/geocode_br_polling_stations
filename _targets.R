@@ -99,29 +99,7 @@ list(
   # Pipeline configuration based on development mode
   tar_target(
     name = pipeline_config,
-    command = {
-      config <- get_pipeline_config(dev_mode_flag)
-      # Add word blocking setting to config
-      config$use_word_blocking <- TRUE # Set to TRUE to enable two-level blocking
-
-      # Log configuration
-      if (config$dev_mode) {
-        message("Running in DEVELOPMENT MODE")
-        message(
-          "Processing states: ",
-          paste(config$dev_states, collapse = ", ")
-        )
-      } else {
-        message("Running in PRODUCTION MODE")
-        message("Processing all Brazilian states")
-      }
-      message(
-        "Two-level blocking for panel IDs is ",
-        ifelse(config$use_word_blocking, "ENABLED", "DISABLED")
-      )
-
-      config
-    }
+    command = get_pipeline_config(dev_mode_flag)
   ),
 
   # --- Data import targets ---
@@ -140,11 +118,7 @@ list(
   ),
   tar_target(
     name = muni_ids,
-    command = filter_by_dev_mode(
-      muni_ids_all,
-      pipeline_config$dev_states,
-      id_column = "estado_abrev"
-    ),
+    command = filter_by_dev_mode(muni_ids_all, pipeline_config$dev_states, "estado_abrev"),
     format = "qs"
   ),
   tar_target(
@@ -170,18 +144,12 @@ list(
   ),
   tar_target(
     name = tract_shp,
-    command = {
-      # Explicitly depend on pipeline_config
-      if (pipeline_config$dev_mode) {
-        dev_state_codes <- substr(as.character(muni_ids$id_munic_7), 1, 2)
-        tract_filtered <- tract_shp_all[
-          substr(tract_shp_all$code_tract, 1, 2) %in% unique(dev_state_codes),
-        ]
-        sf::st_as_sf(tract_filtered)
-      } else {
-        tract_shp_all
-      }
-    }
+    command = filter_to_run_munis(
+      tract_shp_all,
+      "code_tract",
+      muni_ids,
+      pipeline_config$dev_mode
+    )
   ),
   tar_target(
     name = muni_shp_file,
@@ -195,18 +163,7 @@ list(
   ),
   tar_target(
     name = muni_shp,
-    command = {
-      # Explicitly depend on pipeline_config
-      if (pipeline_config$dev_mode) {
-        dev_muni_codes <- muni_ids$id_munic_7
-        muni_filtered <- muni_shp_all[
-          muni_shp_all$code_muni %in% dev_muni_codes,
-        ]
-        sf::st_as_sf(muni_filtered)
-      } else {
-        muni_shp_all
-      }
-    }
+    command = filter_to_run_munis(muni_shp_all, "code_muni", muni_ids, pipeline_config$dev_mode)
   ),
   ## import municipal demographic data
   tar_target(
@@ -221,14 +178,7 @@ list(
   ),
   tar_target(
     name = muni_demo,
-    command = {
-      # Explicitly depend on pipeline_config
-      if (pipeline_config$dev_mode) {
-        muni_demo_all[Codmun7 %in% muni_ids$id_munic_7]
-      } else {
-        muni_demo_all
-      }
-    }
+    command = filter_to_run_munis(muni_demo_all, "Codmun7", muni_ids, pipeline_config$dev_mode)
   ),
 
   # --- Geographic features ---
@@ -420,11 +370,7 @@ list(
   # INEP data filtered by development mode
   tar_target(
     name = inep_data,
-    command = apply_dev_mode_filters(
-      inep_data_all,
-      pipeline_config,
-      state_col = "uf"
-    )
+    command = filter_by_dev_mode(inep_data_all, pipeline_config$dev_states, "uf")
   ),
 
   # --- Polling station data ---
@@ -450,11 +396,7 @@ list(
   # Locais data filtered by development mode
   tar_target(
     name = locais,
-    command = apply_dev_mode_filters(
-      locais_all,
-      pipeline_config,
-      state_col = "sg_uf"
-    ),
+    command = filter_by_dev_mode(locais_all, pipeline_config$dev_states, "sg_uf"),
     format = "qs"
   ),
   # Filter Brasília from municipal election years - using helper function
@@ -498,13 +440,10 @@ list(
   ## Create municipality batches for panel ID processing
   tar_target(
     name = panel_municipality_batches,
-    command = {
-      # Explicitly depend on pipeline_config
-      create_panel_municipality_batches(
-        locais_data = locais_filtered,
-        target_batch_size = ifelse(pipeline_config$dev_mode, 2000, 5000)
-      )
-    }
+    command = create_panel_municipality_batches(
+      locais_data = locais_filtered,
+      target_batch_size = ifelse(pipeline_config$dev_mode, 2000, 5000)
+    )
   ),
 
   ## Extract unique batch IDs for dynamic branching
@@ -516,25 +455,11 @@ list(
   ## Process panel IDs by municipality batch using dynamic branching
   tar_target(
     name = panel_ids_by_batch,
-    command = {
-      # Get municipalities for this batch
-      # In dynamic branching, panel_batch_ids represents the current batch ID value
-      current_batch_id <- panel_batch_ids
-      batch_municipalities <- panel_municipality_batches[
-        batch_id == current_batch_id
-      ]
-
-      # Process panel IDs for this batch
-      process_panel_ids_municipality_batch(
-        locais_full = locais_filtered,
-        municipality_batch = batch_municipalities,
-        years = c(2006, 2008, 2010, 2012, 2014, 2016, 2018, 2020, 2022, 2024),
-        blocking_column = "cod_localidade_ibge",
-        scoring_columns = c("normalized_name", "normalized_addr"),
-        use_word_blocking = pipeline_config$use_word_blocking,
-        panel_weight_threshold = pipeline_config$panel_weight_threshold
-      )
-    },
+    # panel_batch_ids is this branch's batch id.
+    command = process_panel_ids_municipality_batch(
+      locais_full = locais_filtered,
+      municipality_batch = panel_municipality_batches[batch_id == panel_batch_ids]
+    ),
     pattern = map(panel_batch_ids),
     iteration = "list",
     # Mega-city batches (Sao Paulo, Rio) run 25+ minutes single-threaded here, which
@@ -559,15 +484,7 @@ list(
   ## Final panel IDs with coordinates
   tar_target(
     name = panel_ids,
-    command = {
-      # The combined panel IDs are already properly formatted; make_panel_ids()
-      # attaches each panel's best coordinate. Pass the full geocoded output
-      # (geocoded_locais) - not the TSE-only table - so panels whose years
-      # predate TSE ground truth still get the model's coordinate, and pred_dist
-      # is available to pick the most accurate one. Empty df_panels because all
-      # states are already combined.
-      make_panel_ids(data.table(), panel_ids_combined, geocoded_locais)
-    },
+    command = make_panel_ids(panel_ids_combined, geocoded_locais),
     format = "qs"
   ),
 
@@ -588,11 +505,7 @@ list(
   # Filter section mapping by development mode
   tar_target(
     name = secc_loc_map,
-    command = apply_dev_mode_filters(
-      secc_loc_map_all,
-      pipeline_config,
-      state_col = "sg_uf"
-    ),
+    command = filter_by_dev_mode(secc_loc_map_all, pipeline_config$dev_states, "sg_uf"),
     format = "qs"
   ),
 
@@ -837,8 +750,7 @@ list(
     command = process_geocodebr_batch(
       batch_ids = batch_ids,
       municipality_batch_assignments = municipality_batch_assignments,
-      locais_filtered = locais_filtered,
-      muni_ids = muni_ids
+      locais_filtered = locais_filtered
     ),
     pattern = map(batch_ids),
     iteration = "list",
@@ -875,13 +787,7 @@ list(
   # Save diagnostics report
   tar_target(
     name = string_match_diagnostics_report,
-    command = {
-      report_text <- format_string_match_diagnostics(string_match_diagnostics)
-      cat(report_text)
-      dir.create("output", showWarnings = FALSE)
-      writeLines(report_text, "output/string_match_diagnostics.txt")
-      "output/string_match_diagnostics.txt"
-    },
+    command = write_string_match_diagnostics(string_match_diagnostics),
     format = "file",
     repository = "local"
   ),
@@ -921,11 +827,7 @@ list(
   ## Train model and make predictions
   tar_target(
     name = trained_model,
-    command = train_model(
-      model_data,
-      grid_n = ifelse(pipeline_config$dev_mode, 5, 50),
-      dev_mode = pipeline_config$dev_mode
-    ),
+    command = train_model(model_data, pipeline_config$dev_mode),
   ),
   tar_target(
     name = model_predictions,
@@ -1070,11 +972,7 @@ list(
   ),
   tar_target(
     name = section_panel_export,
-    command = {
-      dir.create("output", showWarnings = FALSE)
-      fwrite(section_panel_mapping, "output/section_panel_mapping.csv.gz")
-      "output/section_panel_mapping.csv.gz"
-    },
+    command = export_section_panel_mapping(section_panel_mapping),
     format = "file",
     repository = "local"
   ),
@@ -1107,7 +1005,7 @@ list(
       panel_ids = panel_ids,
       # Expected municipality count is derived from the states this run processes, so a
       # dev-filtered (AC/RR) output does not trip the municipality-count check.
-      expected_municipality_count = get_expected_municipality_count_for_config(pipeline_config)
+      expected_municipality_count = expected_municipality_count(pipeline_config$dev_mode)
     ),
     # Always run monitoring to catch issues early
     cue = tar_cue(mode = "always")

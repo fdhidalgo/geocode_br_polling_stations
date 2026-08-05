@@ -545,26 +545,45 @@ create_two_level_blocked_pairs <- function(data1, data2) {
   x_all_words <- extract_significant_words(scored_text(data1, unique_x))
   y_all_words <- extract_significant_words(scored_text(data2, unique_y))
 
-  x_lookup <- match(x_indices, unique_x)
-  y_lookup <- match(y_indices, unique_y)
+  x_thin <- lengths(x_all_words) < min_words
+  y_thin <- lengths(y_all_words) < min_words
 
-  keep_pair <- logical(nrow(pairs))
-  no_words_count <- 0
-  no_match_count <- 0
-
-  for (i in seq_len(nrow(pairs))) {
-    x_words <- x_all_words[[x_lookup[i]]]
-    y_words <- y_all_words[[y_lookup[i]]]
-
-    if (length(x_words) < min_words || length(y_words) < min_words) {
-      keep_pair[i] <- TRUE
-      no_words_count <- no_words_count + 1
-    } else {
-      has_match <- any(x_words %in% y_words)
-      keep_pair[i] <- has_match
-      if (!has_match) no_match_count <- no_match_count + 1
-    }
+  # Word -> record tables driving the overlap test. Municipality rides along as part of the
+  # join key, so the join can only produce pairs municipality blocking already allows —
+  # without it a word common across the state would cross-join every record holding it.
+  # Thin records are left out: their pairs are kept whatever the overlap.
+  word_table <- function(word_lists, thin, muni_by_slot) {
+    slot <- rep.int(seq_along(word_lists), lengths(word_lists))
+    keep <- !thin[slot]
+    data.table(
+      slot = slot[keep],
+      word = unlist(word_lists, use.names = FALSE)[keep],
+      muni = muni_by_slot[slot[keep]]
+    )
   }
+  x_words <- word_table(x_all_words, x_thin, data1$cod_localidade_ibge[unique_x])
+  y_words <- word_table(y_all_words, y_thin, data2$cod_localidade_ibge[unique_y])
+  setnames(x_words, "slot", "x_slot")
+  setnames(y_words, "slot", "y_slot")
+
+  # "Shares at least one significant word" as a set intersection over the word tables,
+  # rather than a scan over the (millions of) blocked pairs.
+  shared <- unique(
+    merge(x_words, y_words, by = c("muni", "word"), allow.cartesian = TRUE)[, .(x_slot, y_slot)]
+  )
+
+  pair_slots <- data.table(
+    x_slot = match(x_indices, unique_x),
+    y_slot = match(y_indices, unique_y),
+    shares_word = FALSE
+  )
+  pair_slots[shared, shares_word := TRUE, on = c("x_slot", "y_slot")]
+
+  thin_pair <- x_thin[pair_slots$x_slot] | y_thin[pair_slots$y_slot]
+  keep_pair <- thin_pair | pair_slots$shares_word
+
+  no_words_count <- sum(thin_pair)
+  no_match_count <- sum(!keep_pair)
 
   if (no_match_count > 0) {
     cat("    Note: ", no_match_count, " pairs excluded (no shared words)\n", sep = "")

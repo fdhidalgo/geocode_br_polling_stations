@@ -215,11 +215,13 @@ elif [ "$worktree_whole" = true ] && stores_in_step_with_main; then
   snapshot_note="in step with the main checkout"
 else
   snapshot_action="clone"
-  # A store directory that exists at all means this is a replacement, not a first
-  # seed — including a torn one, whose meta/ never arrived.
+  # A store holding any data of its own means this is a replacement, not a first
+  # seed — including a torn one, whose meta/ never arrived. Asking whether the
+  # directory exists would not do: _targets/ carries a tracked .gitignore, so git
+  # materialises it in every fresh worktree.
   snapshot_note="cloned from the main checkout"
   for rel in $STORE_DIRS; do
-    if [ -d "$repo_root/$rel" ]; then
+    if holds_ignored_content "$repo_root" "$rel"; then
       snapshot_note="re-cloned: it was incomplete, or nothing had been built here and the main checkout had moved on"
       break
     fi

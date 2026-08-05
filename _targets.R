@@ -904,7 +904,7 @@ list(
   tar_render(
     name = evaluation_report,
     path = "reports/evaluation_report.qmd",
-    output_dir = "reports"
+    output_dir = run_output_dir("reports", DEV_MODE)
   ),
 
   # --- Final geocoding ---
@@ -987,10 +987,9 @@ list(
     cue = tar_cue(mode = "always")
   ),
   ## Sanity Check Report
-  # Sanity check report - generate if quarto file exists
   tar_render(
     name = sanity_check_report,
     path = "reports/polling_station_sanity_check.qmd",
-    output_dir = "reports"
+    output_dir = run_output_dir("reports", DEV_MODE)
   )
 )

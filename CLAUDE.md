@@ -133,8 +133,9 @@ run time.
 - `output/geocoded_polling_stations.csv.gz`: Final geocoded coordinates
 - `output/panel_ids.csv.gz`: Panel identifiers linking stations across time
 
-Dev runs write the same filenames under `output/dev/`, so an AC/RR rebuild can
-never replace a released file.
+Dev runs write the same filenames under `output/dev/` (and their rendered
+reports under `reports/dev/`), so an AC/RR rebuild can never replace a released
+file.
 
 **AWS S3 Storage Architecture**:
 - Bucket: `geocode-br-polling-stations`

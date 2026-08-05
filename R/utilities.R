@@ -117,7 +117,7 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
 
     # Schools come out of the same in-memory pass, so the state file is read once.
     cleaned <- clean_cnefe10(
-      cnefe_file = state_data,
+      cnefe10 = state_data,
       muni_ids = state_muni_ids,
       tract_centroids = state_tract_centroids,
       extract_schools = TRUE

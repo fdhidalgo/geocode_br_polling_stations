@@ -461,15 +461,7 @@ list(
       municipality_batch = panel_municipality_batches[batch_id == panel_batch_ids]
     ),
     pattern = map(panel_batch_ids),
-    iteration = "list",
-    # Mega-city batches (Sao Paulo, Rio) run 25+ minutes single-threaded here, which
-    # crew 1.3.1 mistook for a dead worker until keep_crew_launch_handles() fixed it.
-    deployment = "worker",
-    storage = "worker",
-    retrieval = "worker",
-    resources = tar_resources(
-      crew = tar_resources_crew(controller = "standard")
-    )
+    iteration = "list"
   ),
 
   ## Combine panel IDs from all batches

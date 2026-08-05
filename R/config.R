@@ -105,39 +105,13 @@ expected_municipality_count <- function(dev_mode) {
   if (dev_mode) sum(DEV_STATE_MUNICIPALITY_COUNTS) else 5570
 }
 
-# Retain a strong reference to every processx handle the launcher creates, so
-# crew's local launcher cannot SIGKILL a live worker when a pruned launch-handle
-# row is garbage-collected in the main process.
-#
-# The wrapper must be installed with assign() into the launcher environment:
-# `controller$launcher$launch_worker <- ...` fails because R's compound
-# assignment writes the launcher back through the controller's read-only
-# `launcher` active binding.
-keep_crew_launch_handles <- function(controller) {
-  launcher <- controller$launcher
-  handles <- list()
-  orig_launch_worker <- launcher$launch_worker
-  wrapper <- function(call) {
-    handle <- orig_launch_worker(call)
-    handles[[length(handles) + 1L]] <<- handle
-    handle
-  }
-  unlockBinding("launch_worker", launcher)
-  assign("launch_worker", wrapper, envir = launcher)
-  lockBinding("launch_worker", launcher)
-  invisible(controller)
-}
-
-# The only sanctioned way to build a local crew controller here: constructing the
-# controller and installing the handle keeper are inseparable, so no controller
-# can silently skip the protection.
-crew_controller_local_kept <- function(...) {
-  keep_crew_launch_handles(crew::crew_controller_local(...))
-}
-
 # Build the crew controller group used for parallel processing. The same
 # controllers serve dev and production; crew only spawns workers as needed.
 get_crew_controllers <- function() {
+  # Earlier crew versions let a garbage collection in the main process kill a live worker:
+  # the longest-running batch of a stage died silently, with no R error and no OOM entry.
+  stopifnot(packageVersion("crew") >= "1.3.2")
+
   # Capture each worker's stdout/stderr to per-worker log files, so a worker that
   # dies mid-task leaves its actual dying error on disk instead of only the opaque
   # "worker crashed N consecutive times" message. Created eagerly: crew does not
@@ -146,11 +120,11 @@ get_crew_controllers <- function() {
   dir.create(crew_log_dir, showWarnings = FALSE, recursive = TRUE)
 
   # Standard controller for most tasks - sized for a 32-core machine.
-  controller_standard <- crew_controller_local_kept(
+  controller_standard <- crew::crew_controller_local(
     name = "standard",
     workers = 28, # Max workers - crew only spawns as needed
-    seconds_idle = Inf, # no idle churn
-    seconds_wall = Inf, # no wall-time churn
+    seconds_idle = 30,
+    seconds_wall = 3600,
     seconds_timeout = 300,
     reset_globals = TRUE,
     reset_packages = FALSE,
@@ -160,11 +134,11 @@ get_crew_controllers <- function() {
 
   # Memory-limited controller for CNEFE operations: fewer workers, more memory
   # per worker.
-  controller_memory <- crew_controller_local_kept(
+  controller_memory <- crew::crew_controller_local(
     name = "memory_limited",
     workers = 8, # Max workers for memory-intensive tasks
-    seconds_idle = Inf, # no idle churn
-    seconds_wall = Inf, # no wall-time churn
+    seconds_idle = 60,
+    seconds_wall = 7200, # 2 hours for memory-intensive tasks
     seconds_timeout = 600, # 10 minutes timeout
     reset_globals = TRUE,
     reset_packages = FALSE,

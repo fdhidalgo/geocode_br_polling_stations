@@ -2,19 +2,40 @@
 
 library(data.table)
 
-# Stage validators stop on failure, so each returns a receipt rather than a
-# pass/fail flag. The export targets take those receipts as dependency-only
-# `gates` arguments, which is what keeps a targeted build from writing an
-# output past a validation failure.
+# The exact geocoded_locais schema written to geocoded_polling_stations.csv.gz, in the
+# order finalize_coords() produces it. Checked twice: validate_final_output() requires
+# every column before the export runs, release Gate 2 asserts set equality after it.
+RELEASE_EXPORT_COLS <- c(
+  "cd_localidade_tse",
+  "ano",
+  "nr_zona",
+  "nr_locvot",
+  "nr_cep",
+  "sg_uf",
+  "nm_localidade",
+  "nm_locvot",
+  "ds_endereco",
+  "ds_bairro",
+  "cod_localidade_ibge",
+  "local_id",
+  "pred_long",
+  "pred_lat",
+  "pred_dist",
+  "tse_lat",
+  "tse_long",
+  "final_long",
+  "final_lat"
+)
 
 # Asserts the assembled model table is non-empty, keyed, and free of duplicate rows.
+# anyDuplicated() rather than unique(), which would copy the ~950 MB national table.
 validate_model_data_merge <- function(model_data) {
   stopifnot(
     nrow(model_data) > 0,
     "local_id" %in% names(model_data),
-    nrow(model_data) == nrow(unique(model_data))
+    anyDuplicated(model_data) == 0L
   )
-  list(stage = "model_data_merge", n_rows = nrow(model_data))
+  nrow(model_data)
 }
 
 # Asserts every polling station carries a usable predicted match distance.
@@ -25,32 +46,18 @@ validate_model_predictions <- function(predictions) {
     is.numeric(predictions$pred_dist),
     !anyNA(predictions$pred_dist)
   )
-  list(stage = "model_predictions", n_rows = nrow(predictions))
+  nrow(predictions)
 }
-
-# Columns downstream consumers of geocoded_locais rely on by name.
-OUTPUT_REQUIRED_COLS <- c(
-  "local_id",
-  "final_lat",
-  "final_long",
-  "ano",
-  "nr_zona",
-  "nr_locvot",
-  "nm_locvot",
-  "nm_localidade"
-)
-
-# The station-year key of geocoded_locais. A duplicate here duplicates rows downstream.
-OUTPUT_UNIQUE_KEYS <- c("local_id", "ano", "nr_zona", "nr_locvot")
 
 # Asserts the final geocoded table is shippable; stops before export on failure.
 validate_final_output <- function(output_data) {
   stopifnot(nrow(output_data) > 0)
-  missing_cols <- setdiff(OUTPUT_REQUIRED_COLS, names(output_data))
+  missing_cols <- setdiff(RELEASE_EXPORT_COLS, names(output_data))
   if (length(missing_cols) > 0) {
     stop(sprintf("geocoded_locais is missing required columns: %s", paste(missing_cols, collapse = ", ")))
   }
-  duplicate_keys <- nrow(output_data) - nrow(unique(output_data[, ..OUTPUT_UNIQUE_KEYS]))
+  # The station-year key; a duplicate here duplicates rows in the published file.
+  duplicate_keys <- sum(duplicated(output_data, by = c("local_id", "ano", "nr_zona", "nr_locvot")))
   if (duplicate_keys > 0) {
     stop(sprintf("Found %d duplicate key combinations in geocoded_locais", duplicate_keys))
   }
@@ -59,7 +66,7 @@ validate_final_output <- function(output_data) {
     "Geocoding complete: %d polling stations geocoded",
     nrow(output_data)
   ))
-  list(stage = "geocoded_locais", n_rows = nrow(output_data))
+  nrow(output_data)
 }
 
 # Checks municipality, INEP, and polling-station row counts against expected ranges.
@@ -119,21 +126,8 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
   )
   all_passed <- all_passed && checks$locais_size
 
-  metadata <- list(
-    stage = "input_validation",
-    type = "consolidated",
-    timestamp = Sys.time(),
-    mode = ifelse(pipeline_config$dev_mode, "DEVELOPMENT", "PRODUCTION"),
-    counts = list(
-      municipalities = muni_count,
-      inep_schools = inep_count,
-      polling_stations = locais_count
-    ),
-    messages = messages
-  )
-
   cat("\n=== INPUT DATA VALIDATION ===\n")
-  cat("Mode:", metadata$mode, "\n")
+  cat("Mode:", if (pipeline_config$dev_mode) "DEVELOPMENT" else "PRODUCTION", "\n")
   for (msg in messages) {
     cat("-", msg, ifelse(grepl("expected", msg) && !all_passed, "❌", "✓"), "\n")
   }
@@ -149,7 +143,7 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
     ))
   }
 
-  list(stage = "input_validation", metadata = metadata)
+  list(municipalities = muni_count, inep_schools = inep_count, polling_stations = locais_count)
 }
 
 # Computes coverage and duplicate-coordinate quality metrics; stops on CRITICAL status.
@@ -250,31 +244,6 @@ create_data_quality_monitor <- function(geocoded_locais, panel_ids, expected_mun
 }
 
 # Release gates: fail-loud structural tripwires on the production rebuild.
-
-# The exact geocoded_locais schema written to geocoded_polling_stations.csv.gz, in the
-# order finalize_coords() produces it. The gate asserts set equality, so a dropped or
-# added column trips it.
-RELEASE_EXPORT_COLS <- c(
-  "cd_localidade_tse",
-  "ano",
-  "nr_zona",
-  "nr_locvot",
-  "nr_cep",
-  "sg_uf",
-  "nm_localidade",
-  "nm_locvot",
-  "ds_endereco",
-  "ds_bairro",
-  "cod_localidade_ibge",
-  "local_id",
-  "pred_long",
-  "pred_lat",
-  "pred_dist",
-  "tse_lat",
-  "tse_long",
-  "final_long",
-  "final_lat"
-)
 
 # All election years the pipeline geocodes.
 RELEASE_EXPECTED_YEARS <- seq(2006L, 2024L, by = 2L)

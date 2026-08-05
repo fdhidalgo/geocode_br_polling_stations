@@ -660,7 +660,7 @@ convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
 
 
 # Cleans one CNEFE 2010 state file into an address table with municipality ids and
-# normalized street/bairro, plus the school subset. The 2010 state files are comma-separated.
+# normalized street/bairro. The 2010 state files are comma-separated.
 clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids) {
   mem_before <- gc()[2, 2]
   message(sprintf("Memory before CNEFE processing: %.1f GB", mem_before / 1024))
@@ -775,16 +775,10 @@ clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids) {
   addr[, norm_bairro := normalize_address(bairro)]
   addr[, norm_street := normalize_address(street)]
 
-  gc(verbose = FALSE)
-
-  message("Extracting schools...")
-  schools <- get_cnefe_schools(addr)
-  message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
-
   mem_after <- gc()[2, 2]
   message(sprintf("Memory after CNEFE processing: %.1f GB", mem_after / 1024))
 
-  list(data = addr, schools = schools)
+  addr
 }
 
 

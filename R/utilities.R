@@ -107,21 +107,21 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
       substr(setor_code, 1, 2) %in% state_codes
     ]
 
-    # Schools come out of the same in-memory pass, so the state file is read once.
-    cleaned <- clean_cnefe10(
+    addr <- clean_cnefe10(
       cnefe10_file = state_file,
       muni_ids = state_muni_ids,
       tract_centroids = state_tract_centroids
     )
-    addr <- cleaned$data
-    schools <- cleaned$schools
   } else {
     addr <- clean_cnefe22(
       cnefe22_file = state_file,
       muni_ids = state_muni_ids
     )
-    schools <- get_cnefe_schools(addr)
   }
+
+  # Schools come out of the same in-memory pass, so the state file is read once.
+  schools <- get_cnefe_schools(addr)
+  message(sprintf("%s %s: extracted %s schools", year, state, format(nrow(schools), big.mark = ",")))
 
   list(
     st = aggregate_cnefe_coords(addr, "norm_street"),

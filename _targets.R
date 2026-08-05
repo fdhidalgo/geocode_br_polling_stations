@@ -815,14 +815,7 @@ list(
   ),
   tar_target(
     name = validate_model_data,
-    command = validate_merge_simple(
-      merged_data = model_data,
-      left_data = locais_filtered,
-      stage_name = "model_data_merge",
-      merge_keys = "local_id",
-      join_type = "left_many", # One-to-many join expected for fuzzy matching
-      warning_message = "Model data merge validation failed"
-    )
+    command = validate_model_data_merge(model_data)
   ),
   ## Train model and make predictions
   tar_target(
@@ -838,12 +831,7 @@ list(
   ),
   tar_target(
     name = validate_predictions,
-    command = validate_predictions_simple(
-      predictions = model_predictions,
-      stage_name = "model_predictions",
-      pred_col = "pred_dist",
-      stop_on_failure = TRUE
-    )
+    command = validate_model_predictions(model_predictions)
   ),
 
   # --- Evaluation harness ---
@@ -930,22 +918,7 @@ list(
   ),
   tar_target(
     name = validate_geocoded_output,
-    command = validate_final_output(
-      output_data = geocoded_locais,
-      stage_name = "geocoded_locais",
-      required_cols = c(
-        "local_id",
-        "final_lat",
-        "final_long",
-        "ano",
-        "nr_zona",
-        "nr_locvot",
-        "nm_locvot",
-        "nm_localidade"
-      ),
-      unique_keys = c("local_id", "ano", "nr_zona", "nr_locvot"),
-      stop_on_failure = TRUE
-    )
+    command = validate_final_output(geocoded_locais)
   ),
 
   # --- Data export ---

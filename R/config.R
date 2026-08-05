@@ -192,7 +192,6 @@ configure_targets_options <- function(controller_group) {
       "R.utils",
       "stringr",
       "stringdist",
-      "validate",
       "sf",
       "reclin2",
       "bonsai",

@@ -8228,47 +8228,6 @@
       "Repository": "RSPM",
       "Encoding": "UTF-8"
     },
-    "validate": {
-      "Package": "validate",
-      "Version": "1.1.7",
-      "Source": "Repository",
-      "Maintainer": "Mark van der Loo <mark.vanderloo@gmail.com>",
-      "License": "GPL-3",
-      "Title": "Data Validation Infrastructure",
-      "LazyData": "no",
-      "Type": "Package",
-      "LazyLoad": "yes",
-      "Authors@R": "c(person(\"Mark\", \"van der Loo\" , role   = c(\"cre\",\"aut\") , email  = \"mark.vanderloo@gmail.com\" , comment= c(ORCID=\"0000-0002-9807-4686\")) , person(\"Edwin\", \"de Jonge\" , role = \"aut\" , comment=c(ORCID=\"0000-0002-6580-4718\")) , person(\"Paul\",\"Hsieh\" , role = \"ctb\" ))",
-      "Description": "Declare data validation rules and data quality indicators; confront data with them and analyze or visualize the results. The package supports rules that are per-field, in-record, cross-record or cross-dataset. Rules can be automatically analyzed for rule type and connectivity. Supports checks implied by an SDMX DSD file as well. See also Van der Loo and De Jonge (2018) <doi:10.1002/9781118897126>, Chapter 6 and the JSS paper (2021) <doi:10.18637/jss.v097.i10>.",
-      "Depends": [
-        "R (>= 3.5.0)",
-        "methods"
-      ],
-      "URL": "https://github.com/data-cleaning/validate",
-      "BugReports": "https://github.com/data-cleaning/validate/issues",
-      "Imports": [
-        "stats",
-        "graphics",
-        "grid",
-        "settings",
-        "yaml"
-      ],
-      "Suggests": [
-        "rsdmx",
-        "tinytest (>= 0.9.6)",
-        "knitr",
-        "bookdown",
-        "lumberjack",
-        "rmarkdown"
-      ],
-      "VignetteBuilder": "knitr",
-      "Collate": "'rule.R' 'sugar.R' 'validate_pkg.R' 'parse.R' 'expressionset.R' 'indicator.R' 'validator.R' 'confrontation.R' 'compare.R' 'factory.R' 'genericrules.R' 'lumberjack.R' 'plot.R' 'retailers.R' 'run_validation.R' 'sdmx.R' 'syntax.R' 'utils.R' 'yaml.R'",
-      "RoxygenNote": "7.3.2",
-      "Encoding": "UTF-8",
-      "NeedsCompilation": "yes",
-      "Author": "Mark van der Loo [cre, aut] (ORCID: <https://orcid.org/0000-0002-9807-4686>), Edwin de Jonge [aut] (ORCID: <https://orcid.org/0000-0002-6580-4718>), Paul Hsieh [ctb]",
-      "Repository": "RSPM"
-    },
     "vctrs": {
       "Package": "vctrs",
       "Version": "0.7.3",

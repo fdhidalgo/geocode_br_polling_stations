@@ -208,7 +208,7 @@ At review time apply `~/.claude/skills/paper-code/references/standards.md` (and
 - **Modeling**: `tidymodels` stack (`parsnip`, `recipes`, `workflows`, `tune`, `finetune`, `rsample`, `yardstick`) with `bonsai` for lightgbm
 - **Record linkage**: `reclin2`; **spatial**: `sf`, `geosphere` (boundaries are pre-saved `.rds`, not fetched via `geobr`); **string distance**: `stringdist`, `stringr`
 - **Assertions**: base `stop()`/`stopifnot()` at cleaning boundaries (see Paper code)
-- **Validation**: `validate` package for the stage-validation targets (see `R/validation.R`)
+- **Validation**: plain `stopifnot()`/`stop()` in the stage-validation and release-gate targets (see `R/validation.R`) — no validation DSL
 - **Parallelization**: `crew` (mirai-backed local controllers)
 - **Dependencies**: pinned with `renv` (`renv.lock`); `.Rprofile` prefers binary installs / `pak`
 

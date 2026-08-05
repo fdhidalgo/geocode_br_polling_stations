@@ -249,9 +249,6 @@ process_inep_batch <- function(municipality_batch_assignments, locais_filtered, 
   data.table::setkey(inep_data, id_munic_7)
   data.table::setkey(locais_filtered, cod_localidade_ibge)
 
-  # A NULL result (no polling stations, or no matches) is a legitimate empty case
-  # and is filtered out; a municipality that errors is named at batch end rather
-  # than aborting the batch anonymously.
   batch_results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
@@ -263,8 +260,8 @@ process_inep_batch <- function(municipality_batch_assignments, locais_filtered, 
     task_label = "INEP matching"
   )
 
-  # rbindlist() of an empty list returns an empty data.table, so a batch whose
-  # municipalities all matched nothing needs no special case.
+  # A batch whose municipalities all matched nothing needs no special case:
+  # rbindlist() of an empty list is an empty data.table.
   rbindlist(batch_results, use.names = TRUE, fill = TRUE)
 }
 
@@ -278,7 +275,6 @@ process_schools_cnefe_batch <- function(municipality_batch_assignments, locais_f
   data.table::setkey(schools_cnefe, id_munic_7)
   data.table::setkey(locais_filtered, cod_localidade_ibge)
 
-  # NULL and error handling as in process_inep_batch().
   batch_results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
@@ -301,9 +297,6 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
 
   data.table::setkey(locais_filtered, cod_localidade_ibge)
 
-  # A NULL result (no polling stations, or no geocoding hits) is a legitimate
-  # empty case and is filtered out; a municipality that errors is reported at
-  # batch end rather than silently dropped.
   results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
@@ -343,9 +336,6 @@ process_stbairro_batch <- function(
     length(batch_munis)
   ))
 
-  # A NULL result (no polling stations, or no matches) is a legitimate empty case
-  # and is filtered out; a municipality that errors is named at batch end rather
-  # than aborting the batch anonymously.
   batch_results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
@@ -353,6 +343,8 @@ process_stbairro_batch <- function(
       st_muni <- st[.(muni_code), nomatch = NULL]
       bairro_muni <- bairro[.(muni_code), nomatch = NULL]
 
+      # Logged before the match, not after: a municipality with a large distance
+      # matrix can run for minutes, and this is the line that says which one.
       message(sprintf(
         "[Batch %d] Processing municipality %s: %d polling stations, %d streets, %d neighborhoods",
         this_batch,
@@ -362,16 +354,7 @@ process_stbairro_batch <- function(
         nrow(bairro_muni)
       ))
 
-      result <- match_stbairro_muni(locais_muni, st_muni, bairro_muni)
-
-      message(sprintf(
-        "[Batch %d] Completed municipality %s: %d matches",
-        this_batch,
-        muni_code,
-        if (is.null(result)) 0L else nrow(result)
-      ))
-
-      result
+      match_stbairro_muni(locais_muni, st_muni, bairro_muni)
     },
     task_label = sprintf("%s street/neighborhood matching", label)
   )

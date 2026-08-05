@@ -120,7 +120,7 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
       cnefe22_file = state_file,
       muni_ids = state_muni_ids
     )
-    schools <- get_cnefe22_schools(addr)
+    schools <- get_cnefe_schools(addr)
   }
 
   list(

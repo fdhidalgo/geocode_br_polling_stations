@@ -592,11 +592,12 @@ calc_muni_area <- function(muni_shp) {
   muni_shp[, .(cod_localidade_ibge = code_muni, area)]
 }
 
-get_cnefe22_schools <- function(cnefe22) {
-  # Extract schools from the CNEFE 2022 data
-  schools_cnefe22 <- cnefe22[especie_lab == "estabelecimento de ensino"]
-  schools_cnefe22[, norm_desc := normalize_school(desc)]
-  schools_cnefe22[norm_desc != ""]
+# School rows of a cleaned CNEFE table (either year). An empty norm_desc has no name
+# to match on, so those rows are dropped.
+get_cnefe_schools <- function(cnefe) {
+  schools <- cnefe[especie_lab == "estabelecimento de ensino"]
+  schools[, norm_desc := normalize_school(desc)]
+  schools[norm_desc != ""]
 }
 
 convert_coords_dms <- function(coord_strings) {
@@ -661,8 +662,6 @@ convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
 # Cleans one CNEFE 2010 state file into an address table with municipality ids and
 # normalized street/bairro, plus the school subset. The 2010 state files are comma-separated.
 clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids) {
-  # Memory-efficient processing of CNEFE 2010 data
-
   mem_before <- gc()[2, 2]
   message(sprintf("Memory before CNEFE processing: %.1f GB", mem_before / 1024))
 
@@ -779,15 +778,11 @@ clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids) {
   gc(verbose = FALSE)
 
   message("Extracting schools...")
-  # An empty norm_desc has no name to match, so drop it (as get_cnefe22_schools() does).
-  schools <- addr[especie_lab == "estabelecimento de ensino"]
-  schools[, norm_desc := normalize_school(desc)]
-  schools <- schools[norm_desc != ""]
+  schools <- get_cnefe_schools(addr)
   message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
 
   mem_after <- gc()[2, 2]
   message(sprintf("Memory after CNEFE processing: %.1f GB", mem_after / 1024))
-  message("CNEFE processing complete")
 
   list(data = addr, schools = schools)
 }

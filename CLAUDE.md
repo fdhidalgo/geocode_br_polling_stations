@@ -70,6 +70,10 @@ transforms, matching core, panel identity); the rest are deferred to later
 tranches. Behavior-changing fail-loud tests land alongside their fixes in the
 cleanup work, not here.
 
+The fixtures carry accented Brazilian text, so the suite needs a UTF-8 locale —
+`tests/testthat/setup.R` sets one if the session starts in `C` and stops with a clear
+message if no UTF-8 locale is installed.
+
 #### Formatting gate (air)
 
 Formatting is handled by [air](https://posit-dev.github.io/air/), an idempotent

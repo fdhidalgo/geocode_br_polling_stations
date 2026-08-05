@@ -719,8 +719,6 @@ list(
     retrieval = "worker"
   ),
   # Agro CNEFE street/neighborhood matching with batched dynamic branching.
-  # A former municipality-code mismatch made this match table come out empty; the
-  # fix produces matches in dev but has not yet been re-run in production.
   tar_target(
     name = agrocnefe_stbairro_match_batch,
     command = process_agrocnefe_stbairro_batch(
@@ -739,8 +737,7 @@ list(
   ),
   tar_target(
     name = agrocnefe_stbairro_match,
-    # Plain rbindlist: tolerated empty until re-verified on a full production run.
-    command = rbindlist(agrocnefe_stbairro_match_batch),
+    command = combine_match_batches(agrocnefe_stbairro_match_batch, "agrocnefe_stbairro_match"),
     storage = "worker",
     retrieval = "worker"
   ),

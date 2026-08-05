@@ -73,18 +73,12 @@ make_model_data <- function(
     melt_match_candidates(schools_cnefe10_match, "schools_cnefe_name_2010"),
     melt_match_candidates(schools_cnefe22_match, "schools_cnefe_name_2022"),
     melt_match_candidates(inep_string_match, c("schools_inep_name", "schools_inep_addr")),
+    melt_match_candidates(
+      agrocnefe_stbairro_match,
+      c("st_agrocnefe_2017", "bairro_agrocnefe_2017")
+    ),
     geocodebr_candidates(geocodebr_match)
   )
-  # agro match is tolerated empty until re-verified on a full production run
-  if (nrow(agrocnefe_stbairro_match) > 0L) {
-    match_list <- c(
-      match_list,
-      list(melt_match_candidates(
-        agrocnefe_stbairro_match,
-        c("st_agrocnefe_2017", "bairro_agrocnefe_2017")
-      ))
-    )
-  }
 
   # A fresh table, so the pipeline's muni_demo target is not mutated by reference.
   muni_demo <- muni_demo[

@@ -59,11 +59,16 @@ TOPUP_DIRS="data renv/library"
 # what makes the next run re-clone rather than call the mixture seeded.
 SNAPSHOT_DIRS="output reports $STORE_DIRS"
 
-repo_root=$(git rev-parse --show-toplevel)
+# The checkout to seed is the one holding this script, not the one the caller
+# happens to be standing in. Resolving from the working directory instead would
+# make `path/to/a/worktree/scripts/seed-worktree.sh`, run from anywhere else,
+# exit silently as a no-op and look like it had seeded.
+script_dir=$(cd "$(dirname "$0")" && pwd)
+repo_root=$(git -C "$script_dir" rev-parse --show-toplevel)
 
 # The first entry of `git worktree list` is always the main checkout, which owns
 # the data everything else is seeded from.
-main_root=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+main_root=$(git -C "$script_dir" worktree list --porcelain | sed -n '1s/^worktree //p')
 
 if [ "$repo_root" = "$main_root" ]; then
   exit 0

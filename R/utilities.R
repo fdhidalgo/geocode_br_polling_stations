@@ -111,8 +111,7 @@ process_cnefe_state <- function(state_file, year, muni_ids, tract_centroids = NU
     cleaned <- clean_cnefe10(
       cnefe10_file = state_file,
       muni_ids = state_muni_ids,
-      tract_centroids = state_tract_centroids,
-      extract_schools = TRUE
+      tract_centroids = state_tract_centroids
     )
     addr <- cleaned$data
     schools <- cleaned$schools

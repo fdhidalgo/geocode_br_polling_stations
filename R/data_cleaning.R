@@ -659,8 +659,8 @@ convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
 
 
 # Cleans one CNEFE 2010 state file into an address table with municipality ids and
-# normalized street/bairro. The 2010 state files are comma-separated.
-clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids, extract_schools = FALSE) {
+# normalized street/bairro, plus the school subset. The 2010 state files are comma-separated.
+clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids) {
   # Memory-efficient processing of CNEFE 2010 data
 
   mem_before <- gc()[2, 2]
@@ -778,28 +778,18 @@ clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids, extract_schoo
 
   gc(verbose = FALSE)
 
-  if (extract_schools) {
-    message("Extracting schools...")
-    # An empty norm_desc has no name to match, so drop it (as get_cnefe22_schools() does).
-    schools <- addr[especie_lab == "estabelecimento de ensino"]
-    schools[, norm_desc := normalize_school(desc)]
-    schools <- schools[norm_desc != ""]
-    message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
-
-    gc(verbose = FALSE)
-    message("CNEFE processing complete")
-
-    return(list(
-      data = addr,
-      schools = schools
-    ))
-  }
+  message("Extracting schools...")
+  # An empty norm_desc has no name to match, so drop it (as get_cnefe22_schools() does).
+  schools <- addr[especie_lab == "estabelecimento de ensino"]
+  schools[, norm_desc := normalize_school(desc)]
+  schools <- schools[norm_desc != ""]
+  message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
 
   mem_after <- gc()[2, 2]
   message(sprintf("Memory after CNEFE processing: %.1f GB", mem_after / 1024))
   message("CNEFE processing complete")
 
-  return(addr)
+  list(data = addr, schools = schools)
 }
 
 

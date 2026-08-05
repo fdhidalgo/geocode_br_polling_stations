@@ -592,11 +592,12 @@ calc_muni_area <- function(muni_shp) {
   muni_shp[, .(cod_localidade_ibge = code_muni, area)]
 }
 
-get_cnefe22_schools <- function(cnefe22) {
-  # Extract schools from the CNEFE 2022 data
-  schools_cnefe22 <- cnefe22[especie_lab == "estabelecimento de ensino"]
-  schools_cnefe22[, norm_desc := normalize_school(desc)]
-  schools_cnefe22[norm_desc != ""]
+# School rows of a cleaned CNEFE table (either year). An empty norm_desc has no name
+# to match on, so those rows are dropped.
+get_cnefe_schools <- function(cnefe) {
+  schools <- cnefe[especie_lab == "estabelecimento de ensino"]
+  schools[, norm_desc := normalize_school(desc)]
+  schools[norm_desc != ""]
 }
 
 convert_coords_dms <- function(coord_strings) {
@@ -660,9 +661,7 @@ convert_coords_checked <- function(coord_strings, coord_name = "coordinate") {
 
 # Cleans one CNEFE 2010 state file into an address table with municipality ids and
 # normalized street/bairro. The 2010 state files are comma-separated.
-clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids, extract_schools = FALSE) {
-  # Memory-efficient processing of CNEFE 2010 data
-
+clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids) {
   mem_before <- gc()[2, 2]
   message(sprintf("Memory before CNEFE processing: %.1f GB", mem_before / 1024))
 
@@ -776,30 +775,10 @@ clean_cnefe10 <- function(cnefe10_file, muni_ids, tract_centroids, extract_schoo
   addr[, norm_bairro := normalize_address(bairro)]
   addr[, norm_street := normalize_address(street)]
 
-  gc(verbose = FALSE)
-
-  if (extract_schools) {
-    message("Extracting schools...")
-    # An empty norm_desc has no name to match, so drop it (as get_cnefe22_schools() does).
-    schools <- addr[especie_lab == "estabelecimento de ensino"]
-    schools[, norm_desc := normalize_school(desc)]
-    schools <- schools[norm_desc != ""]
-    message(sprintf("Extracted %s schools", format(nrow(schools), big.mark = ",")))
-
-    gc(verbose = FALSE)
-    message("CNEFE processing complete")
-
-    return(list(
-      data = addr,
-      schools = schools
-    ))
-  }
-
   mem_after <- gc()[2, 2]
   message(sprintf("Memory after CNEFE processing: %.1f GB", mem_after / 1024))
-  message("CNEFE processing complete")
 
-  return(addr)
+  addr
 }
 
 

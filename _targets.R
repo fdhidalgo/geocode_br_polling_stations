@@ -893,13 +893,17 @@ list(
   ),
 
   ## The same, for the trivial source-precedence heuristic the model has to beat.
+  ## Reads the whole candidate table -> memory_limited controller, as oof_predictions does.
   tar_target(
     name = baseline_selected_matches,
     command = attach_eval_universe(
       select_baseline_candidates(model_data),
       eval_station_universe
     ),
-    format = "qs"
+    format = "qs",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
   ),
 
   ## Stratified accuracy tables, joint with match rate, small-cell suppressed.

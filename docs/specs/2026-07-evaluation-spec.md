@@ -234,7 +234,8 @@ the "smallest `mindist` wins" variant from the assessment is not implemented.
 
 The rank table is the baseline's entire definition, so it is exhaustive over the candidate
 types the modeling table emits and the selector **errors** on an unranked type: a new
-candidate source has to be placed deliberately, not default silently to the bottom.
+candidate source has to be placed deliberately, not default silently to the bottom. It
+lives inside `select_baseline_candidates()` in `R/evaluation.R`, its only consumer.
 
 **Protocol.** The baseline is scored on the *same* covered candidate rows and the *same*
 station universe as the model's out-of-fold picks. It trains on nothing, so it has no

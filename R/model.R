@@ -45,9 +45,10 @@ melt_match_candidates <- function(matches, types) {
   long[]
 }
 
-# geocodebr scores a candidate by the uncertainty radius of the address it resolved rather
-# than by a string distance, and reports it in `mindist` for the model. Both are
-# lower-is-better candidate-quality scores, which is what the column means.
+# geocodebr scores a candidate by the uncertainty radius of the address it resolved, in km,
+# rather than by a string distance. The two are not comparable magnitudes -- a 6 m radius
+# sorts below every possible string distance and a 300 km one above every possible string
+# distance -- so the radius gets its own feature and `mindist` stays a string-distance axis.
 geocodebr_candidates <- function(geocodebr_match) {
   candidates <- geocodebr_match[
     !is.na(match_lat_geocodebr),
@@ -61,7 +62,8 @@ geocodebr_candidates <- function(geocodebr_match) {
       sim_street = NA_real_,
       sim_bairro = NA_real_,
       sim_addr = sim_addr_geocodebr,
-      mindist = mindist_geocodebr
+      mindist = NA_real_,
+      desvio_km = desvio_km_geocodebr
     )
   ]
   candidates[]
@@ -183,8 +185,11 @@ make_model_data <- function(
   model_data[, tse_lat := NULL]
   model_data[, tse_long := NULL]
 
-  # Filter out rows with missing values
-  model_data <- model_data[!is.na(mindist) & !is.na(long) & !is.na(lat)]
+  # A candidate is usable when it has coordinates and its source scored it: a string
+  # distance for the matched sources, an uncertainty radius for geocodebr.
+  model_data <- model_data[
+    !is.na(long) & !is.na(lat) & (!is.na(mindist) | !is.na(desvio_km))
+  ]
 
   model_data
 }
@@ -232,7 +237,7 @@ train_model <- function(model_data, dev_mode) {
 
   ## Remove data with missing outcome and covariate
   model_data <- model_data[!is.na(dist)]
-  model_data <- model_data[!is.na(mindist)]
+  model_data <- model_data[!is.na(mindist) | !is.na(desvio_km)]
 
   if (nrow(model_data) == 0) {
     stop("No data left after filtering missing values")

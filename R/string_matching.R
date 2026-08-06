@@ -302,9 +302,9 @@ match_geocodebr_muni <- function(locais_muni) {
   data.table(
     local_id = geocoded_result$local_id,
     match_geocodebr = geocoded_result$endereco_encontrado,
-    # geocodebr reports an uncertainty radius rather than a string distance, so the
-    # candidate's distance column carries that instead.
-    mindist_geocodebr = geocoded_result$desvio_metros / 1000,
+    # An uncertainty radius in km, which is not a string distance and does not belong on
+    # the same axis as one: it gets its own model feature.
+    desvio_km_geocodebr = geocoded_result$desvio_metros / 1000,
     match_long_geocodebr = geocoded_result$lon,
     match_lat_geocodebr = geocoded_result$lat,
     sim_addr_geocodebr = field_distance(station_addr, found_addr),

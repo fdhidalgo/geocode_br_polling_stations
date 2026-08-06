@@ -736,6 +736,13 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
+  ## Which geocodebr build and CNEFE release produced this run's coordinates. Re-recorded
+  ## every run because neither is a pipeline input targets can watch.
+  tar_target(
+    name = geocodebr_provenance,
+    command = record_geocodebr_provenance(),
+    cue = tar_cue(mode = "always")
+  ),
   # geocodebr matching with dynamic branching by batch
   tar_target(
     name = geocodebr_match_batch,

@@ -790,18 +790,73 @@ clean_text_for_geocodebr <- function(text) {
   text <- gsub("\\s+", " ", text)
   text <- trimws(text)
 
+  # A field with nothing left to match on is missing, not empty. geocodebr reads NA as
+  # "no such field for this row" and falls back down its cascade; "" is a value it tries
+  # and fails to match.
+  text[!nzchar(text)] <- NA_character_
+
   return(text)
 }
 
-simplify_address_for_geocodebr <- function(address) {
-  # geocodebr matches best on street names alone; numbers, prefixes, and unit suffixes hurt.
-  address <- gsub("^(rua|avenida|av|r|travessa|tv|praca|pc|alameda|al)\\s+", "", address)
+# Splits a TSE address line into the street name and house number geocodebr wants as
+# separate fields. Returns both, so callers parse once.
+split_street_number <- function(address) {
+  x <- stringi::stri_trans_general(toupper(address), "Latin-ASCII")
 
-  address <- gsub("\\b\\d+\\b", "", address)
-  address <- gsub("\\b(sn|s n|sem numero)\\b", "", address)
-  address <- gsub("\\b(lote|lt|quadra|qd|bloco|bl|casa|cs|apartamento|apto|ap)\\s*\\w*", "", address)
+  # Phone numbers and unit complements ride along in this field, and to a
+  # trailing-number rule both look exactly like a house number.
+  x <- gsub("\\b(FONE|TELEFONE|TEL)\\b.*$", " ", x)
+  # The apartment and block abbreviations are left out on purpose. "AP" never means
+  # apartment in this data: across all 940k addresses its 35 occurrences are Amapa
+  # highways ("RODOVIA AP 070"), streets named AP-3, and "AP" short for Aparecida inside
+  # a person's name. "APARTAMENTO" occurs zero times and "APTO" once.
+  x <- gsub("\\b(LOTE|LT|QUADRA|QD|BLOCO|CASA)\\b\\s*\\S*", " ", x)
 
-  address <- clean_text_for_geocodebr(address)
+  # "s/n" says there is no house number. Drop the marker so it cannot survive as street text.
+  x <- gsub("\\bS/?\\s?N\\b|\\bSEM\\s+NUMERO\\b", " ", x)
+  x <- trimws(gsub("\\s+", " ", x))
+  # Removing a complement can leave the separator that preceded it ("RUA A, 123, CASA 2"),
+  # which would hide the house number from a rule that reads the end of the string.
+  x <- gsub("[^A-Z0-9]+$", "", x)
 
-  return(address)
+  marker <- "\\bN[O\u00ba\u00b0]?\\.?\\s*(\\d{1,6})\\b"
+  trailing <- "[ ,]\\s*(\\d{1,6})\\s*$"
+
+  numero <- rep(NA_integer_, length(x))
+  street <- x
+
+  # An explicit "N 123" marker names the house number wherever it sits; without one, a
+  # house number is only ever in trailing position.
+  marked <- grepl(marker, x)
+  numero[marked] <- as.integer(sub(paste0("^.*?", marker, ".*$"), "\\1", x[marked]))
+  street[marked] <- sub(marker, " ", x[marked])
+
+  # A number after "km" is a highway milepost — the location itself on rural addresses,
+  # not a house number.
+  trailed <- !marked & grepl(trailing, x) & !grepl("\\bKM\\s*-?\\s*\\d{1,6}\\s*$", x)
+  numero[trailed] <- as.integer(sub(paste0("^.*", trailing), "\\1", x[trailed]))
+  street[trailed] <- sub(trailing, " ", x[trailed])
+
+  # Pulling the number out of "RUA 15" leaves only words naming a kind of street, never an
+  # individual one, which means the number was the name. Put it back.
+  street_types <- paste0(
+    "\\b(RUA|R|AVENIDA|AV|TRAVESSA|TV|PRACA|PC|ALAMEDA|AL|RODOVIA|ESTRADA|VIA|LARGO|",
+    "VIELA|RAMAL|LINHA|BR|KM)\\b"
+  )
+  numbered <- which(!is.na(numero))
+  named_only_by_number <- numbered[
+    !grepl("[A-Z0-9]", gsub(street_types, " ", street[numbered]))
+  ]
+  street[named_only_by_number] <- x[named_only_by_number]
+  numero[named_only_by_number] <- NA_integer_
+
+  list(logradouro = clean_text_for_geocodebr(street), numero = numero)
+}
+
+# TSE stores the CEP as a number, so the leading zero of every Sao Paulo-range CEP
+# (01000-000 upward) is gone; 0 is its missing-value sentinel, and a few rows carry
+# truncated 5-digit CEPs from the pre-1992 scheme.
+cep_to_string <- function(nr_cep) {
+  valid <- !is.na(nr_cep) & nr_cep >= 1000000 & nr_cep <= 99999999
+  data.table::fifelse(valid, sprintf("%08.0f", nr_cep), NA_character_)
 }

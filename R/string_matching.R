@@ -191,6 +191,14 @@ match_stbairro_muni <- function(locais_muni, st_muni, bairro_muni) {
   )
 }
 
+# The geocodebr build and the CNEFE bundle release that produced this run's coordinates.
+record_geocodebr_provenance <- function() {
+  data.table(
+    package_version = as.character(utils::packageVersion("geocodebr")),
+    data_release = utils::getFromNamespace("data_release", "geocodebr")
+  )
+}
+
 match_geocodebr_muni <- function(locais_muni) {
   # Match polling stations with geocodebr for a single municipality.
 
@@ -208,24 +216,28 @@ match_geocodebr_muni <- function(locais_muni) {
   muni_name <- unique(locais_muni$nm_localidade)
   message(sprintf("Processing municipality: %s (%s)", muni_name[1], muni_code[1]))
 
-  # Prepare data for geocodebr
+  # geocodebr cascades from the most precise field combination it can satisfy down to the
+  # municipality centroid, so every field supplied is a rung it can reach. local_id rides
+  # along as a non-address column: geocodebr reattaches it to each result itself, rather
+  # than us reassigning coordinates by position afterward.
   dt_geocode <- locais_muni[, .(
     local_id = local_id,
     estado = sg_uf,
-    municipio = nm_localidade,
-    logradouro = ds_endereco,
-    localidade = ds_bairro
+    municipio = clean_text_for_geocodebr(nm_localidade),
+    localidade = clean_text_for_geocodebr(ds_bairro),
+    cep = cep_to_string(nr_cep),
+    ds_endereco = ds_endereco
   )]
+  dt_geocode[, c("logradouro", "numero") := split_street_number(ds_endereco)]
+  dt_geocode[, ds_endereco := NULL]
 
-  # Clean text fields - use simplified addresses for better matching
-  dt_geocode[, municipio := clean_text_for_geocodebr(municipio)]
-  dt_geocode[, logradouro := simplify_address_for_geocodebr(logradouro)]
-  dt_geocode[, localidade := clean_text_for_geocodebr(localidade)]
-
-  # A station with no street, municipality, or state has nothing to geocode. Report the
-  # count rather than let a silent drop look like a geocoding miss.
+  # geocodebr needs state and municipality plus at least one field below them. A station
+  # with only a CEP is still geocodable. Report the drops rather than let them look like
+  # geocoding misses.
   n_before <- nrow(dt_geocode)
-  dt_geocode <- dt_geocode[!is.na(municipio) & !is.na(estado) & !is.na(logradouro)]
+  dt_geocode <- dt_geocode[
+    !is.na(estado) & !is.na(municipio) & (!is.na(logradouro) | !is.na(cep) | !is.na(localidade))
+  ]
   if (nrow(dt_geocode) < n_before) {
     message(sprintf(
       "  %d of %d stations have no address to geocode and are dropped",
@@ -238,21 +250,21 @@ match_geocodebr_muni <- function(locais_muni) {
     return(NULL)
   }
 
-  # local_id rides along as a non-address column so geocodebr reattaches it to each
-  # result itself, rather than us reassigning coordinates by position afterward.
-  geocode_data <- dt_geocode[, .(local_id, estado, municipio, logradouro)]
-
   geocoded_result <- geocodebr::geocode(
-    geocode_data,
+    dt_geocode,
     campos_endereco = geocodebr::definir_campos(
       estado = "estado",
       municipio = "municipio",
-      logradouro = "logradouro"
+      logradouro = "logradouro",
+      numero = "numero",
+      localidade = "localidade",
+      cep = "cep"
     ),
     resolver_empates = TRUE,
     verboso = FALSE,
     cache = TRUE,
-    n_cores = 1 # Single core for stability
+    # crew already runs a worker per municipality; leave the cores to it.
+    n_cores = 1
   )
 
   # No geocoding hits is a legitimate empty result, not an error.
@@ -267,11 +279,13 @@ match_geocodebr_muni <- function(locais_muni) {
     !anyNA(geocoded_result$local_id)
   )
 
-  # geocodebr returns one formatted string, "STREET - BAIRRO, MUNICIPIO - UF", rather than
-  # structured fields, so the only field feature available is a whole-address-line similarity.
-  # Municipality-precision rows resolved no street, leaving nothing to compare.
+  # geocodebr returns one formatted string, "STREET, NUMBER - BAIRRO, MUNICIPIO - UF",
+  # rather than structured fields, so the only field feature available is a
+  # whole-address-line similarity. Below logradouro precision the text before the first
+  # comma is a neighborhood or nothing at all, so there is no street to compare against.
   found_addr <- normalize_address(sub(",.*$", "", geocoded_result$endereco_encontrado))
-  found_addr[geocoded_result$precisao == "municipio"] <- NA_character_
+  street_tiers <- c("numero", "numero_aproximado", "logradouro")
+  found_addr[!geocoded_result$precisao %in% street_tiers] <- NA_character_
   station_addr <- locais_muni$normalized_addr[
     match(geocoded_result$local_id, locais_muni$local_id)
   ]
@@ -280,12 +294,12 @@ match_geocodebr_muni <- function(locais_muni) {
   data.table(
     local_id = geocoded_result$local_id,
     match_geocodebr = geocoded_result$endereco_encontrado,
-    mindist_geocodebr = 0, # geocodebr doesn't provide distance metric
+    # geocodebr's own uncertainty radius, km. Not a string distance, so it is its own feature.
+    desvio_km_geocodebr = geocoded_result$desvio_metros / 1000,
     match_long_geocodebr = geocoded_result$lon,
     match_lat_geocodebr = geocoded_result$lat,
     sim_addr_geocodebr = field_distance(station_addr, found_addr),
     precisao_geocodebr = geocoded_result$precisao,
-    tipo_resultado_geocodebr = geocoded_result$tipo_resultado,
-    contagem_cnefe_geocodebr = geocoded_result$contagem_cnefe
+    tipo_resultado_geocodebr = geocoded_result$tipo_resultado
   )
 }

@@ -45,9 +45,8 @@ melt_match_candidates <- function(matches, types) {
   long[]
 }
 
-# geocodebr returns an exact address match rather than a distance, so its candidates get a
-# synthetic mindist ranked by geocoding precision: house number, then street, then
-# municipality centroid. Lower is better, matching the string-matching distances.
+# geocodebr scores a candidate by an uncertainty radius in km, not a string distance, so it
+# reports on its own axis and leaves `mindist` to the string-matched sources.
 geocodebr_candidates <- function(geocodebr_match) {
   candidates <- geocodebr_match[
     !is.na(match_lat_geocodebr),
@@ -61,15 +60,10 @@ geocodebr_candidates <- function(geocodebr_match) {
       sim_street = NA_real_,
       sim_bairro = NA_real_,
       sim_addr = sim_addr_geocodebr,
-      precision_score = fcase(
-        precisao_geocodebr == "numero"     , 3 ,
-        precisao_geocodebr == "logradouro" , 2 ,
-        precisao_geocodebr == "municipio"  , 1 ,
-        default = 0
-      )
+      mindist = NA_real_,
+      desvio_km = desvio_km_geocodebr
     )
   ]
-  candidates[, mindist := (3 - precision_score) * 0.1]
   candidates[]
 }
 
@@ -189,8 +183,11 @@ make_model_data <- function(
   model_data[, tse_lat := NULL]
   model_data[, tse_long := NULL]
 
-  # Filter out rows with missing values
-  model_data <- model_data[!is.na(mindist) & !is.na(long) & !is.na(lat)]
+  # A candidate is usable when it has coordinates and its source scored it: a string
+  # distance for the matched sources, an uncertainty radius for geocodebr.
+  model_data <- model_data[
+    !is.na(long) & !is.na(lat) & (!is.na(mindist) | !is.na(desvio_km))
+  ]
 
   model_data
 }
@@ -236,9 +233,8 @@ train_model <- function(model_data, dev_mode) {
     stop("No data available for model training")
   }
 
-  ## Remove data with missing outcome and covariate
+  ## Remove data with missing outcome; make_model_data() already dropped unscored candidates.
   model_data <- model_data[!is.na(dist)]
-  model_data <- model_data[!is.na(mindist)]
 
   if (nrow(model_data) == 0) {
     stop("No data left after filtering missing values")
@@ -308,6 +304,7 @@ get_predictions <- function(trained_model, model_data) {
       local_id,
       match_type = type,
       mindist,
+      desvio_km,
       long,
       lat,
       dist,

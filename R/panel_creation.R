@@ -691,9 +691,8 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
 
   final_clean <- final_mapping[!is.na(panel_id)]
 
-  # cd_localidade_tse is part of the section key, not decoration: an electoral zone spans
-  # several municipalities (RS zona 20 covers 14) and section numbers restart within each,
-  # so (nr_secao, nr_zona, ano, estado_abrev) alone points at the wrong municipality's panel.
+  # cd_localidade_tse ships too, for the same reason it is in the key above: RS zona 20
+  # alone spans 14 municipalities, each restarting its section numbers from 1.
   output_columns <- c(
     "nr_secao",
     "nr_zona",
@@ -714,7 +713,7 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
 
   # The source lists some stations twice under different name/address spellings; those rows
   # are identical once the descriptive columns are dropped.
-  result <- unique(final_clean[, .SD, .SDcols = output_columns])
+  result <- unique(final_clean[, ..output_columns])
 
   cat("Validating final mapping...\n")
 
@@ -722,11 +721,22 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
 
   # A section votes at one polling place per election, but the source carries no round
   # column, so a section relocated between rounds appears twice with nothing to say which
-  # assignment belongs to which round. Drop those rather than publish two panels for one
-  # section; recovering them needs nr_turno in secc_loc_map.
+  # assignment belongs to which round. Publishing two panels for one section is worse than
+  # publishing neither, so these are dropped -- but only where the defect is known to live:
+  # RS 2012, 39 sections out of 4.33M rows. Ambiguity anywhere else is a new problem.
   ambiguous <- result[, .N, by = section_key][N > 1][, ..section_key]
   if (nrow(ambiguous) > 0) {
-    cat("  Dropping", nrow(ambiguous), "sections listed at more than one polling place\n")
+    unexpected <- ambiguous[!(estado_abrev == "RS" & ano == 2012)]
+    if (nrow(unexpected) > 0) {
+      stop(
+        "create_section_panel_mapping(): ",
+        nrow(unexpected),
+        " sections outside RS 2012 sit at more than one polling place; ",
+        "first: ",
+        paste(unexpected[1], collapse = " ")
+      )
+    }
+    cat("  Dropping", nrow(ambiguous), "RS 2012 sections listed at more than one polling place\n")
     result <- result[!ambiguous, on = section_key]
   }
 

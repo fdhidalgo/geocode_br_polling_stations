@@ -41,11 +41,12 @@ For each polling station, we select the coordinates with the predicted smallest 
 
 ## Data Sources
 
-To geocode the polling stations, we leverage three main data sources:
+To geocode the polling stations, we leverage four main data sources:
 
 -   *Cadastro Nacional de Endereços para Fins Estatísticos* (CNEFE) from the 2010 and the 2022 editions of the Census.
 -   *Cadastro Nacional de Endereços para Fins Estatísticos* from the 2017 Agricultural Census.
 -   *Catálogo de Escolas* from INEP.
+-   The [`geocodebr`](https://ipea.github.io/geocodebr/) geocoder, which resolves an address against IBGE's own address surface.
 
 The CNEFE datasets are national databases of addresses prepared by IBGE for the census and include detailed data on streets and addresses.
 The 2010 and 2017 versions includes private addresses, as well as listings of government buildings (such as schools) and the names of local establishments (such as the names of schools or businesses).
@@ -62,6 +63,10 @@ Nevertheless, this imputation step will lead to more error for urban addresses t
 The INEP data is a catalog of private and public schools with addresses and longitude and latitude.[^2]
 
 [^2]: The data can be found at this [link](https://inepdata.inep.gov.br/analytics/saw.dll?dashboard)
+
+Unlike the three datasets above, `geocodebr` is not matched by string distance. It takes an address as separate fields --- state, municipality, street, house number, neighborhood, and postal code (CEP) --- and resolves it against IBGE's address surface, returning a coordinate directly. It works down a cascade: it uses the most precise combination of fields it can satisfy, and where it cannot satisfy one it falls back to a coarser rung, ending at the municipal centroid. We therefore supply every field the TSE record carries. The house number has to be recovered from the free-text address line, which is not a simple matter of removing digits: Brazilian street names routinely contain numbers ("BR 364", "Avenida 12 de Outubro", "Rua 15"), and rural addresses are often located by highway milepost rather than by house number. The CEP is supplied for the 97% of station-years that carry a usable one, which is often enough to place a station in the right neighborhood even when its street cannot be resolved.
+
+Each result carries the precision tier it was resolved at and an uncertainty radius in meters (`desvio_metros`), which is the geocoder's own statement of how far the returned point may be from the address. The radius spans four orders of magnitude across tiers --- a few meters at house-number precision against roughly 17 km at the municipal centroid --- and it enters the selection model as this source's candidate-quality score, in the same role the string distance plays for the other three.
 
 ## String Matching
 
@@ -95,7 +100,7 @@ After string matching, we use a boosted tree model to predict the distance betwe
 We treat the coordinates provided by the election authorities as the "ground truth".
 This distance is modeled as a function of the following set of covariates:
 
--   Length-normalized Jaro-Winkler string distance of the match that produced the candidate.
+-   The candidate's quality score from the source that produced it: the length-normalized Jaro-Winkler string distance for the string-matched sources, and the uncertainty radius for `geocodebr`. Lower is better in both cases.
 -   Four per-component string distances between the polling station and the matched reference record: school name, street, neighborhood, and whole address line (step 7 above). Each is missing when the source carries no such field.
 -   Coordinate data source
 -   Indicator for whether the address mentions the city center ("centro")

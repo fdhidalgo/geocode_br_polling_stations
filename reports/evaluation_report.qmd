@@ -34,12 +34,16 @@ tar_load(c(
   accuracy_tables,
   baseline_accuracy_tables,
   baseline_comparison,
+  geocodebr_accuracy_tables,
+  geocodebr_vs_model,
   calibration_check
 ))
 
 acc <- as.data.table(accuracy_tables)
 cov <- as.data.table(tse_coverage)
 cmp <- as.data.table(baseline_comparison)
+gb_acc <- as.data.table(geocodebr_accuracy_tables)
+gb_cmp <- as.data.table(geocodebr_vs_model)
 ```
 
 ## What this report measures {.unnumbered}
@@ -194,6 +198,153 @@ src |>
   tab_header(
     title = "Which source each selector picks",
     subtitle = "Stations assigned to each candidate type. Same stations, different picks."
+  )
+```
+
+## Could `geocodebr` replace the bespoke 2022 CNEFE tables?
+
+`geocodebr` distributes IBGE's own aggregation of the 2022 CNEFE — the same source the
+project's hand-built 2022 street and neighborhood reference tables are made from. If its
+coordinates are as close to TSE ground truth as those tables' are, the tables can be
+retired. This section runs that comparison. Nothing else is at stake: the 2010/2017
+multi-vintage references, INEP school matching, the selection model, panel linkage and
+station-specific normalization are all outside `geocodebr`'s scope regardless.
+
+Unlike the heuristic above, `geocodebr` and the pipeline do **not** geocode the same
+stations — each resolves some the other cannot. So every cell below is measured on the
+stations where **both** produced a coordinate (`N both`), with each side's coverage of the
+full cell shown alongside: parity on the intersection is worth nothing if `geocodebr`
+resolves far fewer stations. **Δ is `geocodebr` minus the model** — the reverse of the
+heuristic table above, since here the pipeline is the incumbent — so a negative median Δ
+and a positive `<500 m` Δ favour **`geocodebr`**.
+
+One caveat on reading `N geocodebr`: the cascade bottoms out at the municipal centroid, so
+`geocodebr` returns *something* for nearly every station it is handed and its match rate is
+close to 100% by construction. That is not a coverage win — a municipal centroid is a
+coordinate, not a located station. The precision-tier table below is where the real coverage
+question lives.
+
+```{r}
+#| label: geocodebr-headline
+#| output: asis
+gate <- gb_cmp[universe == "cnefe22_winner" & stratum == "overall"]
+cat(sprintf(
+  paste0(
+    "**On the stations the 2022 CNEFE street/neighborhood tables currently win** ",
+    "(%s stations, of which geocodebr resolves %s): median error **%.3f km** ",
+    "(geocodebr) vs **%.3f km** (pipeline), a difference of **%+.3f km**. ",
+    "Within 500 m: **%.1f%%** vs **%.1f%%**, a difference of **%+.1f pp**."
+  ),
+  format(gate$n_stations, big.mark = ","), format(gate$n_geocodebr, big.mark = ","),
+  gate$median_km_geocodebr, gate$median_km_model, gate$delta_median_km,
+  gate$within_500m_geocodebr, gate$within_500m_model, gate$delta_within_500m
+))
+```
+
+```{r}
+#| label: geocodebr-headtohead
+gb_cmp[stratum != "geocodebr_tier"] |>
+  gt(groupname_col = "universe", rowname_col = "level") |>
+  fmt_number(
+    columns = c("median_km_geocodebr", "median_km_model", "delta_median_km"),
+    decimals = 3
+  ) |>
+  fmt_number(
+    columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m"),
+    decimals = 1
+  ) |>
+  fmt_integer(columns = c("n_stations", "n_geocodebr", "n_model", "n_both")) |>
+  sub_missing(missing_text = "—") |>
+  cols_label(
+    stratum = "Cut", n_stations = "N", n_geocodebr = "N geocodebr", n_model = "N model",
+    n_both = "N both",
+    median_km_geocodebr = "geocodebr", median_km_model = "Pipeline",
+    delta_median_km = "Δ",
+    within_500m_geocodebr = "geocodebr", within_500m_model = "Pipeline",
+    delta_within_500m = "Δ", suppressed = "Below N floor"
+  ) |>
+  tab_spanner(
+    label = "Median error (km)",
+    columns = c("median_km_geocodebr", "median_km_model", "delta_median_km")
+  ) |>
+  tab_spanner(
+    label = "Within 500 m (%)",
+    columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m")
+  ) |>
+  tab_header(
+    title = "geocodebr vs the pipeline's selected coordinate",
+    subtitle = paste(
+      "all_covered = every TSE-covered station;",
+      "cnefe22_winner = those the 2022 CNEFE street/neighborhood tables currently win."
+    )
+  ) |>
+  tab_source_note(
+    "Δ is geocodebr minus pipeline: negative median and positive <500 m favour geocodebr."
+  )
+```
+
+### By `geocodebr` precision tier
+
+`geocodebr` labels each result with the rung of its cascade it reached, from an exact house
+number down to the municipal centroid. The tier decides how much of the substitution is
+actually available: if `geocodebr` only reaches parity at street level or better, it cannot
+replace the tables on the stations that fall to coarser rungs — which is precisely where the
+bespoke aggregates are doing work. `sem_resultado` is the stations `geocodebr` returned
+nothing for.
+
+```{r}
+#| label: geocodebr-tier
+gb_cmp[stratum == "geocodebr_tier", .(
+  universe, Tier = level, n_stations, n_both,
+  median_km_geocodebr, median_km_model, delta_median_km,
+  within_500m_geocodebr, within_500m_model, delta_within_500m
+)] |>
+  gt(groupname_col = "universe", rowname_col = "Tier") |>
+  fmt_number(
+    columns = c("median_km_geocodebr", "median_km_model", "delta_median_km"),
+    decimals = 3
+  ) |>
+  fmt_number(
+    columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m"),
+    decimals = 1
+  ) |>
+  fmt_integer(columns = c("n_stations", "n_both")) |>
+  sub_missing(missing_text = "—") |>
+  cols_label(
+    n_stations = "N", n_both = "N both",
+    median_km_geocodebr = "geocodebr", median_km_model = "Pipeline",
+    delta_median_km = "Δ",
+    within_500m_geocodebr = "geocodebr", within_500m_model = "Pipeline",
+    delta_within_500m = "Δ"
+  ) |>
+  tab_spanner(
+    label = "Median error (km)",
+    columns = c("median_km_geocodebr", "median_km_model", "delta_median_km")
+  ) |>
+  tab_spanner(
+    label = "Within 500 m (%)",
+    columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m")
+  ) |>
+  tab_header(title = "Head-to-head by geocodebr precision tier")
+```
+
+```{r}
+#| label: geocodebr-standalone
+gb_acc[stratum %in% c("overall", "urban_rural", "region", "match_source")] |>
+  gt(groupname_col = "stratum", rowname_col = "level") |>
+  fmt_number(columns = c("median_km", "p90", "p95", "p99"), decimals = 3) |>
+  fmt_number(columns = c("match_rate", "within_100m", "within_500m", "within_1km"),
+             decimals = 1) |>
+  fmt_integer(columns = c("n_total", "n_geocoded")) |>
+  sub_missing(missing_text = "—") |>
+  cols_label(
+    n_total = "N covered", n_geocoded = "N geocoded", match_rate = "Match %",
+    median_km = "Median km", within_100m = "<100m %", within_500m = "<500m %",
+    within_1km = "<1km %"
+  ) |>
+  tab_header(
+    title = "geocodebr on its own, over the whole covered set",
+    subtitle = "Same metric ladder as the pipeline table above. `match_source` is the precision tier."
   )
 ```
 

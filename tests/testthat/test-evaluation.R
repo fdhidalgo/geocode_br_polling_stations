@@ -1,8 +1,9 @@
 ## Unit tests for the deterministic evaluation-harness helpers (R/evaluation.R).
 ## These avoid the heavy pipeline (no model fitting, no spatial joins): they check
 ## the metric ladder, region mapping, coverage counting, fold assignment, the
-## trivial-heuristic baseline selector and its comparison table, and the calibration
-## rank-and-filter logic with tiny synthetic inputs.
+## trivial-heuristic baseline selector and its comparison table, the geocodebr
+## selector and its head-to-head table, and the calibration rank-and-filter logic
+## with tiny synthetic inputs.
 
 library(testthat)
 library(data.table)
@@ -184,6 +185,80 @@ test_that("compare_to_baseline signs deltas so the model's advantage is visible"
   # the two selectors rank the same candidates, so a differing geocoded count is a bug
   wrong <- copy(baseline)[stratum == "overall", n_geocoded := 79L]
   expect_error(compare_to_baseline(model, wrong), "which stations geocoded")
+})
+
+test_that("select_geocodebr_candidates keeps covered geocodebr rows with their tier", {
+  md <- data.table(
+    local_id = c(1L, 1L, 2L, 3L),
+    type = c("geocodebr", "st_cnefe_2022", "geocodebr", "geocodebr"),
+    # station 3 has no TSE coordinate, so it is not scored at all
+    dist = c(0.3, 0.9, 1.2, NA_real_)
+  )
+  gb <- data.table(
+    local_id = 1:3,
+    precisao_geocodebr = c("numero", "localidade", "municipio")
+  )
+  sel <- select_geocodebr_candidates(md, gb)
+  expect_equal(sel$local_id, c(1L, 2L))
+  expect_equal(sel$error_km, c(0.3, 1.2)) # geocodebr's row, not the CNEFE candidate's
+  expect_equal(sel$match_source, c("numero", "localidade"))
+
+  # a scored candidate that lost its tier is a broken join, not a station to score anyway
+  expect_error(select_geocodebr_candidates(md, gb[local_id != 1L]), "lost its precision tier")
+  no_tier <- copy(gb)[local_id == 1L, precisao_geocodebr := NA_character_]
+  expect_error(select_geocodebr_candidates(md, no_tier), "without a precision tier")
+})
+
+test_that("compare_geocodebr_to_model scores both selectors on both-geocoded stations", {
+  n <- 60L
+  ids <- seq_len(2L * n)
+  # First block: the model's winning match comes from the 2022 CNEFE street table (the
+  # subset the substitution decision turns on). Second block: it comes from INEP schools.
+  model_source <- rep(c("st_cnefe_2022", "schools_inep_name"), each = n)
+  # geocodebr resolves every station but the last of each block.
+  gb_geocoded <- rep(TRUE, 2L * n)
+  gb_geocoded[c(n, 2L * n)] <- FALSE
+
+  gb <- data.table(
+    local_id = ids,
+    urban_rural = "urban",
+    region = "Norte",
+    match_source = fifelse(gb_geocoded, "numero", NA_character_),
+    error_km = fifelse(gb_geocoded, 0.2, NA_real_),
+    geocoded = gb_geocoded
+  )
+  model <- data.table(
+    local_id = ids,
+    match_source = model_source,
+    error_km = 0.8,
+    geocoded = TRUE
+  )
+
+  cmp <- compare_geocodebr_to_model(gb, model)
+
+  overall <- cmp[universe == "all_covered" & stratum == "overall"]
+  expect_equal(overall$n_stations, 120L)
+  expect_equal(overall$n_geocodebr, 118L) # coverage reported, not folded into the metric
+  expect_equal(overall$n_model, 120L)
+  expect_equal(overall$n_both, 118L)
+  # deltas are geocodebr minus model, so geocodebr's advantage is a negative median delta
+  # and a positive within-500 m delta
+  expect_equal(overall$delta_median_km, 0.2 - 0.8)
+  expect_equal(overall$delta_within_500m, 100)
+
+  # the gate subset holds only the stations the 2022 CNEFE tables currently win
+  subset_overall <- cmp[universe == "cnefe22_winner" & stratum == "overall"]
+  expect_equal(subset_overall$n_stations, 60L)
+  expect_equal(subset_overall$n_both, 59L)
+
+  # a station geocodebr never resolved gets a named tier rather than dropping out
+  tiers <- cmp[universe == "all_covered" & stratum == "geocodebr_tier"]
+  expect_setequal(tiers$level, c("numero", "sem_resultado"))
+  expect_equal(tiers[level == "sem_resultado"]$n_both, 0L)
+  expect_true(tiers[level == "sem_resultado"]$suppressed)
+
+  # the two selectors must be scored on the same universe, or the pairing is meaningless
+  expect_error(compare_geocodebr_to_model(gb[-1L], model), "different station universes")
 })
 
 test_that("compute_accuracy_tables reports match rate and suppresses small cells", {

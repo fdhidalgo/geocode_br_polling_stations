@@ -294,10 +294,12 @@ so these figures may be marginally optimistic.)
 #| label: load-eval-targets
 # Read the pipeline-produced evaluation targets (store fallback for manual runs).
 tryCatch({
-  tar_load(c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison))
+  tar_load(c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison,
+             geocodebr_vs_model))
 }, error = function(e) {
   project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
-  tar_load(c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison),
+  tar_load(c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison,
+             geocodebr_vs_model),
            store = file.path(project_root, "_targets"))
 })
 acc <- as.data.table(accuracy_tables)
@@ -392,6 +394,46 @@ cat(sprintf(
 
 The full per-stratum comparison is in the evaluation report
 (`reports/evaluation_report.qmd`).
+
+### How much of this could an off-the-shelf geocoder do?
+
+`geocodebr` is one of the candidate sources, and it is built on IBGE's own
+aggregation of the same 2022 census address file that two of our reference tables
+--- matched street segments and matched neighborhoods --- are built from. That
+overlap raises a fair question: are those hand-built tables earning their place,
+or would the off-the-shelf geocoder do as well on its own? We answer it by
+scoring `geocodebr`'s coordinates against the TSE ground truth on the stations
+where one of those two tables currently supplies the winning match, comparing
+only stations both approaches resolve so a difference in accuracy is not a
+difference in coverage in disguise.
+
+```{r}
+#| label: geocodebr-gate-summary
+#| output: asis
+gate <- as.data.table(geocodebr_vs_model)[
+  universe == "cnefe22_winner" & stratum == "overall"
+]
+cat(sprintf(
+  paste0(
+    "On the %s covered stations the 2022 street and neighborhood tables win, ",
+    "`geocodebr` returns a coordinate for %s. Where both resolve the station, ",
+    "`geocodebr`'s median error is **%.2f km** against **%.2f km** for the ",
+    "pipeline's pick, and **%.1f%%** of its coordinates land within 500 m ",
+    "against **%.1f%%** --- a difference of **%+.2f km** and **%+.1f ",
+    "percentage points** (a negative and a positive, respectively, favour ",
+    "`geocodebr`)."
+  ),
+  format(gate$n_stations, big.mark = ","),
+  format(gate$n_geocodebr, big.mark = ","),
+  gate$median_km_geocodebr, gate$median_km_model,
+  gate$within_500m_geocodebr, gate$within_500m_model,
+  gate$delta_median_km, gate$delta_within_500m
+))
+```
+
+The breakdown by `geocodebr`'s own precision tier --- how far down its cascade
+each result came from --- is in the evaluation report, along with the same
+comparison over the whole covered set.
 
 A separate, covered-only Google reference-validation (Google-vs-TSE agreement) is
 reported in the exploratory evaluation report (`reports/evaluation_report.qmd`)

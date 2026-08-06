@@ -44,6 +44,54 @@ cov <- as.data.table(tse_coverage)
 cmp <- as.data.table(baseline_comparison)
 gb_acc <- as.data.table(geocodebr_accuracy_tables)
 gb_cmp <- as.data.table(geocodebr_vs_model)
+
+# One formatter per table schema, so every rendering of a schema agrees on decimals,
+# labels and spanners. Each caller adds only its own filter, counts and notes.
+acc_ladder_gt <- function(dt, title, subtitle) {
+  dt |>
+    gt(groupname_col = "stratum", rowname_col = "level") |>
+    fmt_number(columns = c("median_km", "p90", "p95", "p99"), decimals = 3) |>
+    fmt_number(columns = c("match_rate", "within_100m", "within_500m", "within_1km"),
+               decimals = 1) |>
+    fmt_integer(columns = c("n_total", "n_geocoded")) |>
+    sub_missing(missing_text = "—") |>
+    cols_label(
+      n_total = "N covered", n_geocoded = "N geocoded", match_rate = "Match %",
+      median_km = "Median km", within_100m = "<100m %", within_500m = "<500m %",
+      within_1km = "<1km %"
+    ) |>
+    tab_header(title = title, subtitle = subtitle)
+}
+
+head_to_head_gt <- function(dt, title, subtitle = NULL) {
+  dt |>
+    gt(groupname_col = "universe", rowname_col = "level") |>
+    fmt_number(
+      columns = c("median_km_geocodebr", "median_km_model", "delta_median_km"),
+      decimals = 3
+    ) |>
+    fmt_number(
+      columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m"),
+      decimals = 1
+    ) |>
+    fmt_integer(columns = where(is.integer)) |>
+    sub_missing(missing_text = "—") |>
+    cols_label(
+      median_km_geocodebr = "geocodebr", median_km_model = "Pipeline",
+      delta_median_km = "Δ",
+      within_500m_geocodebr = "geocodebr", within_500m_model = "Pipeline",
+      delta_within_500m = "Δ"
+    ) |>
+    tab_spanner(
+      label = "Median error (km)",
+      columns = c("median_km_geocodebr", "median_km_model", "delta_median_km")
+    ) |>
+    tab_spanner(
+      label = "Within 500 m (%)",
+      columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m")
+    ) |>
+    tab_header(title = title, subtitle = subtitle)
+}
 ```
 
 ## What this report measures {.unnumbered}
@@ -90,22 +138,8 @@ cat(sprintf(
 
 ```{r}
 #| label: acc-table
-acc_display <- copy(acc)
-num_cols <- c("match_rate", "median_km", "p90", "p95", "p99",
-              "within_100m", "within_500m", "within_1km")
-acc_display |>
-  gt(groupname_col = "stratum", rowname_col = "level") |>
-  fmt_number(columns = c("median_km", "p90", "p95", "p99"), decimals = 3) |>
-  fmt_number(columns = c("match_rate", "within_100m", "within_500m", "within_1km"),
-             decimals = 1) |>
-  fmt_integer(columns = c("n_total", "n_geocoded")) |>
-  sub_missing(columns = num_cols, missing_text = "—") |>
-  cols_label(
-    n_total = "N covered", n_geocoded = "N geocoded", match_rate = "Match %",
-    median_km = "Median km", within_100m = "<100m %", within_500m = "<500m %",
-    within_1km = "<1km %"
-  ) |>
-  tab_header(
+acc |>
+  acc_ladder_gt(
     title = "Positional accuracy on the TSE-covered set (out-of-fold)",
     subtitle = "Suppressed strata (below held-out N floor) show counts only."
   ) |>
@@ -244,39 +278,16 @@ cat(sprintf(
 ```{r}
 #| label: geocodebr-headtohead
 gb_cmp[stratum != "geocodebr_tier"] |>
-  gt(groupname_col = "universe", rowname_col = "level") |>
-  fmt_number(
-    columns = c("median_km_geocodebr", "median_km_model", "delta_median_km"),
-    decimals = 3
-  ) |>
-  fmt_number(
-    columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m"),
-    decimals = 1
-  ) |>
-  fmt_integer(columns = c("n_stations", "n_geocodebr", "n_model", "n_both")) |>
-  sub_missing(missing_text = "—") |>
-  cols_label(
-    stratum = "Cut", n_stations = "N", n_geocodebr = "N geocodebr", n_model = "N model",
-    n_both = "N both",
-    median_km_geocodebr = "geocodebr", median_km_model = "Pipeline",
-    delta_median_km = "Δ",
-    within_500m_geocodebr = "geocodebr", within_500m_model = "Pipeline",
-    delta_within_500m = "Δ", suppressed = "Below N floor"
-  ) |>
-  tab_spanner(
-    label = "Median error (km)",
-    columns = c("median_km_geocodebr", "median_km_model", "delta_median_km")
-  ) |>
-  tab_spanner(
-    label = "Within 500 m (%)",
-    columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m")
-  ) |>
-  tab_header(
+  head_to_head_gt(
     title = "geocodebr vs the pipeline's selected coordinate",
     subtitle = paste(
       "all_covered = every TSE-covered station;",
       "cnefe22_winner = those the 2022 CNEFE street/neighborhood tables currently win."
     )
+  ) |>
+  cols_label(
+    stratum = "Cut", n_stations = "N", n_geocodebr = "N geocodebr", n_model = "N model",
+    n_both = "N both", suppressed = "Below N floor"
   ) |>
   tab_source_note(
     "Δ is geocodebr minus pipeline: negative median and positive <500 m favour geocodebr."
@@ -295,54 +306,19 @@ nothing for.
 ```{r}
 #| label: geocodebr-tier
 gb_cmp[stratum == "geocodebr_tier", .(
-  universe, Tier = level, n_stations, n_both,
+  universe, level, n_stations, n_both,
   median_km_geocodebr, median_km_model, delta_median_km,
   within_500m_geocodebr, within_500m_model, delta_within_500m
 )] |>
-  gt(groupname_col = "universe", rowname_col = "Tier") |>
-  fmt_number(
-    columns = c("median_km_geocodebr", "median_km_model", "delta_median_km"),
-    decimals = 3
-  ) |>
-  fmt_number(
-    columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m"),
-    decimals = 1
-  ) |>
-  fmt_integer(columns = c("n_stations", "n_both")) |>
-  sub_missing(missing_text = "—") |>
-  cols_label(
-    n_stations = "N", n_both = "N both",
-    median_km_geocodebr = "geocodebr", median_km_model = "Pipeline",
-    delta_median_km = "Δ",
-    within_500m_geocodebr = "geocodebr", within_500m_model = "Pipeline",
-    delta_within_500m = "Δ"
-  ) |>
-  tab_spanner(
-    label = "Median error (km)",
-    columns = c("median_km_geocodebr", "median_km_model", "delta_median_km")
-  ) |>
-  tab_spanner(
-    label = "Within 500 m (%)",
-    columns = c("within_500m_geocodebr", "within_500m_model", "delta_within_500m")
-  ) |>
-  tab_header(title = "Head-to-head by geocodebr precision tier")
+  head_to_head_gt(title = "Head-to-head by geocodebr precision tier") |>
+  cols_label(n_stations = "N", n_both = "N both") |>
+  tab_stubhead(label = "Tier")
 ```
 
 ```{r}
 #| label: geocodebr-standalone
 gb_acc[stratum %in% c("overall", "urban_rural", "region", "match_source")] |>
-  gt(groupname_col = "stratum", rowname_col = "level") |>
-  fmt_number(columns = c("median_km", "p90", "p95", "p99"), decimals = 3) |>
-  fmt_number(columns = c("match_rate", "within_100m", "within_500m", "within_1km"),
-             decimals = 1) |>
-  fmt_integer(columns = c("n_total", "n_geocoded")) |>
-  sub_missing(missing_text = "—") |>
-  cols_label(
-    n_total = "N covered", n_geocoded = "N geocoded", match_rate = "Match %",
-    median_km = "Median km", within_100m = "<100m %", within_500m = "<500m %",
-    within_1km = "<1km %"
-  ) |>
-  tab_header(
+  acc_ladder_gt(
     title = "geocodebr on its own, over the whole covered set",
     subtitle = "Same metric ladder as the pipeline table above. `match_source` is the precision tier."
   )

@@ -289,10 +289,13 @@ dropping out of the cut.
 `cnefe22_winner` subset — the stations whose out-of-fold winning match is `st_cnefe_2022` or
 `bairro_cnefe_2022`. (CNEFE-2022 *schools* are matched on establishment name against a
 different table and are not part of the proposed substitution.) Each universe is cut overall,
-by urban/rural, by region, by urban/rural × region, and by geocodebr precision tier. Deltas
-are **geocodebr minus model**, the opposite orientation from §7a: here the pipeline is the
-incumbent and geocodebr is the challenger, so geocodebr's advantage reads as a negative
-median delta and a positive within-500 m delta.
+by urban/rural, by region, by urban/rural × region, and by geocodebr precision tier.
+
+**Delta orientation, the rule for both comparison tables.** A delta is always *the subject of
+the section's question* minus *what it is compared against*, so a negative median delta and a
+positive within-500 m delta always favour the subject. §7a asks whether the model earns its
+keep, so its delta is model minus heuristic; §7b asks whether geocodebr could replace the
+tables, so its delta is geocodebr minus model.
 
 **Reading the gate.** Parity-or-better on the `cnefe22_winner` universe, at comparable
 coverage, is what retires the tables. Read coverage through the tier cut, not the match

@@ -241,12 +241,11 @@ select_baseline_candidates <- function(model_data) {
   unique(covered, by = "local_id")[, .(local_id, match_source, error_km)]
 }
 
-# geocodebr's own coordinate for every covered station it resolved, on the same error scale
-# the other two selectors are scored on. Candidates are read from the modeling table rather
-# than recomputed, so a geocodebr hit the pipeline could not score (a coordinate with no
-# uncertainty radius) is absent here exactly as it is absent from the model's candidates.
-# `match_source` carries the precision tier the cascade landed on: for a single-source
-# selector that is what "which source produced this coordinate" means.
+# geocodebr's own coordinate for every covered station it resolved, on the error scale the
+# other selectors are scored on. The precision tier is joined from geocodebr_match rather
+# than carried in model_data: the model recipe is dist ~ ., so every model_data column
+# becomes a predictor. It lands in `match_source` -- for a single-source selector, the
+# cascade tier is the provenance label.
 select_geocodebr_candidates <- function(model_data, geocodebr_match) {
   covered <- model_data[
     type == "geocodebr" & !is.na(dist),
@@ -258,7 +257,6 @@ select_geocodebr_candidates <- function(model_data, geocodebr_match) {
     by = "local_id"
   )
   stopifnot(
-    "geocodebr returned duplicate stations" = !anyDuplicated(out$local_id),
     "geocodebr candidate lost its precision tier in the join" = nrow(out) == nrow(covered),
     "geocodebr candidate without a precision tier" = !anyNA(out$match_source)
   )
@@ -457,38 +455,27 @@ compare_to_baseline <- function(accuracy_tables, baseline_accuracy_tables) {
   cmp[]
 }
 
-# Column pairs the head-to-head table suppresses together below the cell-size floor.
-GEOCODEBR_CMP_METRIC_COLS <- c(
-  "median_km_geocodebr",
-  "median_km_model",
-  "delta_median_km",
-  "within_500m_geocodebr",
-  "within_500m_model",
-  "delta_within_500m"
-)
-
 # geocodebr's coordinates against the pipeline's selected coordinates, both measured to the
-# TSE ground truth. Reported over two universes: every covered station, and the subset where
-# the bespoke 2022 CNEFE street/neighborhood tables currently supply the winning match --
-# the subset that decides whether geocodebr's own 2022 surface can replace them.
-#
-# Each cell scores both selectors on the stations where BOTH produced a coordinate, so a
-# metric gap is never a coverage difference in disguise; each side's coverage over the whole
-# cell rides along, because parity on the intersection means nothing if geocodebr resolves
-# far fewer stations. Deltas are geocodebr minus model, so geocodebr's advantage reads as a
-# negative median delta and a positive within-500 m delta.
+# TSE ground truth, over every covered station and over the subset the bespoke 2022 CNEFE
+# street/neighborhood tables currently win. Each cell scores both selectors on the stations
+# where both produced a coordinate, with each side's coverage of the whole cell alongside.
+# Deltas are geocodebr minus model.
 compare_geocodebr_to_model <- function(geocodebr_selected_matches, oof_selected_matches) {
-  # The reference tables under review. CNEFE-2022 schools are matched on establishment name
-  # against a different table and are not part of the proposed substitution.
-  substituted_sources <- c("st_cnefe_2022", "bairro_cnefe_2022")
+  metric_cols <- c(
+    "median_km_geocodebr",
+    "median_km_model",
+    "delta_median_km",
+    "within_500m_geocodebr",
+    "within_500m_model",
+    "delta_within_500m"
+  )
 
   paired <- merge(
     geocodebr_selected_matches[, .(
       local_id,
       urban_rural,
       region,
-      # A station geocodebr never resolved has no tier; naming the absence gives it its own
-      # level instead of dropping it out of the tier cut.
+      # Stations geocodebr never resolved get a named tier, so they form a level of their own.
       geocodebr_tier = fifelse(is.na(match_source), "sem_resultado", match_source),
       geocoded_geocodebr = geocoded,
       error_km_geocodebr = error_km
@@ -507,14 +494,14 @@ compare_geocodebr_to_model <- function(geocodebr_selected_matches, oof_selected_
   )
 
   cell <- function(dt) {
-    both <- dt[geocoded_geocodebr & geocoded_model]
-    g <- accuracy_metrics(both$error_km_geocodebr)
-    m <- accuracy_metrics(both$error_km_model)
+    both <- dt$geocoded_geocodebr & dt$geocoded_model
+    g <- accuracy_metrics(dt$error_km_geocodebr[both])
+    m <- accuracy_metrics(dt$error_km_model[both])
     list(
       n_stations = nrow(dt),
       n_geocodebr = sum(dt$geocoded_geocodebr),
       n_model = sum(dt$geocoded_model),
-      n_both = nrow(both),
+      n_both = sum(both),
       median_km_geocodebr = g$median_km,
       median_km_model = m$median_km,
       delta_median_km = g$median_km - m$median_km,
@@ -526,9 +513,10 @@ compare_geocodebr_to_model <- function(geocodebr_selected_matches, oof_selected_
 
   universes <- list(
     all_covered = paired,
-    # Every station here geocoded under the model by construction, so n_both is geocodebr's
-    # coverage of the tables it would replace.
-    cnefe22_winner = paired[model_source %in% substituted_sources]
+    # CNEFE-2022 schools are matched on establishment name against a different table, so they
+    # are not part of the proposed substitution. Every station here geocoded under the model,
+    # so n_both is geocodebr's coverage of the tables it would replace.
+    cnefe22_winner = paired[model_source %in% c("st_cnefe_2022", "bairro_cnefe_2022")]
   )
   strata <- list(
     character(0),
@@ -540,14 +528,12 @@ compare_geocodebr_to_model <- function(geocodebr_selected_matches, oof_selected_
 
   out <- rbindlist(
     lapply(names(universes), function(u) {
-      tabs <- rbindlist(
+      rbindlist(
         lapply(strata, function(s) {
-          .by_stratum(universes[[u]], s, cell, GEOCODEBR_CMP_METRIC_COLS, "n_both")
+          .by_stratum(universes[[u]], s, cell, metric_cols = metric_cols, n_col = "n_both")
         }),
         use.names = TRUE
-      )
-      tabs[, universe := u]
-      tabs[]
+      )[, universe := u]
     }),
     use.names = TRUE
   )

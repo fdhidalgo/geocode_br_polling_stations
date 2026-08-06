@@ -12,6 +12,9 @@ library(stringr)
 # shared by the forward transform and both inverse paths so they cannot drift apart.
 GBM_LOG_OFFSET <- 1e-4
 
+# Earth radius in km, so every haversine distance in this file lands on one scale.
+EARTH_RADIUS_KM <- 6378.137
+
 # Melt one match table's per-candidate column groups -- coordinates, the whole-string
 # distance that selected the candidate, and the four field similarities -- into one row per
 # candidate coordinate. `types` maps each match table's column suffix (its names) to the
@@ -65,6 +68,104 @@ geocodebr_candidates <- function(geocodebr_match) {
     )
   ]
   candidates[]
+}
+
+# The candidate types come from five reference datasets. Two types drawn from the same one
+# -- a CNEFE street median and its neighborhood median, an INEP name match and its address
+# match -- often land together because they share a record, not because anything was
+# corroborated, so agreement below is counted across datasets rather than across types.
+CANDIDATE_DATASET <- c(
+  st_cnefe_2010 = "cnefe_2010",
+  bairro_cnefe_2010 = "cnefe_2010",
+  schools_cnefe_name_2010 = "cnefe_2010",
+  st_cnefe_2022 = "cnefe_2022",
+  bairro_cnefe_2022 = "cnefe_2022",
+  schools_cnefe_name_2022 = "cnefe_2022",
+  st_agrocnefe_2017 = "agrocnefe_2017",
+  bairro_agrocnefe_2017 = "agrocnefe_2017",
+  schools_inep_name = "inep",
+  schools_inep_addr = "inep",
+  geocodebr = "geocodebr"
+)
+
+# Measure each candidate against the rest of its station's candidate cloud, so the model can
+# tell a location several independent datasets agree on from a lone outlier. Each source
+# offers at most one candidate per station, so a cloud holds at most a dozen points and every
+# pairwise distance can be computed outright.
+add_consensus_features <- function(candidates) {
+  stopifnot(
+    "a source contributed two candidates for one station" = anyDuplicated(candidates, by = c("local_id", "type")) == 0L,
+    # Every measure here is a distance, and one missing coordinate would poison its whole
+    # station's cloud rather than just its own row.
+    "consensus needs a coordinate on every candidate" = !anyNA(candidates$long) && !anyNA(candidates$lat)
+  )
+
+  cloud <- candidates[, .(local_id, type, long, lat)]
+  cloud[, dataset := unname(CANDIDATE_DATASET[type])]
+  stopifnot("candidate type belongs to no reference dataset" = !anyNA(cloud$dataset))
+
+  # Coordinate-wise median: a cloud centre that a single wild candidate cannot drag.
+  centre <- cloud[, .(n_cand = .N, med_long = median(long), med_lat = median(lat)), by = local_id]
+  cloud <- merge(cloud, centre, by = "local_id")
+  cloud[,
+    dist_to_cloud_median_km := geosphere::distHaversine(
+      cbind(long, lat),
+      cbind(med_long, med_lat),
+      r = EARTH_RADIUS_KM
+    )
+  ]
+  # A single candidate is trivially its own centre, which would otherwise read as the
+  # tightest possible agreement.
+  cloud[n_cand == 1L, dist_to_cloud_median_km := NA_real_]
+
+  pairs <- merge(
+    cloud[, .(local_id, type, dataset, long, lat)],
+    cloud[, .(local_id, type, dataset, long, lat)],
+    by = "local_id",
+    allow.cartesian = TRUE,
+    suffixes = c("", "_other")
+  )
+  # Drops each candidate's pairing with itself, and only that: one candidate per source
+  # means `type` identifies a candidate within its station.
+  pairs <- pairs[type != type_other]
+  pairs[,
+    pair_km := geosphere::distHaversine(
+      cbind(long, lat),
+      cbind(long_other, lat_other),
+      r = EARTH_RADIUS_KM
+    )
+  ]
+
+  # Corroboration is measured only across datasets. 500 m because that is the distance the
+  # released accuracy is reported at; dataset_other breaks distance ties so the feature does
+  # not depend on the order candidates happened to arrive in.
+  cross <- pairs[dataset != dataset_other]
+  setorder(cross, local_id, type, pair_km, dataset_other)
+  per_candidate <- cross[,
+    .(
+      nearest_other_km = pair_km[1],
+      nearest_other_dataset = dataset_other[1],
+      n_datasets_within_500m = uniqueN(dataset_other[pair_km <= 0.5])
+    ),
+    by = .(local_id, type)
+  ]
+  # Dispersion describes the whole cloud, siblings included. The median over ordered pairs
+  # equals the median over unordered ones -- each pair appears twice.
+  per_station <- pairs[, .(cloud_dispersion_km = median(pair_km)), by = local_id]
+
+  out <- merge(
+    candidates,
+    cloud[, .(local_id, type, n_cand, dist_to_cloud_median_km)],
+    by = c("local_id", "type")
+  )
+  out <- merge(out, per_candidate, by = c("local_id", "type"), all.x = TRUE)
+  out <- merge(out, per_station, by = "local_id", all.x = TRUE)
+  # A station whose candidates all come from one dataset has nothing to corroborate it:
+  # zero agreeing datasets is observed, whereas a distance to a candidate that does not
+  # exist is not.
+  out[is.na(n_datasets_within_500m), n_datasets_within_500m := 0L]
+  stopifnot("consensus features changed the candidate count" = nrow(out) == nrow(candidates))
+  out[]
 }
 
 # Assemble the modeling table: all candidate matches, address/municipal features, TSE distance.
@@ -176,7 +277,7 @@ make_model_data <- function(
     dist := geosphere::distHaversine(
       cbind(long, lat),
       cbind(tse_long, tse_lat),
-      r = 6378.137
+      r = EARTH_RADIUS_KM
     )
   ]
   model_data[, ano := NULL]
@@ -189,7 +290,9 @@ make_model_data <- function(
     !is.na(long) & !is.na(lat) & (!is.na(mindist) | !is.na(desvio_km))
   ]
 
-  model_data
+  # After the filter: consensus needs a coordinate on every candidate, and it also means a
+  # candidate the model never scores cannot vote in it.
+  add_consensus_features(model_data)
 }
 
 build_gbm_workflow <- function(data) {

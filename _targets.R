@@ -874,23 +874,52 @@ list(
     )
   ),
 
-  ## Per-station selected match from OOF scores, joined onto the covered-station
-  ## universe with stratification axes.
+  ## Every covered station with its stratification axes - the shared denominator the
+  ## model and the baseline selector are both scored against.
+  tar_target(
+    name = eval_station_universe,
+    command = build_eval_universe(locais_filtered, tsegeocoded_locais, tract_shp),
+    format = "qs"
+  ),
+
+  ## Per-station selected match from OOF scores, joined onto the covered-station universe.
   tar_target(
     name = oof_selected_matches,
-    command = select_oof_matches(
-      oof_predictions,
-      locais_filtered,
-      tsegeocoded_locais,
-      tract_shp
+    command = attach_eval_universe(
+      select_oof_candidates(oof_predictions),
+      eval_station_universe
     ),
     format = "qs"
+  ),
+
+  ## The same, for the trivial source-precedence heuristic the model has to beat.
+  ## Reads the whole candidate table -> memory_limited controller, as oof_predictions does.
+  tar_target(
+    name = baseline_selected_matches,
+    command = attach_eval_universe(
+      select_baseline_candidates(model_data),
+      eval_station_universe
+    ),
+    format = "qs",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
   ),
 
   ## Stratified accuracy tables, joint with match rate, small-cell suppressed.
   tar_target(
     name = accuracy_tables,
     command = compute_accuracy_tables(oof_selected_matches)
+  ),
+  tar_target(
+    name = baseline_accuracy_tables,
+    command = compute_accuracy_tables(baseline_selected_matches)
+  ),
+
+  ## Model minus baseline on the headline metrics - "is the model worth it".
+  tar_target(
+    name = baseline_comparison,
+    command = compare_to_baseline(accuracy_tables, baseline_accuracy_tables)
   ),
 
   ## pred_dist calibration: rank-and-filter plus reliability/ENCE.

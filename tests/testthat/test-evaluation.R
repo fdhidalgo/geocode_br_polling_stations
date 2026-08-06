@@ -1,7 +1,8 @@
 ## Unit tests for the deterministic evaluation-harness helpers (R/evaluation.R).
 ## These avoid the heavy pipeline (no model fitting, no spatial joins): they check
-## the metric ladder, region mapping, coverage counting, fold assignment, and the
-## calibration rank-and-filter logic with tiny synthetic inputs.
+## the metric ladder, region mapping, coverage counting, fold assignment, the
+## trivial-heuristic baseline selector and its comparison table, and the calibration
+## rank-and-filter logic with tiny synthetic inputs.
 
 library(testthat)
 library(data.table)
@@ -116,6 +117,73 @@ test_that("compute_calibration rank-and-filter improves as tail is dropped", {
   expect_true(all(diff(rf$median_km) <= 0)) # median monotonically down
   expect_true(all(diff(rf$within_500m) >= 0)) # within-500m monotonically up
   expect_true(is.finite(cal$ence))
+})
+
+test_that("select_baseline_candidates prefers source precedence over string distance", {
+  md <- data.table(
+    local_id = c(1L, 1L, 2L, 2L, 3L),
+    # station 1: a far-better neighborhood string match must still lose to the school match
+    # station 2: no school candidate, so the street aggregate wins over the neighborhood
+    # station 3: no TSE coordinate, so it is not scored at all
+    type = c(
+      "schools_inep_name",
+      "bairro_cnefe_2022",
+      "st_cnefe_2022",
+      "bairro_cnefe_2022",
+      "st_cnefe_2022"
+    ),
+    mindist = c(0.9, 0.01, 0.5, 0.1, 0.1),
+    dist = c(0.2, 5.0, 0.4, 3.0, NA_real_)
+  )
+  sel <- select_baseline_candidates(md)
+  expect_equal(sel$local_id, c(1L, 2L))
+  expect_equal(sel[local_id == 1L]$match_source, "schools_inep_name")
+  expect_equal(sel[local_id == 1L]$error_km, 0.2)
+  expect_equal(sel[local_id == 2L]$match_source, "st_cnefe_2022")
+
+  # a new candidate source must be ranked deliberately, not default to the bottom
+  unknown <- data.table(local_id = 1L, type = "brand_new_source", mindist = 0.1, dist = 0.5)
+  expect_error(select_baseline_candidates(unknown), "unranked candidate type")
+})
+
+test_that("select_baseline_candidates breaks ties within a rank on mindist", {
+  # the three street aggregates share rank 5, so mindist decides between the vintages
+  md <- data.table(
+    local_id = 1L,
+    type = c("st_cnefe_2010", "st_agrocnefe_2017", "st_cnefe_2022"),
+    mindist = c(0.4, 0.05, NA_real_),
+    dist = c(2.0, 0.3, 9.0)
+  )
+  sel <- select_baseline_candidates(md)
+  expect_equal(sel$match_source, "st_agrocnefe_2017") # smallest mindist in the rank
+  expect_equal(sel$error_km, 0.3) # unscored candidate ranks last
+})
+
+test_that("compare_to_baseline signs deltas so the model's advantage is visible", {
+  # the match_source rows differ by selector on purpose: each names its own picks
+  model <- data.table(
+    stratum = c("overall", "match_source"),
+    level = c("all", "schools_inep_name"),
+    n_total = c(100L, 40L),
+    n_geocoded = c(80L, 40L),
+    median_km = c(0.2, 0.3),
+    within_500m = c(70, 60),
+    suppressed = FALSE
+  )
+  baseline <- copy(model)
+  baseline[, level := c("all", "bairro_cnefe_2022")]
+  baseline[, median_km := c(0.5, 0.3)]
+  baseline[, within_500m := c(55, 60)]
+
+  cmp <- compare_to_baseline(model, baseline)
+  # the source cut is dropped, not compared across selectors that partition differently
+  expect_equal(cmp$stratum, "overall")
+  expect_equal(cmp$delta_median_km, -0.3) # model closer to truth
+  expect_equal(cmp$delta_within_500m, 15) # model more often within 500 m
+
+  # the two selectors rank the same candidates, so a differing geocoded count is a bug
+  wrong <- copy(baseline)[stratum == "overall", n_geocoded := 79L]
+  expect_error(compare_to_baseline(model, wrong), "which stations geocoded")
 })
 
 test_that("compute_accuracy_tables reports match rate and suppresses small cells", {

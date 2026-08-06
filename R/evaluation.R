@@ -157,26 +157,10 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
   rbindlist(preds)[order(local_id, pred_dist)]
 }
 
-# Per covered station, take the smallest-OOF-pred_dist candidate (ties -> first, matching
-# finalize_coords()) and left-join it onto the full covered-station universe, so stations
-# that never geocoded survive with a missing error and per-stratum match rates stay honest.
-# Attaches the four stratification axes: vintage, region, match source, urban/rural.
-select_oof_matches <- function(
-  oof_predictions,
-  locais,
-  tsegeocoded_locais,
-  tract_shp
-) {
-  # oof_predictions arrives sorted by (local_id, pred_dist), so the first row per station
-  # is its best candidate. Its `dist` is the realized haversine error to TSE, in km.
-  selected <- unique(oof_predictions, by = "local_id")[, .(
-    local_id,
-    match_source = match_type,
-    error_km = dist,
-    pred_dist,
-    fold
-  )]
-
+# Every TSE-covered station with the stratification axes accuracy is cut by: vintage,
+# region, urban/rural. The denominator both selectors are scored against, built once so
+# they cannot drift apart.
+build_eval_universe <- function(locais, tsegeocoded_locais, tract_shp) {
   covered_ids <- unique(tsegeocoded_locais$local_id)
   universe <- locais[
     local_id %in% covered_ids,
@@ -197,10 +181,64 @@ select_oof_matches <- function(
     )
   ]
   universe[, zone := NULL]
+  universe[]
+}
 
-  out <- merge(universe, selected, by = "local_id", all.x = TRUE)
+# Left-join one selector's per-station picks onto the covered universe, so stations that
+# never geocoded survive with a missing error and per-stratum match rates stay honest.
+attach_eval_universe <- function(selected, eval_universe) {
+  stopifnot("selector returned duplicate stations" = !anyDuplicated(selected$local_id))
+  out <- merge(eval_universe, selected, by = "local_id", all.x = TRUE)
   out[, geocoded := !is.na(error_km)]
   out[]
+}
+
+# Per covered station, the smallest-OOF-pred_dist candidate (ties -> first, matching
+# finalize_coords()).
+select_oof_candidates <- function(oof_predictions) {
+  # oof_predictions arrives sorted by (local_id, pred_dist), so the first row per station
+  # is its best candidate. Its `dist` is the realized haversine error to TSE, in km.
+  unique(oof_predictions, by = "local_id")[, .(
+    local_id,
+    match_source = match_type,
+    error_km = dist,
+    pred_dist,
+    fold
+  )]
+}
+
+# The trivial deterministic selector the model has to beat: per covered station, the
+# highest-precedence candidate available, ties within a rank broken on the smallest
+# string distance. mindist is on incomparable scales across ranks (length-normalized
+# Jaro-Winkler for most sources, unnormalized for bairro, over different fields, absent
+# for geocodebr), so it can only break ties inside one.
+select_baseline_candidates <- function(model_data) {
+  # Precedence, most specific reference first: references that locate the building, then
+  # the address, then the aggregates that only stand in for it. Census vintages of the
+  # same reference share a rank, so mindist picks between them.
+  source_rank <- c(
+    schools_inep_name = 1L,
+    schools_cnefe_name_2022 = 2L,
+    schools_cnefe_name_2010 = 2L,
+    schools_inep_addr = 3L,
+    geocodebr = 4L,
+    st_cnefe_2022 = 5L,
+    st_cnefe_2010 = 5L,
+    st_agrocnefe_2017 = 5L,
+    bairro_cnefe_2022 = 6L,
+    bairro_cnefe_2010 = 6L,
+    bairro_agrocnefe_2017 = 6L
+  )
+
+  covered <- model_data[
+    !is.na(dist),
+    .(local_id, match_source = type, error_km = dist, mindist)
+  ]
+  covered[, rank := unname(source_rank[match_source])]
+  stopifnot("unranked candidate type" = !anyNA(covered$rank))
+  # na.last keeps an absent mindist from outranking a scored candidate of the same rank.
+  setorder(covered, local_id, rank, mindist, na.last = TRUE)
+  unique(covered, by = "local_id")[, .(local_id, match_source, error_km)]
 }
 
 # Coverage of field-collected TSE coordinates by election year x state, the ground-truth
@@ -325,6 +363,62 @@ compute_accuracy_tables <- function(selected_matches) {
   tabs[[length(tabs) + 1L]] <- ms
 
   rbindlist(tabs, use.names = TRUE)
+}
+
+# Model minus baseline on the two headline metrics, stratum by stratum. Deltas are signed
+# so the model's advantage reads as a negative median delta and a positive within-500 m
+# delta. The match_source cut is dropped: its levels hold different stations under each
+# selector, so a per-level delta would not be like-for-like.
+compare_to_baseline <- function(accuracy_tables, baseline_accuracy_tables) {
+  model <- accuracy_tables[
+    stratum != "match_source",
+    .(
+      stratum,
+      level,
+      n_total,
+      n_geocoded,
+      suppressed,
+      median_km_model = median_km,
+      within_500m_model = within_500m
+    )
+  ]
+  baseline <- baseline_accuracy_tables[
+    stratum != "match_source",
+    .(
+      stratum,
+      level,
+      n_geocoded_baseline = n_geocoded,
+      median_km_baseline = median_km,
+      within_500m_baseline = within_500m
+    )
+  ]
+
+  cmp <- merge(model, baseline, by = c("stratum", "level"))
+  stopifnot(
+    "model and baseline strata do not align" = nrow(cmp) == nrow(model),
+    "model and baseline disagree on which stations geocoded" = identical(cmp$n_geocoded, cmp$n_geocoded_baseline)
+  )
+
+  cmp[, n_geocoded_baseline := NULL]
+  cmp[, delta_median_km := median_km_model - median_km_baseline]
+  cmp[, delta_within_500m := within_500m_model - within_500m_baseline]
+  setcolorder(
+    cmp,
+    c(
+      "stratum",
+      "level",
+      "n_total",
+      "n_geocoded",
+      "median_km_baseline",
+      "median_km_model",
+      "delta_median_km",
+      "within_500m_baseline",
+      "within_500m_model",
+      "delta_within_500m"
+    )
+  )
+  setorder(cmp, stratum, level)
+  cmp[]
 }
 
 # Check the predicted-distance ranking the pipeline trusts for match selection, two ways:

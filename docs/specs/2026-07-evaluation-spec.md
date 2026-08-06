@@ -200,6 +200,58 @@ Runs on the OOF predictions from §3.
 
 ---
 
+## 7a. Trivial-heuristic baseline (added by [#40](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/40))
+
+The harness above says how accurate the pipeline is. It does not say whether the *tuned
+LightGBM selector* is what makes it accurate. This section adds the comparison that
+answers that — wave 1c of the methodology roadmap, and the gate on the wave-3
+ranking/classification reframe (§6b of the match-selection assessment). Measurement only;
+no production behavior changes.
+
+**The rule.** Per covered station, take the highest-precedence candidate available,
+breaking ties *within* a rank on the smallest string distance:
+
+| rank | candidate types | what it is |
+|---|---|---|
+| 1 | `schools_inep_name` | INEP school registry, matched on school name |
+| 2 | `schools_cnefe_name_2022`, `schools_cnefe_name_2010` | CNEFE school establishment, matched on name |
+| 3 | `schools_inep_addr` | INEP school registry, matched on address line |
+| 4 | `geocodebr` | address geocoded by `geocodebr` |
+| 5 | `st_cnefe_2022`, `st_cnefe_2010`, `st_agrocnefe_2017` | median coordinate of the matched street |
+| 6 | `bairro_cnefe_2022`, `bairro_cnefe_2010`, `bairro_agrocnefe_2017` | centroid of the matched neighborhood |
+
+Precedence runs most-specific-first: a reference that locates the building, then one that
+locates the address, then two aggregates that only stand in for it. Census vintages of the
+same reference share a rank — they are the same kind of reference differing only in year,
+so `mindist` decides between them rather than an invented vintage preference.
+
+**Why the tie-break stays inside a rank.** `mindist` is not comparable across ranks — it
+is length-normalized Jaro-Winkler for most sources, unnormalized for `bairro`, computed
+over different fields (name / street / neighborhood / address line), and absent for
+`geocodebr`. Within a rank it *is* like-for-like (same matcher, same field, same
+normalization). A cross-rank `argmin` would put different scales against each other, so
+the "smallest `mindist` wins" variant from the assessment is not implemented.
+
+The rank table is the baseline's entire definition, so it is exhaustive over the candidate
+types the modeling table emits and the selector **errors** on an unranked type: a new
+candidate source has to be placed deliberately, not default silently to the bottom. It
+lives inside `select_baseline_candidates()` in `R/evaluation.R`, its only consumer.
+
+**Protocol.** The baseline is scored on the *same* covered candidate rows and the *same*
+station universe as the model's out-of-fold picks. It trains on nothing, so it has no
+fold structure and nothing to hold out. Because both selectors rank the same candidate
+rows, a station geocodes under one exactly when it geocodes under the other: **match
+rates are identical by construction** and the comparison is pure accuracy. The harness
+asserts this rather than assuming it.
+
+**Reported.** Median error and %-within-500 m, baseline vs model with signed deltas, for
+every stratum except the match-source cut — each selector partitions stations by
+whichever source *it* picked, so that cut holds different stations under the two and a
+per-level delta would not be like-for-like. The source mix itself is reported side by
+side instead.
+
+---
+
 ## 8. The Google reference-validation (covered-only this round)
 
 Purpose: quantify **Google's own error budget** relative to field-GPS TSE *before*
@@ -224,7 +276,8 @@ using it as one).
 ## 9. Siting, lockstep, and gating
 
 - **Pipeline targets:** coverage (§6), OOF predictions (§3), accuracy tables (§4),
-  calibration check (§7) live in `_targets.R`, rebuilt every run. Follow the readability
+  calibration check (§7), heuristic baseline and its comparison table (§7a) live in
+  `_targets.R`, rebuilt every run. Follow the readability
   rule — helper functions in `R/`, not long inline blocks. Assign memory-heavy targets to
   the `memory_limited` crew controller as needed.
 - **Methodology doc in lockstep:** `doc/geocoding_procedure.qmd` ("Estimating Geocoding

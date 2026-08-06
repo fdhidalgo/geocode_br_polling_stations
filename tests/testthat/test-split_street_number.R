@@ -52,6 +52,16 @@ test_that("split_street_number drops unit complements without losing the house n
   expect_equal(r$numero, 1200L)
 })
 
+test_that("split_street_number does not read 'AP' as an apartment", {
+  # In this data "AP" is a state highway prefix, a street name, or short for Aparecida --
+  # never an apartment.
+  expect_equal(
+    split_street_number("RODOVIA AP 070, COMUNIDADE DE INAJA")$logradouro,
+    "rodovia ap 070 comunidade de inaja"
+  )
+  expect_equal(split_street_number("RUA MARIA AP SOARES, SN")$logradouro, "rua maria ap soares")
+})
+
 test_that("split_street_number reports an address with no street as missing", {
   r <- split_street_number("S/N")
   expect_true(is.na(r$logradouro))

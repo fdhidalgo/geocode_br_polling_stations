@@ -191,19 +191,11 @@ match_stbairro_muni <- function(locais_muni, st_muni, bairro_muni) {
   )
 }
 
-# geocodebr precision tiers whose result names an individual street. The coarser tiers
-# ("cep", "localidade", "municipio") resolve to a neighborhood or the municipality.
-GEOCODEBR_STREET_TIERS <- c("numero", "numero_aproximado", "logradouro")
-
-# The CNEFE bundle geocodebr matches against is a moving upstream release, and new package
-# versions prune the caches of old ones, so coordinates are only reproducible if the run
-# records which release produced them. getFromNamespace() errors if a future version drops
-# the constant, rather than silently recording nothing.
+# The geocodebr build and the CNEFE bundle release that produced this run's coordinates.
 record_geocodebr_provenance <- function() {
   data.table(
     package_version = as.character(utils::packageVersion("geocodebr")),
-    data_release = utils::getFromNamespace("data_release", "geocodebr"),
-    cache_dir = geocodebr::listar_pasta_cache()
+    data_release = utils::getFromNamespace("data_release", "geocodebr")
   )
 }
 
@@ -271,8 +263,7 @@ match_geocodebr_muni <- function(locais_muni) {
     resolver_empates = TRUE,
     verboso = FALSE,
     cache = TRUE,
-    # crew already runs one worker per municipality; geocodebr would otherwise take every
-    # physical core inside each of them. Results do not depend on this value.
+    # crew already runs a worker per municipality; leave the cores to it.
     n_cores = 1
   )
 
@@ -293,7 +284,8 @@ match_geocodebr_muni <- function(locais_muni) {
   # whole-address-line similarity. Below logradouro precision the text before the first
   # comma is a neighborhood or nothing at all, so there is no street to compare against.
   found_addr <- normalize_address(sub(",.*$", "", geocoded_result$endereco_encontrado))
-  found_addr[!geocoded_result$precisao %in% GEOCODEBR_STREET_TIERS] <- NA_character_
+  street_tiers <- c("numero", "numero_aproximado", "logradouro")
+  found_addr[!geocoded_result$precisao %in% street_tiers] <- NA_character_
   station_addr <- locais_muni$normalized_addr[
     match(geocoded_result$local_id, locais_muni$local_id)
   ]
@@ -302,8 +294,7 @@ match_geocodebr_muni <- function(locais_muni) {
   data.table(
     local_id = geocoded_result$local_id,
     match_geocodebr = geocoded_result$endereco_encontrado,
-    # An uncertainty radius in km, which is not a string distance and does not belong on
-    # the same axis as one: it gets its own model feature.
+    # geocodebr's own uncertainty radius, km. Not a string distance, so it is its own feature.
     desvio_km_geocodebr = geocoded_result$desvio_metros / 1000,
     match_long_geocodebr = geocoded_result$lon,
     match_lat_geocodebr = geocoded_result$lat,

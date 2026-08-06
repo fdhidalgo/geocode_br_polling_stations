@@ -45,10 +45,8 @@ melt_match_candidates <- function(matches, types) {
   long[]
 }
 
-# geocodebr scores a candidate by the uncertainty radius of the address it resolved, in km,
-# rather than by a string distance. The two are not comparable magnitudes -- a 6 m radius
-# sorts below every possible string distance and a 300 km one above every possible string
-# distance -- so the radius gets its own feature and `mindist` stays a string-distance axis.
+# geocodebr scores a candidate by an uncertainty radius in km, not a string distance, so it
+# reports on its own axis and leaves `mindist` to the string-matched sources.
 geocodebr_candidates <- function(geocodebr_match) {
   candidates <- geocodebr_match[
     !is.na(match_lat_geocodebr),
@@ -235,9 +233,8 @@ train_model <- function(model_data, dev_mode) {
     stop("No data available for model training")
   }
 
-  ## Remove data with missing outcome and covariate
+  ## Remove data with missing outcome; make_model_data() already dropped unscored candidates.
   model_data <- model_data[!is.na(dist)]
-  model_data <- model_data[!is.na(mindist) | !is.na(desvio_km)]
 
   if (nrow(model_data) == 0) {
     stop("No data left after filtering missing values")
@@ -307,6 +304,7 @@ get_predictions <- function(trained_model, model_data) {
       local_id,
       match_type = type,
       mindist,
+      desvio_km,
       long,
       lat,
       dist,

@@ -798,31 +798,6 @@ clean_text_for_geocodebr <- function(text) {
   return(text)
 }
 
-# Tokens that name a kind of street rather than an individual one. A street left with
-# only these is not a street name, which is how "RUA 15" is told apart from "RUA SAO
-# JOAO 15".
-STREET_TYPE_TOKENS <- c(
-  "rua",
-  "r",
-  "avenida",
-  "av",
-  "travessa",
-  "tv",
-  "praca",
-  "pc",
-  "alameda",
-  "al",
-  "rodovia",
-  "estrada",
-  "via",
-  "largo",
-  "viela",
-  "ramal",
-  "linha",
-  "br",
-  "km"
-)
-
 # Splits a TSE address line into the street name and house number geocodebr wants as
 # separate fields. Returns both, so callers parse once.
 split_street_number <- function(address) {
@@ -831,11 +806,11 @@ split_street_number <- function(address) {
   # Phone numbers and unit complements ride along in this field, and to a
   # trailing-number rule both look exactly like a house number.
   x <- gsub("\\b(FONE|TELEFONE|TEL)\\b.*$", " ", x)
-  x <- gsub(
-    "\\b(LOTE|LT|QUADRA|QD|BLOCO|BL|CASA|CS|APARTAMENTO|APTO|AP)\\b\\s*\\S*",
-    " ",
-    x
-  )
+  # The apartment and block abbreviations are left out on purpose. "AP" never means
+  # apartment in this data: across all 940k addresses its 35 occurrences are Amapa
+  # highways ("RODOVIA AP 070"), streets named AP-3, and "AP" short for Aparecida inside
+  # a person's name. "APARTAMENTO" occurs zero times and "APTO" once.
+  x <- gsub("\\b(LOTE|LT|QUADRA|QD|BLOCO|CASA)\\b\\s*\\S*", " ", x)
 
   # "s/n" says there is no house number. Drop the marker so it cannot survive as street text.
   x <- gsub("\\bS/?\\s?N\\b|\\bSEM\\s+NUMERO\\b", " ", x)
@@ -862,14 +837,16 @@ split_street_number <- function(address) {
   numero[trailed] <- as.integer(sub(paste0("^.*", trailing), "\\1", x[trailed]))
   street[trailed] <- sub(trailing, " ", x[trailed])
 
-  # Pulling the number out of "RUA 15" leaves no street name, which means the number was
-  # the name. Put it back.
-  residue <- gsub(
-    paste0("\\b(", paste(STREET_TYPE_TOKENS, collapse = "|"), ")\\b"),
-    " ",
-    tolower(street)
+  # Pulling the number out of "RUA 15" leaves only words naming a kind of street, never an
+  # individual one, which means the number was the name. Put it back.
+  street_types <- paste0(
+    "\\b(RUA|R|AVENIDA|AV|TRAVESSA|TV|PRACA|PC|ALAMEDA|AL|RODOVIA|ESTRADA|VIA|LARGO|",
+    "VIELA|RAMAL|LINHA|BR|KM)\\b"
   )
-  named_only_by_number <- !grepl("[a-z0-9]", residue) & !is.na(numero)
+  numbered <- which(!is.na(numero))
+  named_only_by_number <- numbered[
+    !grepl("[A-Z0-9]", gsub(street_types, " ", street[numbered]))
+  ]
   street[named_only_by_number] <- x[named_only_by_number]
   numero[named_only_by_number] <- NA_integer_
 

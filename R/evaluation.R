@@ -116,7 +116,7 @@ assign_eval_folds <- function(model_data) {
 # model's tuned hyperparameters. Those hyperparameters were tuned on all municipalities,
 # a residual leakage channel deliberately accepted rather than paying for nested tuning.
 compute_oof_predictions <- function(model_data, trained_model, fold_assignment) {
-  covered <- model_data[!is.na(dist) & (!is.na(mindist) | !is.na(desvio_km))]
+  covered <- model_data[!is.na(dist)]
   covered <- merge(covered, fold_assignment, by = "cod_localidade_ibge")
   stopifnot(
     "every covered row must receive a fold" = !anyNA(covered$fold),
@@ -145,6 +145,7 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
       cod_localidade_ibge,
       match_type = type,
       mindist,
+      desvio_km,
       long,
       lat,
       dist,

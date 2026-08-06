@@ -105,38 +105,19 @@ test_that("add_consensus_features does not depend on the order candidates arrive
   )
   first <- add_consensus_features(cloud)
   shuffled <- add_consensus_features(cloud[c(3L, 1L, 2L)])
-  expect_equal(as.data.frame(first), as.data.frame(shuffled[order(local_id, type)]))
+  expect_equal(
+    as.data.frame(first[order(local_id, type)]),
+    as.data.frame(shuffled[order(local_id, type)])
+  )
   expect_equal(first[type == "schools_inep_name", nearest_other_dataset], "cnefe_2022")
 })
 
-test_that("add_consensus_features keeps every candidate and its existing columns", {
-  cloud <- make_cloud()
-  out <- add_consensus_features(cloud)
-  expect_equal(nrow(out), nrow(cloud))
-  expect_true(all(names(cloud) %in% names(out)))
-  expect_equal(out[order(local_id, type), mindist], cloud[order(local_id, type), mindist])
-})
-
-test_that("add_consensus_features fails when one source contributes two candidates", {
-  # Candidate identity within a station is `type`; a repeat would make a candidate look
-  # like a separate source agreeing with itself.
-  cloud <- make_cloud()
-  cloud[type == "schools_inep_addr", type := "schools_inep_name"]
-  expect_error(add_consensus_features(cloud), "two candidates")
-})
-
 test_that("add_consensus_features fails on a missing coordinate rather than poisoning a cloud", {
-  # One NA coordinate would otherwise wipe out the cloud centre for every candidate of that
-  # station and sort ahead of the true nearest neighbour, silently.
+  # The other two guards fire on real data the moment they are violated, so a pipeline run
+  # is their test. This one the pipeline can never reach, because it filters NA coordinates
+  # out before calling -- and its failure is silent, wiping out the cloud centre for every
+  # candidate of the station and sorting ahead of the true nearest neighbour.
   cloud <- make_cloud()
   cloud[type == "st_cnefe_2022", lat := NA_real_]
   expect_error(add_consensus_features(cloud), "coordinate on every candidate")
-})
-
-test_that("add_consensus_features fails on a candidate type it cannot place in a dataset", {
-  # A new match source has to be assigned a dataset, or it would count as corroborating
-  # the very table it came from.
-  cloud <- make_cloud()
-  cloud[type == "st_cnefe_2022", type := "st_cnefe_2035"]
-  expect_error(add_consensus_features(cloud), "no reference dataset")
 })

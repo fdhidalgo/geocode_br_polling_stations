@@ -810,7 +810,10 @@ list(
       tsegeocoded_locais = tsegeocoded_locais
     ),
     storage = "worker",
-    retrieval = "worker"
+    retrieval = "worker",
+    # The consensus features expand every station's candidates into all their pairs, which
+    # is the heaviest transient in the modeling stage.
+    resources = tar_resources(crew = tar_resources_crew(controller = "memory_limited"))
   ),
   tar_target(
     name = validate_model_data,

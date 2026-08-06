@@ -691,7 +691,18 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
 
   final_clean <- final_mapping[!is.na(panel_id)]
 
-  output_columns <- c("nr_secao", "nr_zona", "nr_local_votacao", "ano", "estado_abrev", "nm_localidade", "panel_id")
+  # cd_localidade_tse ships too, for the same reason it is in the key above: RS zona 20
+  # alone spans 14 municipalities, each restarting its section numbers from 1.
+  output_columns <- c(
+    "nr_secao",
+    "nr_zona",
+    "nr_local_votacao",
+    "ano",
+    "estado_abrev",
+    "cd_localidade_tse",
+    "nm_localidade",
+    "panel_id"
+  )
   missing_cols <- setdiff(output_columns, colnames(final_clean))
   if (length(missing_cols) > 0) {
     stop(
@@ -700,18 +711,33 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
     )
   }
 
-  result <- final_clean[, .SD, .SDcols = output_columns]
+  # The source lists some stations twice under different name/address spellings; those rows
+  # are identical once the descriptive columns are dropped.
+  result <- unique(final_clean[, ..output_columns])
 
   cat("Validating final mapping...\n")
 
-  # An election section belongs to exactly one polling place in a given year.
-  duplicate_sections <- result[, .N, by = .(nr_secao, nr_zona, ano, estado_abrev)][N > 1]
-  if (nrow(duplicate_sections) > 0) {
-    stop(
-      "create_section_panel_mapping(): ",
-      nrow(duplicate_sections),
-      " duplicate (nr_secao, nr_zona, ano, estado_abrev) keys in the section-panel mapping."
-    )
+  section_key <- c("nr_secao", "nr_zona", "ano", "estado_abrev", "cd_localidade_tse")
+
+  # A section votes at one polling place per election, but the source carries no round
+  # column, so a section relocated between rounds appears twice with nothing to say which
+  # assignment belongs to which round. Publishing two panels for one section is worse than
+  # publishing neither, so these are dropped -- but only where the defect is known to live:
+  # RS 2012, 39 sections out of 4.33M rows. Ambiguity anywhere else is a new problem.
+  ambiguous <- result[, .N, by = section_key][N > 1][, ..section_key]
+  if (nrow(ambiguous) > 0) {
+    unexpected <- ambiguous[!(estado_abrev == "RS" & ano == 2012)]
+    if (nrow(unexpected) > 0) {
+      stop(
+        "create_section_panel_mapping(): ",
+        nrow(unexpected),
+        " sections outside RS 2012 sit at more than one polling place; ",
+        "first: ",
+        paste(unexpected[1], collapse = " ")
+      )
+    }
+    cat("  Dropping", nrow(ambiguous), "RS 2012 sections listed at more than one polling place\n")
+    result <- result[!ambiguous, on = section_key]
   }
 
   panel_distribution <- result[, .N, by = panel_id][order(-N)]
@@ -724,7 +750,6 @@ create_section_panel_mapping <- function(secc_loc_map, geocoded_locais, panel_id
 
   cat("\nFinal mapping summary:\n")
   cat("  Total records:", format(nrow(result), big.mark = ","), "\n")
-  cat("  Unique sections:", format(nrow(result[, .(nr_secao, nr_zona, ano, estado_abrev)]), big.mark = ","), "\n")
   cat("  Unique panels:", format(length(unique(result$panel_id)), big.mark = ","), "\n")
   cat("  Years covered:", paste(sort(unique(result$ano)), collapse = ", "), "\n")
   cat("  States covered:", length(unique(result$estado_abrev)), "\n")

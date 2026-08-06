@@ -32,11 +32,14 @@ theme_set(theme_minimal(base_size = 12))
 tar_load(c(
   tse_coverage,
   accuracy_tables,
+  baseline_accuracy_tables,
+  baseline_comparison,
   calibration_check
 ))
 
 acc <- as.data.table(accuracy_tables)
 cov <- as.data.table(tse_coverage)
+cmp <- as.data.table(baseline_comparison)
 ```
 
 ## What this report measures {.unnumbered}
@@ -103,6 +106,95 @@ acc_display |>
     subtitle = "Suppressed strata (below held-out N floor) show counts only."
   ) |>
   tab_source_note("Error in kilometres. Median is the 50th percentile; p90/p95/p99 shown.")
+```
+
+## Does the selection model beat a trivial heuristic?
+
+The pipeline picks each station's coordinate with a tuned LightGBM model. This section
+asks whether that complexity pays rent, by scoring a **trivial deterministic rule** on
+the same candidates, the same covered stations, and the same protocol: take the
+highest-precedence candidate available for the station — INEP school (by name), CNEFE
+school, INEP school (by address), geocodebr, street median, neighborhood centroid —
+breaking ties within a rank on the smallest string distance. Census vintages of the same
+reference share a rank, so the string distance picks between them. The heuristic trains
+on nothing, so it has nothing to hold out.
+
+Both selectors rank the same candidate rows, so a station geocodes under one exactly
+when it geocodes under the other: match rates are identical by construction and the
+comparison is pure accuracy. Negative `Δ median` and positive `Δ <500 m` mean the model
+is better.
+
+```{r}
+#| label: baseline-headline
+#| output: asis
+cmp_overall <- cmp[stratum == "overall"]
+cat(sprintf(
+  paste0(
+    "**Overall (covered set):** median error **%.3f km** (model) vs **%.3f km** ",
+    "(heuristic), a difference of **%+.3f km**. Within 500 m: **%.1f%%** vs ",
+    "**%.1f%%**, a difference of **%+.1f pp**."
+  ),
+  cmp_overall$median_km_model, cmp_overall$median_km_baseline,
+  cmp_overall$delta_median_km,
+  cmp_overall$within_500m_model, cmp_overall$within_500m_baseline,
+  cmp_overall$delta_within_500m
+))
+```
+
+```{r}
+#| label: baseline-table
+cmp |>
+  gt(groupname_col = "stratum", rowname_col = "level") |>
+  fmt_number(
+    columns = c("median_km_baseline", "median_km_model", "delta_median_km"),
+    decimals = 3
+  ) |>
+  fmt_number(
+    columns = c("within_500m_baseline", "within_500m_model", "delta_within_500m"),
+    decimals = 1
+  ) |>
+  fmt_integer(columns = c("n_total", "n_geocoded")) |>
+  sub_missing(missing_text = "—") |>
+  cols_label(
+    n_total = "N covered", n_geocoded = "N geocoded",
+    median_km_baseline = "Heuristic", median_km_model = "Model",
+    delta_median_km = "Δ",
+    within_500m_baseline = "Heuristic", within_500m_model = "Model",
+    delta_within_500m = "Δ", suppressed = "Below N floor"
+  ) |>
+  tab_spanner(
+    label = "Median error (km)",
+    columns = c("median_km_baseline", "median_km_model", "delta_median_km")
+  ) |>
+  tab_spanner(
+    label = "Within 500 m (%)",
+    columns = c("within_500m_baseline", "within_500m_model", "delta_within_500m")
+  ) |>
+  tab_header(
+    title = "Selection model vs trivial source-precedence heuristic",
+    subtitle = "Out-of-fold model picks; both scored on the same covered stations."
+  ) |>
+  tab_source_note(
+    "Δ is model minus heuristic: negative median and positive <500 m favour the model."
+  )
+```
+
+```{r}
+#| label: baseline-source-mix
+bl_src <- as.data.table(baseline_accuracy_tables)[stratum == "match_source",
+  .(level, n_geocoded)]
+model_src <- acc[stratum == "match_source", .(level, n_geocoded)]
+src <- merge(model_src, bl_src, by = "level", all = TRUE,
+             suffixes = c("_model", "_heuristic"))
+src |>
+  gt(rowname_col = "level") |>
+  fmt_integer(columns = where(is.numeric)) |>
+  sub_missing(missing_text = "—") |>
+  cols_label(n_geocoded_model = "Model", n_geocoded_heuristic = "Heuristic") |>
+  tab_header(
+    title = "Which source each selector picks",
+    subtitle = "Stations assigned to each candidate type. Same stations, different picks."
+  )
 ```
 
 ## TSE coverage density (by year × state)

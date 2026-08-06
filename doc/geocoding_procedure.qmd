@@ -294,10 +294,10 @@ so these figures may be marginally optimistic.)
 #| label: load-eval-targets
 # Read the pipeline-produced evaluation targets (store fallback for manual runs).
 tryCatch({
-  tar_load(c(accuracy_tables, calibration_check, tse_coverage))
+  tar_load(c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison))
 }, error = function(e) {
   project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
-  tar_load(c(accuracy_tables, calibration_check, tse_coverage),
+  tar_load(c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison),
            store = file.path(project_root, "_targets"))
 })
 acc <- as.data.table(accuracy_tables)
@@ -360,6 +360,38 @@ cat(sprintf(
   calibration_check$ence
 ))
 ```
+
+### Is the selection model doing the work?
+
+A model that barely beats a one-line rule is not paying for its complexity. We
+score a trivial deterministic alternative through the same protocol: for each
+station, take the highest-precedence candidate available — INEP school matched on
+name, then CNEFE school, then INEP matched on address, then a geocoded address,
+then the matched street's median coordinate, then the neighborhood's centroid —
+breaking ties within a rank on the closest string match. It trains on nothing.
+Both selectors rank the same candidates, so they geocode exactly the same
+stations and the comparison is pure accuracy.
+
+```{r}
+#| label: baseline-summary
+#| output: asis
+cmp_overall <- as.data.table(baseline_comparison)[stratum == "overall"]
+cat(sprintf(
+  paste0(
+    "On the covered set, the heuristic reaches a median error of **%.2f km** ",
+    "with **%.1f%%** of stations within 500 m, against **%.2f km** and ",
+    "**%.1f%%** for the selection model — a difference of **%+.2f km** in ",
+    "median error and **%+.1f percentage points** within 500 m (a negative ",
+    "and a positive, respectively, favour the model)."
+  ),
+  cmp_overall$median_km_baseline, cmp_overall$within_500m_baseline,
+  cmp_overall$median_km_model, cmp_overall$within_500m_model,
+  cmp_overall$delta_median_km, cmp_overall$delta_within_500m
+))
+```
+
+The full per-stratum comparison is in the evaluation report
+(`reports/evaluation_report.qmd`).
 
 A separate, covered-only Google reference-validation (Google-vs-TSE agreement) is
 reported in the exploratory evaluation report (`reports/evaluation_report.qmd`)

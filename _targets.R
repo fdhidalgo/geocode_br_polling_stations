@@ -906,6 +906,20 @@ list(
     )
   ),
 
+  ## The same, for geocodebr's own coordinates: a third selector scored on the same
+  ## universe, whose match source is the precision tier its cascade landed on.
+  tar_target(
+    name = geocodebr_selected_matches,
+    command = attach_eval_universe(
+      select_geocodebr_candidates(model_data, geocodebr_match),
+      eval_station_universe
+    ),
+    format = "qs",
+    resources = tar_resources(
+      crew = tar_resources_crew(controller = "memory_limited")
+    )
+  ),
+
   ## Stratified accuracy tables, joint with match rate, small-cell suppressed.
   tar_target(
     name = accuracy_tables,
@@ -915,11 +929,22 @@ list(
     name = baseline_accuracy_tables,
     command = compute_accuracy_tables(baseline_selected_matches)
   ),
+  tar_target(
+    name = geocodebr_accuracy_tables,
+    command = compute_accuracy_tables(geocodebr_selected_matches)
+  ),
 
   ## Model minus baseline on the headline metrics - "is the model worth it".
   tar_target(
     name = baseline_comparison,
     command = compare_to_baseline(accuracy_tables, baseline_accuracy_tables)
+  ),
+
+  ## geocodebr minus model, paired station by station - the ground-truth comparison that
+  ## gates retiring the bespoke 2022 CNEFE street/neighborhood reference tables.
+  tar_target(
+    name = geocodebr_vs_model,
+    command = compare_geocodebr_to_model(geocodebr_selected_matches, oof_selected_matches)
   ),
 
   ## pred_dist calibration: rank-and-filter plus reliability/ENCE.

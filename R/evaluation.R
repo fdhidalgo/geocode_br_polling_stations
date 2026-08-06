@@ -241,6 +241,28 @@ select_baseline_candidates <- function(model_data) {
   unique(covered, by = "local_id")[, .(local_id, match_source, error_km)]
 }
 
+# geocodebr's own coordinate for every covered station it resolved, on the error scale the
+# other selectors are scored on. The precision tier is joined from geocodebr_match rather
+# than carried in model_data: the model recipe is dist ~ ., so every model_data column
+# becomes a predictor. It lands in `match_source` -- for a single-source selector, the
+# cascade tier is the provenance label.
+select_geocodebr_candidates <- function(model_data, geocodebr_match) {
+  covered <- model_data[
+    type == "geocodebr" & !is.na(dist),
+    .(local_id, error_km = dist)
+  ]
+  out <- merge(
+    covered,
+    geocodebr_match[, .(local_id, match_source = precisao_geocodebr)],
+    by = "local_id"
+  )
+  stopifnot(
+    "geocodebr candidate lost its precision tier in the join" = nrow(out) == nrow(covered),
+    "geocodebr candidate without a precision tier" = !anyNA(out$match_source)
+  )
+  out[]
+}
+
 # Coverage of field-collected TSE coordinates by election year x state, the ground-truth
 # density each accuracy stratum is read against. Small cells are flagged, not dropped.
 compute_tse_coverage <- function(locais, tsegeocoded_locais) {
@@ -309,37 +331,49 @@ accuracy_metrics <- function(error_km) {
   )
 }
 
-# Metric ladder plus match rate for one grouping of the covered universe. `by_cols` is
-# empty for the overall row. Accuracy is measured on geocoded stations; match rate is the
-# share of covered stations geocoded at all, always reported alongside accuracy.
-.accuracy_by <- function(dt, by_cols) {
+# Scaffolding shared by the stratified tables below: run `cell_fn` over each level of
+# `by_cols` (empty for the overall row) and stack the cells long, keyed by (stratum,
+# level). `metric_cols` are blanked wherever `n_col` falls below the cell-size floor, so
+# counts stay visible where the percentile ladder is too noisy to report.
+.by_stratum <- function(dt, by_cols, cell_fn, metric_cols, n_col) {
   stratum <- if (length(by_cols) == 0L) "overall" else paste(by_cols, collapse = ":")
   # Copy only for the overall case, which adds a synthetic grouping column.
   if (length(by_cols) == 0L) {
     dt <- copy(dt)[, .all := "all"]
     by_cols <- ".all"
   }
-  res <- dt[,
-    {
-      ng <- sum(geocoded)
-      c(
-        list(
-          n_total = .N,
-          n_geocoded = ng,
-          match_rate = 100 * ng / .N
-        ),
-        accuracy_metrics(error_km[geocoded])
-      )
-    },
-    by = by_cols
-  ]
+  res <- dt[, cell_fn(.SD), by = by_cols]
 
   res[, level := do.call(paste, c(.SD, sep = ":")), .SDcols = by_cols]
   res[, stratum := stratum]
-  # Suppress noisy metrics below the cell-size floor; counts and match rate stay visible.
-  res[n_geocoded < EVAL_MIN_CELL_N, (EVAL_METRIC_COLS) := NA_real_]
-  res[, suppressed := n_geocoded < EVAL_MIN_CELL_N]
+  res[get(n_col) < EVAL_MIN_CELL_N, (metric_cols) := NA_real_]
+  res[, suppressed := get(n_col) < EVAL_MIN_CELL_N]
   res[, (by_cols) := NULL]
+  setcolorder(res, c("stratum", "level"))
+  res[]
+}
+
+# Metric ladder plus match rate for one grouping of the covered universe. Accuracy is
+# measured on geocoded stations; match rate is the share of covered stations geocoded at
+# all, always reported alongside accuracy.
+.accuracy_by <- function(dt, by_cols) {
+  res <- .by_stratum(
+    dt,
+    by_cols,
+    function(cell) {
+      ng <- sum(cell$geocoded)
+      c(
+        list(
+          n_total = nrow(cell),
+          n_geocoded = ng,
+          match_rate = 100 * ng / nrow(cell)
+        ),
+        accuracy_metrics(cell$error_km[cell$geocoded])
+      )
+    },
+    metric_cols = EVAL_METRIC_COLS,
+    n_col = "n_geocoded"
+  )
   setcolorder(res, c("stratum", "level", "n_total", "n_geocoded", "match_rate"))
   res[]
 }
@@ -419,6 +453,95 @@ compare_to_baseline <- function(accuracy_tables, baseline_accuracy_tables) {
   )
   setorder(cmp, stratum, level)
   cmp[]
+}
+
+# geocodebr's coordinates against the pipeline's selected coordinates, both measured to the
+# TSE ground truth, over every covered station and over the subset the bespoke 2022 CNEFE
+# street/neighborhood tables currently win. Each cell scores both selectors on the stations
+# where both produced a coordinate, with each side's coverage of the whole cell alongside.
+# Deltas are geocodebr minus model.
+compare_geocodebr_to_model <- function(geocodebr_selected_matches, oof_selected_matches) {
+  metric_cols <- c(
+    "median_km_geocodebr",
+    "median_km_model",
+    "delta_median_km",
+    "within_500m_geocodebr",
+    "within_500m_model",
+    "delta_within_500m"
+  )
+
+  paired <- merge(
+    geocodebr_selected_matches[, .(
+      local_id,
+      urban_rural,
+      region,
+      # Stations geocodebr never resolved get a named tier, so they form a level of their own.
+      geocodebr_tier = fifelse(is.na(match_source), "sem_resultado", match_source),
+      geocoded_geocodebr = geocoded,
+      error_km_geocodebr = error_km
+    )],
+    oof_selected_matches[, .(
+      local_id,
+      model_source = match_source,
+      geocoded_model = geocoded,
+      error_km_model = error_km
+    )],
+    by = "local_id"
+  )
+  stopifnot(
+    "selectors were scored on different station universes" = nrow(paired) == nrow(geocodebr_selected_matches) &&
+      nrow(paired) == nrow(oof_selected_matches)
+  )
+
+  cell <- function(dt) {
+    both <- dt$geocoded_geocodebr & dt$geocoded_model
+    g <- accuracy_metrics(dt$error_km_geocodebr[both])
+    m <- accuracy_metrics(dt$error_km_model[both])
+    list(
+      n_stations = nrow(dt),
+      n_geocodebr = sum(dt$geocoded_geocodebr),
+      n_model = sum(dt$geocoded_model),
+      n_both = sum(both),
+      median_km_geocodebr = g$median_km,
+      median_km_model = m$median_km,
+      delta_median_km = g$median_km - m$median_km,
+      within_500m_geocodebr = g$within_500m,
+      within_500m_model = m$within_500m,
+      delta_within_500m = g$within_500m - m$within_500m
+    )
+  }
+
+  universes <- list(
+    all_covered = paired,
+    # CNEFE-2022 schools are matched on establishment name against a different table, so they
+    # are not part of the proposed substitution. Every station here geocoded under the model,
+    # so n_both is geocodebr's coverage of the tables it would replace.
+    cnefe22_winner = paired[model_source %in% c("st_cnefe_2022", "bairro_cnefe_2022")]
+  )
+  strata <- list(
+    character(0),
+    "urban_rural",
+    "region",
+    c("urban_rural", "region"),
+    "geocodebr_tier"
+  )
+
+  out <- rbindlist(
+    lapply(names(universes), function(u) {
+      rbindlist(
+        lapply(strata, function(s) {
+          .by_stratum(universes[[u]], s, cell, metric_cols = metric_cols, n_col = "n_both")
+        }),
+        use.names = TRUE
+      )[, universe := u]
+    }),
+    use.names = TRUE
+  )
+  setcolorder(
+    out,
+    c("universe", "stratum", "level", "n_stations", "n_geocodebr", "n_model", "n_both")
+  )
+  out[]
 }
 
 # Check the predicted-distance ranking the pipeline trusts for match selection, two ways:

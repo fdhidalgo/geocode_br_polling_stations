@@ -252,6 +252,61 @@ side instead.
 
 ---
 
+## 7b. geocodebr vs the pipeline against TSE ground truth (added by [#41](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/41))
+
+`geocodebr` is one candidate source among several, and how good its coordinates actually
+are has never been measured — the [tooling survey](../research/2026-07-geocodebr-tooling-survey.md)
+(§1.7, §4c) found no published benchmark and no in-repo comparison. This section adds one:
+wave 1d of the methodology roadmap. Measurement only; no production behavior changes.
+
+**What it answers.** geocodebr distributes its own aggregation of the 2022 CNEFE, which is
+the same source the project's bespoke 2022 street and neighborhood reference tables are
+built from. If geocodebr's surface is at parity on the stations those tables currently win,
+the tables can be retired (roadmap wave 3). If it is not, they stay. Nothing else is on the
+table: the 2010/2017 multi-vintage references, INEP matching, the arbitrator, panel linkage,
+and station-specific normalization are outside geocodebr's scope regardless.
+
+**The third selector.** `select_geocodebr_candidates()` takes geocodebr's own coordinate for
+every covered station it resolved, read out of the modeling table rather than recomputed, so
+a geocodebr hit the pipeline could not score (a coordinate with no `desvio_metros`) is absent
+here exactly as it is absent from the model's candidates. Its `match_source` is the precision
+tier the cascade landed on (`numero` / `numero_aproximado` / `logradouro` / `cep` /
+`localidade` / `municipio`) — for a single-source selector that is what "which source produced
+this coordinate" means, so the standard §4b source cut becomes the precision-tier ladder for
+free. It joins the same covered universe as the other two selectors and gets the same §4a
+metric ladder.
+
+**The head-to-head.** Unlike the §7a baseline, geocodebr and the model do *not* geocode the
+same stations: geocodebr resolves some the pipeline cannot and misses others it can. So
+`compare_geocodebr_to_model()` computes each cell's metrics on the stations where **both**
+produced a coordinate — a median gap is then a real accuracy difference, not a coverage
+difference wearing one — and reports each side's coverage over the whole cell alongside,
+because parity on the intersection means nothing if geocodebr resolves far fewer stations.
+Stations geocodebr never resolved form their own tier level (`sem_resultado`) rather than
+dropping out of the cut.
+
+**Two universes, five cuts.** Every cell is reported over *all covered stations* and over the
+`cnefe22_winner` subset — the stations whose out-of-fold winning match is `st_cnefe_2022` or
+`bairro_cnefe_2022`. (CNEFE-2022 *schools* are matched on establishment name against a
+different table and are not part of the proposed substitution.) Each universe is cut overall,
+by urban/rural, by region, by urban/rural × region, and by geocodebr precision tier.
+
+**Delta orientation, the rule for both comparison tables.** A delta is always *the subject of
+the section's question* minus *what it is compared against*, so a negative median delta and a
+positive within-500 m delta always favour the subject. §7a asks whether the model earns its
+keep, so its delta is model minus heuristic; §7b asks whether geocodebr could replace the
+tables, so its delta is geocodebr minus model.
+
+**Reading the gate.** Parity-or-better on the `cnefe22_winner` universe, at comparable
+coverage, is what retires the tables. Read coverage through the tier cut, not the match
+rate: the cascade bottoms out at the municipal centroid, so geocodebr returns *something*
+for nearly every station and its match rate is ~100% by construction — a municipal centroid
+is a coordinate, not a located station. If geocodebr only reaches parity at
+`numero`/`logradouro` precision, the substitution is partial at best, since the bespoke
+tables are what currently carry the stations that fall to coarser rungs.
+
+---
+
 ## 8. The Google reference-validation (covered-only this round)
 
 Purpose: quantify **Google's own error budget** relative to field-GPS TSE *before*
@@ -276,7 +331,8 @@ using it as one).
 ## 9. Siting, lockstep, and gating
 
 - **Pipeline targets:** coverage (§6), OOF predictions (§3), accuracy tables (§4),
-  calibration check (§7), heuristic baseline and its comparison table (§7a) live in
+  calibration check (§7), heuristic baseline and its comparison table (§7a), geocodebr's
+  selector and its head-to-head table (§7b) live in
   `_targets.R`, rebuilt every run. Follow the readability
   rule — helper functions in `R/`, not long inline blocks. Assign memory-heavy targets to
   the `memory_limited` crew controller as needed.

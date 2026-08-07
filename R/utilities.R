@@ -297,12 +297,7 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
 # stbairro is this batch's slice: the union of the street and neighborhood
 # aggregates, tagged by `component`. `label` names the vintage in the log and in
 # any failure message.
-process_stbairro_batch <- function(
-  municipality_batch_assignments,
-  locais,
-  stbairro,
-  label
-) {
+process_stbairro_batch <- function(municipality_batch_assignments, locais, stbairro, label) {
   this_batch <- stbairro$batch_id[1]
   batch_munis <- municipality_batch_assignments[
     batch_id == this_batch

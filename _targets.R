@@ -393,7 +393,6 @@ list(
     storage = "worker",
     retrieval = "worker"
   ),
-  # Locais data filtered by development mode
   tar_target(
     name = locais,
     command = filter_by_dev_mode(locais_all, pipeline_config$dev_states, "sg_uf"),
@@ -435,7 +434,7 @@ list(
   tar_target(
     name = panel_municipality_batches,
     command = create_panel_municipality_batches(
-      locais_data = locais,
+      locais = locais,
       target_batch_size = ifelse(pipeline_config$dev_mode, 2000, 5000)
     )
   ),
@@ -451,7 +450,7 @@ list(
     name = panel_ids_by_batch,
     # panel_batch_ids is this branch's batch id.
     command = process_panel_ids_municipality_batch(
-      locais_full = locais,
+      locais = locais,
       municipality_batch = panel_municipality_batches[batch_id == panel_batch_ids]
     ),
     pattern = map(panel_batch_ids),

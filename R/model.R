@@ -12,6 +12,9 @@ library(stringr)
 # shared by the forward transform and both inverse paths so they cannot drift apart.
 GBM_LOG_OFFSET <- 1e-4
 
+# Earth radius in km, so every haversine distance in this file lands on one scale.
+EARTH_RADIUS_KM <- 6378.137
+
 # Melt one match table's per-candidate column groups -- coordinates, the whole-string
 # distance that selected the candidate, and the four field similarities -- into one row per
 # candidate coordinate. `types` maps each match table's column suffix (its names) to the
@@ -65,6 +68,94 @@ geocodebr_candidates <- function(geocodebr_match) {
     )
   ]
   candidates[]
+}
+
+# Reference dataset each candidate type is drawn from. Two types out of one dataset often
+# agree because they resolve the same record, so agreement is counted across datasets.
+CANDIDATE_DATASET <- c(
+  st_cnefe_2010 = "cnefe_2010",
+  bairro_cnefe_2010 = "cnefe_2010",
+  schools_cnefe_name_2010 = "cnefe_2010",
+  st_cnefe_2022 = "cnefe_2022",
+  bairro_cnefe_2022 = "cnefe_2022",
+  schools_cnefe_name_2022 = "cnefe_2022",
+  st_agrocnefe_2017 = "agrocnefe_2017",
+  bairro_agrocnefe_2017 = "agrocnefe_2017",
+  schools_inep_name = "inep",
+  schools_inep_addr = "inep",
+  geocodebr = "geocodebr"
+)
+
+# Measure each candidate against the rest of its station's candidate cloud, so the model can
+# tell a location several independent datasets agree on from a lone outlier.
+add_consensus_features <- function(candidates) {
+  stopifnot(
+    "a source contributed two candidates for one station" = anyDuplicated(candidates, by = c("local_id", "type")) == 0L,
+    # One missing coordinate would poison its whole station's cloud, not just its own row.
+    "consensus needs a coordinate on every candidate" = !anyNA(candidates$long) && !anyNA(candidates$lat)
+  )
+
+  cloud <- candidates[, .(local_id, type, long, lat)]
+  cloud[, dataset := unname(CANDIDATE_DATASET[type])]
+  stopifnot("candidate type belongs to no reference dataset" = !anyNA(cloud$dataset))
+
+  # A cloud holds at most a dozen points, so all pairwise distances are computed outright.
+  pairs <- merge(cloud, cloud, by = "local_id", allow.cartesian = TRUE, suffixes = c("", "_other"))
+  # Drops each candidate's pairing with itself, and only that: one candidate per source
+  # means `type` identifies a candidate within its station.
+  pairs <- pairs[type != type_other]
+  pairs[,
+    pair_km := geosphere::distHaversine(
+      cbind(long, lat),
+      cbind(long_other, lat_other),
+      r = EARTH_RADIUS_KM
+    )
+  ]
+
+  # Coordinate-wise median: a cloud centre that a single wild candidate cannot drag. A lone
+  # candidate is trivially its own centre, which would read as the tightest agreement there is.
+  cloud[, `:=`(n_cand = .N, med_long = median(long), med_lat = median(lat)), by = local_id]
+  cloud[,
+    dist_to_cloud_median_km := geosphere::distHaversine(
+      cbind(long, lat),
+      cbind(med_long, med_lat),
+      r = EARTH_RADIUS_KM
+    )
+  ]
+  cloud[n_cand == 1L, dist_to_cloud_median_km := NA_real_]
+
+  # Corroboration is measured only across datasets, at the 500 m the released accuracy is
+  # reported at. dataset_other breaks distance ties, so the feature does not depend on the
+  # order candidates happened to arrive in.
+  cross <- pairs[dataset != dataset_other]
+  setorder(cross, local_id, type, pair_km, dataset_other)
+  nearest <- cross[,
+    .(nearest_other_km = pair_km[1], nearest_other_dataset = dataset_other[1]),
+    by = .(local_id, type)
+  ]
+  # Filtering ahead of the grouping rather than inside it keeps data.table's optimized
+  # aggregation; written as uniqueN(dataset_other[pair_km <= 0.5]) this step is ~15x slower.
+  agreeing <- cross[pair_km <= 0.5, .(n_datasets_within_500m = uniqueN(dataset_other)), by = .(local_id, type)]
+  # Dispersion describes the whole cloud, siblings included. The median over ordered pairs
+  # equals the median over unordered ones -- each pair appears twice.
+  dispersion <- pairs[, .(cloud_dispersion_km = median(pair_km)), by = local_id]
+
+  # Update joins rather than merges: they leave the candidate table's rows and their order
+  # alone, so nothing downstream depends on the order consensus happened to sort them into.
+  out <- copy(candidates)
+  out[cloud, on = .(local_id, type), `:=`(n_cand = i.n_cand, dist_to_cloud_median_km = i.dist_to_cloud_median_km)]
+  out[
+    nearest,
+    on = .(local_id, type),
+    `:=`(nearest_other_km = i.nearest_other_km, nearest_other_dataset = i.nearest_other_dataset)
+  ]
+  out[agreeing, on = .(local_id, type), n_datasets_within_500m := i.n_datasets_within_500m]
+  out[dispersion, on = .(local_id), cloud_dispersion_km := i.cloud_dispersion_km]
+  # A station whose candidates all come from one dataset has nothing to corroborate it:
+  # zero agreeing datasets is observed, whereas a distance to a candidate that does not
+  # exist is not.
+  out[is.na(n_datasets_within_500m), n_datasets_within_500m := 0L]
+  out[]
 }
 
 # Assemble the modeling table: all candidate matches, address/municipal features, TSE distance.
@@ -176,7 +267,7 @@ make_model_data <- function(
     dist := geosphere::distHaversine(
       cbind(long, lat),
       cbind(tse_long, tse_lat),
-      r = 6378.137
+      r = EARTH_RADIUS_KM
     )
   ]
   model_data[, ano := NULL]
@@ -189,7 +280,8 @@ make_model_data <- function(
     !is.na(long) & !is.na(lat) & (!is.na(mindist) | !is.na(desvio_km))
   ]
 
-  model_data
+  # After the filter, which is what leaves every candidate with a coordinate.
+  add_consensus_features(model_data)
 }
 
 build_gbm_workflow <- function(data) {

@@ -399,19 +399,13 @@ list(
     command = filter_by_dev_mode(locais_all, pipeline_config$dev_states, "sg_uf"),
     format = "qs"
   ),
-  # Filter Brasília from municipal election years - using helper function
-  tar_target(
-    name = locais_filtered,
-    command = apply_brasilia_filters(locais),
-    format = "qs"
-  ),
   # Consolidated input validation - checks dataset sizes
   tar_target(
     name = validate_inputs,
     command = validate_inputs_consolidated(
       muni_ids = muni_ids,
       inep_codes = inep_codes,
-      locais_filtered = locais_filtered,
+      locais = locais,
       pipeline_config = pipeline_config
     )
   ),
@@ -432,7 +426,7 @@ list(
     command = clean_tsegeocoded_locais(
       tse_files = tse_files,
       muni_ids = muni_ids,
-      locais = locais_filtered
+      locais = locais
     ),
     format = "qs"
   ),
@@ -441,7 +435,7 @@ list(
   tar_target(
     name = panel_municipality_batches,
     command = create_panel_municipality_batches(
-      locais_data = locais_filtered,
+      locais_data = locais,
       target_batch_size = ifelse(pipeline_config$dev_mode, 2000, 5000)
     )
   ),
@@ -457,7 +451,7 @@ list(
     name = panel_ids_by_batch,
     # panel_batch_ids is this branch's batch id.
     command = process_panel_ids_municipality_batch(
-      locais_full = locais_filtered,
+      locais_full = locais,
       municipality_batch = panel_municipality_batches[batch_id == panel_batch_ids]
     ),
     pattern = map(panel_batch_ids),
@@ -518,7 +512,7 @@ list(
   # Size-balanced municipality batches, the unit every match target branches over.
   tar_target(
     name = municipality_batch_assignments,
-    command = build_municipality_batches(locais_filtered, pipeline_config$dev_mode)
+    command = build_municipality_batches(locais, pipeline_config$dev_mode)
   ),
 
   # Extract unique batch IDs for dynamic branching
@@ -598,7 +592,7 @@ list(
     name = inep_string_match_batch,
     command = process_inep_batch(
       municipality_batch_assignments = municipality_batch_assignments,
-      locais_filtered = locais_filtered,
+      locais = locais,
       inep_data = inep_grouped
     ),
     pattern = map(inep_grouped),
@@ -620,7 +614,7 @@ list(
     name = schools_cnefe10_match_batch,
     command = process_schools_cnefe_batch(
       municipality_batch_assignments = municipality_batch_assignments,
-      locais_filtered = locais_filtered,
+      locais = locais,
       schools_cnefe = schools_cnefe10_grouped
     ),
     pattern = map(schools_cnefe10_grouped),
@@ -643,7 +637,7 @@ list(
     name = schools_cnefe22_match_batch,
     command = process_schools_cnefe_batch(
       municipality_batch_assignments = municipality_batch_assignments,
-      locais_filtered = locais_filtered,
+      locais = locais,
       schools_cnefe = schools_cnefe22_grouped
     ),
     pattern = map(schools_cnefe22_grouped),
@@ -669,7 +663,7 @@ list(
     name = cnefe10_stbairro_match_batch,
     command = process_stbairro_batch(
       municipality_batch_assignments = municipality_batch_assignments,
-      locais_filtered = locais_filtered,
+      locais = locais,
       stbairro = cnefe10_stbairro_grouped,
       label = "CNEFE 2010"
     ),
@@ -693,7 +687,7 @@ list(
     name = cnefe22_stbairro_match_batch,
     command = process_stbairro_batch(
       municipality_batch_assignments = municipality_batch_assignments,
-      locais_filtered = locais_filtered,
+      locais = locais,
       stbairro = cnefe22_stbairro_grouped,
       label = "CNEFE 2022"
     ),
@@ -717,7 +711,7 @@ list(
     name = agrocnefe_stbairro_match_batch,
     command = process_stbairro_batch(
       municipality_batch_assignments = municipality_batch_assignments,
-      locais_filtered = locais_filtered,
+      locais = locais,
       stbairro = agrocnefe_stbairro_grouped,
       label = "Agro CNEFE"
     ),
@@ -749,7 +743,7 @@ list(
     command = process_geocodebr_batch(
       batch_ids = batch_ids,
       municipality_batch_assignments = municipality_batch_assignments,
-      locais_filtered = locais_filtered
+      locais = locais
     ),
     pattern = map(batch_ids),
     iteration = "list",
@@ -806,7 +800,7 @@ list(
       geocodebr_match = geocodebr_match,
       muni_demo = muni_demo,
       muni_area = muni_area,
-      locais = locais_filtered,
+      locais = locais,
       tsegeocoded_locais = tsegeocoded_locais
     ),
     storage = "worker",
@@ -843,14 +837,14 @@ list(
   ## TSE coverage by year x state - ground-truth density.
   tar_target(
     name = tse_coverage,
-    command = compute_tse_coverage(locais_filtered, tsegeocoded_locais)
+    command = compute_tse_coverage(locais, tsegeocoded_locais)
   ),
 
   ## Raw per-year TSE coordinate availability - the ceiling landed coverage is read
   ## against by the near-lossless join tripwire in the release gates.
   tar_target(
     name = tse_raw_availability,
-    command = compute_tse_raw_availability(tse_files, locais_filtered)
+    command = compute_tse_raw_availability(tse_files, locais)
   ),
 
   ## Station-grouped fold assignment, created once upstream of any refit so a fold
@@ -881,7 +875,7 @@ list(
   ## model and the baseline selector are both scored against.
   tar_target(
     name = eval_station_universe,
-    command = build_eval_universe(locais_filtered, tsegeocoded_locais, tract_shp),
+    command = build_eval_universe(locais, tsegeocoded_locais, tract_shp),
     format = "qs"
   ),
 

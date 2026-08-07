@@ -70,7 +70,7 @@ validate_final_output <- function(output_data) {
 }
 
 # Checks municipality, INEP, and polling-station row counts against expected ranges.
-validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, pipeline_config) {
+validate_inputs_consolidated <- function(muni_ids, inep_codes, locais, pipeline_config) {
   # Dev mode restricts the pipeline to two states, so municipality and polling-station
   # counts shrink; inep_codes is never filtered, so its range is always national.
   checks <- list(
@@ -86,7 +86,7 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
     ),
     locais_size = list(
       name = "polling stations",
-      count = nrow(locais_filtered),
+      count = nrow(locais),
       range = if (pipeline_config$dev_mode) c(1000L, 20000L) else c(100000L, 1000000L)
     )
   )

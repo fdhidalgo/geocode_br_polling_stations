@@ -72,12 +72,6 @@ filter_to_run_munis <- function(data, muni_col, muni_ids, dev_mode) {
   data[keys %in% as.character(muni_ids$id_munic_7), ]
 }
 
-# Drop Brasília (DF), which holds municipal elections in different years from
-# the other states.
-apply_brasilia_filters <- function(data) {
-  data[sg_uf != "DF"]
-}
-
 # Read and clean one state's CNEFE file in memory and return only the small
 # summaries the pipeline consumes: street- and neighborhood-level coordinate
 # aggregates plus the school rows. The full cleaned address table has no other
@@ -231,20 +225,20 @@ make_stbairro_batch_groups <- function(ref_st, ref_bairro, municipality_batch_as
 # Match one batch's polling stations against the INEP school catalog. inep_data
 # is this batch's slice of the catalog; municipalities come from
 # municipality_batch_assignments, which fixes the combined row order.
-process_inep_batch <- function(municipality_batch_assignments, locais_filtered, inep_data) {
+process_inep_batch <- function(municipality_batch_assignments, locais, inep_data) {
   this_batch <- inep_data$batch_id[1]
   batch_munis <- municipality_batch_assignments[
     batch_id == this_batch
   ]$cod_localidade_ibge
 
   data.table::setkey(inep_data, id_munic_7)
-  data.table::setkey(locais_filtered, cod_localidade_ibge)
+  data.table::setkey(locais, cod_localidade_ibge)
 
   batch_results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
       match_inep_muni(
-        locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
+        locais_muni = locais[.(muni_code), nomatch = NULL],
         inep_muni = inep_data[.(muni_code), nomatch = NULL]
       )
     },
@@ -257,20 +251,20 @@ process_inep_batch <- function(municipality_batch_assignments, locais_filtered, 
 }
 
 # Match one batch's polling stations against the CNEFE school rows.
-process_schools_cnefe_batch <- function(municipality_batch_assignments, locais_filtered, schools_cnefe) {
+process_schools_cnefe_batch <- function(municipality_batch_assignments, locais, schools_cnefe) {
   this_batch <- schools_cnefe$batch_id[1]
   batch_munis <- municipality_batch_assignments[
     batch_id == this_batch
   ]$cod_localidade_ibge
 
   data.table::setkey(schools_cnefe, id_munic_7)
-  data.table::setkey(locais_filtered, cod_localidade_ibge)
+  data.table::setkey(locais, cod_localidade_ibge)
 
   batch_results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
       match_schools_cnefe_muni(
-        locais_muni = locais_filtered[.(muni_code), nomatch = NULL],
+        locais_muni = locais[.(muni_code), nomatch = NULL],
         schools_cnefe_muni = schools_cnefe[.(muni_code), nomatch = NULL]
       )
     },
@@ -281,17 +275,17 @@ process_schools_cnefe_batch <- function(municipality_batch_assignments, locais_f
 }
 
 # Geocode one batch's polling stations with geocodebr.
-process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, locais_filtered) {
+process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, locais) {
   batch_munis <- municipality_batch_assignments[
     batch_id == batch_ids
   ]$cod_localidade_ibge
 
-  data.table::setkey(locais_filtered, cod_localidade_ibge)
+  data.table::setkey(locais, cod_localidade_ibge)
 
   results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
-      match_geocodebr_muni(locais_filtered[.(muni_code), nomatch = NULL])
+      match_geocodebr_muni(locais[.(muni_code), nomatch = NULL])
     },
     task_label = "geocodebr matching"
   )
@@ -305,7 +299,7 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
 # any failure message.
 process_stbairro_batch <- function(
   municipality_batch_assignments,
-  locais_filtered,
+  locais,
   stbairro,
   label
 ) {
@@ -318,7 +312,7 @@ process_stbairro_batch <- function(
   bairro <- stbairro[component == "bairro"]
   data.table::setkey(st, id_munic_7)
   data.table::setkey(bairro, id_munic_7)
-  data.table::setkey(locais_filtered, cod_localidade_ibge)
+  data.table::setkey(locais, cod_localidade_ibge)
 
   message(sprintf(
     "[Batch %d] Starting %s street/neighborhood matching for %d municipalities",
@@ -330,7 +324,7 @@ process_stbairro_batch <- function(
   batch_results <- collect_batch_or_stop(
     batch_munis,
     function(muni_code) {
-      locais_muni <- locais_filtered[.(muni_code), nomatch = NULL]
+      locais_muni <- locais[.(muni_code), nomatch = NULL]
       st_muni <- st[.(muni_code), nomatch = NULL]
       bairro_muni <- bairro[.(muni_code), nomatch = NULL]
 
@@ -363,8 +357,8 @@ process_stbairro_batch <- function(
 # Size-balanced batch assignment for the polling-station municipalities, so the
 # pipeline branches over a few hundred batches instead of thousands of
 # per-municipality tasks. Dev mode uses smaller batches (two states only).
-build_municipality_batches <- function(locais_filtered, dev_mode) {
-  muni_df <- locais_filtered[, .(size = .N), by = .(cod_localidade_ibge)]
+build_municipality_batches <- function(locais, dev_mode) {
+  muni_df <- locais[, .(size = .N), by = .(cod_localidade_ibge)]
   # Sort by size with municipality code as tiebreak, then round-robin so the
   # large municipalities spread evenly across batches.
   data.table::setorder(muni_df, -size, cod_localidade_ibge)

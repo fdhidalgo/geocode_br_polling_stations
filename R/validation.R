@@ -44,8 +44,7 @@ validate_model_predictions <- function(predictions) {
     nrow(predictions) > 0,
     "conf_dist_km" %in% names(predictions),
     is.numeric(predictions$conf_dist_km),
-    !anyNA(predictions$conf_dist_km),
-    "a distance bound cannot be negative" = all(predictions$conf_dist_km >= 0)
+    !anyNA(predictions$conf_dist_km)
   )
   nrow(predictions)
 }

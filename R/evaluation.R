@@ -111,11 +111,6 @@ assign_eval_folds <- function(model_data) {
   data.table(cod_localidade_ibge = covered_munis, fold = folds)
 }
 
-# Share of each fold's training municipalities reserved for conformal calibration. The
-# offset must come from data the fold's model never saw, or the coverage measured on the
-# held-out fold is a fit statistic rather than a test of the published bound.
-OOF_CALIBRATION_PROP <- 0.25
-
 # Out-of-fold distance bounds for every covered candidate row: per fold, refit the LightGBM
 # workflow on the other k-1 folds and predict the held-out one, reusing the production
 # model's tuned hyperparameters. Those hyperparameters were tuned on all municipalities,
@@ -136,15 +131,13 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
     f <- fold_ids[i]
     # The recipe is log_dist ~ ., so `fold` must be dropped or it becomes a predictor.
     pool <- covered[fold != f][, fold := NULL]
-    test_features <- covered[fold == f][, !"fold"]
+    test_features <- covered[fold == f, !"fold"]
 
-    # Municipality-grouped, matching the outer folds: a station's candidates must not
-    # straddle the fit/calibrate boundary any more than they straddle folds.
-    inner <- rsample::group_initial_split(
-      pool,
-      group = cod_localidade_ibge,
-      prop = 1 - OOF_CALIBRATION_PROP
-    )
+    # A quarter of the fold's training municipalities calibrates the conformal offset. It
+    # has to be data this fold's model never saw, or the coverage measured on the held-out
+    # fold is a fit statistic rather than a test. Municipality-grouped, matching the outer
+    # folds: a station's candidates must not straddle the fit/calibrate boundary either.
+    inner <- rsample::group_initial_split(pool, group = cod_localidade_ibge, prop = 0.75)
     train_df <- as.data.table(rsample::training(inner))
     cal_df <- as.data.table(rsample::testing(inner))
 
@@ -160,9 +153,10 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
       offset
     ))
 
-    scored <- score_candidates(fitted_wf, test_features)
-    scored[, conf_dist_km := conformal_bound_km(pred_logq, offset)]
-    preds[[i]] <- scored[, .(
+    # test_features is this loop's own materialization, so it is scored in place.
+    test_features[, pred_logq := predict(fitted_wf, new_data = test_features)$.pred]
+    test_features[, conf_dist_km := conformal_bound_km(pred_logq, offset)]
+    preds[[i]] <- test_features[, .(
       local_id,
       cod_localidade_ibge,
       match_type = type,
@@ -176,7 +170,7 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
       fold = f
     )]
   }
-  rbindlist(preds)[order(local_id, pred_logq)]
+  rbindlist(preds)
 }
 
 # Every TSE-covered station with the stratification axes accuracy is cut by: vintage,
@@ -567,9 +561,8 @@ compare_geocodebr_to_model <- function(geocodebr_selected_matches, oof_selected_
 # Metric columns of the coverage tables, suppressed together below the cell-size floor.
 EVAL_COVERAGE_COLS <- c("coverage", "median_bound_km", "median_error_km")
 
-# One coverage cell: does the published bound hold, and how tight is it. Median bound width
-# rides alongside coverage because coverage alone can always be bought with width -- a 50 km
-# bound covers everything and tells a user nothing.
+# One coverage cell: the share inside the bound, plus the bound's own width and the realized
+# error. Width is never omitted -- coverage alone can always be bought by widening.
 .coverage_cell <- function(cell) {
   list(
     n = nrow(cell),
@@ -582,10 +575,7 @@ EVAL_COVERAGE_COLS <- c("coverage", "median_bound_km", "median_error_km")
 # Check the exported distance bound two ways: rank-and-filter (dropping the worst-scored
 # tail should lower realized median error, so the ranking carries information) and coverage
 # (does the bound hold as often as it claims, and how wide does it have to be to do it).
-#
-# Conformal guarantees coverage marginally, over the calibration population as a whole. It
-# says nothing per stratum, so the tables cut coverage by the axes accuracy is cut by --
-# a rural or wide-bound cell falling short is the expected failure mode, not an anomaly.
+# Coverage is cut by stratum because the conformal guarantee is marginal, not conditional.
 compute_calibration <- function(selected_matches) {
   n_bins <- 10L
   geo <- selected_matches[
@@ -618,8 +608,8 @@ compute_calibration <- function(selected_matches) {
     use.names = TRUE
   )
 
-  # Conditional coverage across the range of the bound itself: the bound is meant to adapt
-  # to how uncertain each match is, so it has to hold at both ends, not just on average.
+  # Coverage across the range of the bound itself: an adaptive bound has to hold at both
+  # ends, not only on average.
   breaks <- unique(stats::quantile(
     geo$conf_dist_km,
     probs = seq(0, 1, length.out = n_bins + 1L),

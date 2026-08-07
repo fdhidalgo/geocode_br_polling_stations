@@ -274,10 +274,8 @@ make_model_data <- function(
       r = EARTH_RADIUS_KM
     )
   ]
-  # The model's outcome. Distance is right-skewed over orders of magnitude, so it is fit on
-  # the log scale; the offset keeps log() defined at an exact-match distance of 0. Held as a
-  # column rather than a recipe step because a recipe step that transforms the outcome is
-  # skipped when new data is baked, which silently leaves resampling metrics comparing
+  # The model's outcome. A column rather than a recipe step: recipes skips outcome
+  # transforms when baking new data, which silently leaves resampling metrics comparing
   # log-scale predictions against kilometre-scale truth.
   model_data[, log_dist := log(dist + GBM_LOG_OFFSET)]
   model_data[, ano := NULL]
@@ -309,10 +307,8 @@ build_gbm_workflow <- function(data) {
     recipes::update_role(dist, new_role = "id variable") |>
     recipes::step_impute_median(logpop, pct_rural, area)
 
-  ## Define the model specification. The quantile objective is what makes the published
-  ## bound meaningful: squared error would fit a conditional mean, whose back-transform
-  ## exp(E[log dist]) is a geometric mean and sits below the true mean distance. A quantile
-  ## is equivariant under exp(), so the log fit back-transforms to the quantile of distance.
+  ## Quantile objective at SELECTOR_QUANTILE, so the log fit back-transforms to a distance
+  ## quantile rather than a geometric mean.
   gbm_spec <-
     parsnip::boost_tree(
       trees = tune(),
@@ -367,17 +363,10 @@ pinball_loss.data.frame <- function(data, truth, estimate, na_rm = TRUE, case_we
   )
 }
 
-# Score every candidate with a fitted workflow. `pred_logq` is the model's estimate of the
-# SELECTOR_QUANTILE-th percentile of log-distance for that candidate.
-score_candidates <- function(fitted_workflow, candidates) {
-  out <- copy(as.data.table(candidates))
-  out[, pred_logq := predict(fitted_workflow, new_data = out)$.pred]
-  out[]
-}
-
 # The pipeline's pick: one candidate per station, the lowest predicted quantile, ties to the
-# first row. The single definition of "the chosen coordinate" -- selection, conformal
-# calibration, and evaluation all read it here so they cannot diverge.
+# first row. Selection, conformal calibration, and evaluation all read it here so they cannot
+# diverge. Keyed on pred_logq rather than the kilometre bound, which conformal_bound_km()
+# clamps at 0 and so would tie every near-exact match together.
 select_best_candidate <- function(scored) {
   stopifnot("candidates are missing a predicted quantile" = !anyNA(scored$pred_logq))
   unique(scored[order(local_id, pred_logq)], by = "local_id")
@@ -386,43 +375,33 @@ select_best_candidate <- function(scored) {
 # The split-conformal order statistic: given calibration residuals (truth minus predicted
 # quantile), the smallest correction that leaves at most 1 - SELECTOR_QUANTILE of them
 # uncovered. The ceiling is what makes the guarantee finite-sample rather than asymptotic --
-# with n residuals the bound must clear the ceiling((n+1)*tau)-th, not the n*tau-th.
+# with n residuals the bound must clear the ceiling((n+1)*tau)-th, not the n*tau-th, and
+# below n = 9 (at tau = 0.9) that index runs past the sample entirely.
 conformal_offset_from_residuals <- function(resid) {
   stopifnot("calibration residuals must be complete" = !anyNA(resid))
   n <- length(resid)
   k <- ceiling((n + 1) * SELECTOR_QUANTILE)
-  # Below n = 9 (at tau = 0.9) the index runs past the sample: no finite correction over
-  # this few points attains the level, and pretending otherwise would publish a bound
-  # carrying a guarantee it does not have.
   if (k > n) {
-    stop(sprintf(
-      "conformal_offset_from_residuals(): %d calibration points cannot attain %.2f coverage (need at least %d)",
-      n,
-      SELECTOR_QUANTILE,
-      ceiling(SELECTOR_QUANTILE / (1 - SELECTOR_QUANTILE))
-    ))
+    stop(sprintf("conformal offset: %d calibration points cannot attain %.2f coverage", n, SELECTOR_QUANTILE))
   }
   sort(resid)[k]
 }
 
-# The conformal correction for a fitted model, on the log scale: how much its predicted
-# quantile has to be raised so the bound covers the truth at least SELECTOR_QUANTILE of the
-# time. The guarantee assumes nothing about the model, only that `cal_data` was not used to
-# fit it.
-#
-# Calibrated on each station's *chosen* candidate, not on every candidate. The chosen one is
-# the argmin of the predicted quantile, so it is preferentially a candidate whose quantile
-# came out too low; calibrating on all candidates would leave the published number
-# under-covering exactly where users read it.
+# The conformal correction for a fitted model, on the log scale. Computed on each station's
+# *chosen* candidate rather than all of them: the chosen one is the argmin of the predicted
+# quantile, so it skews toward candidates whose quantile came out too low, and calibrating
+# over every candidate would leave the published number under-covering.
 conformal_log_offset <- function(fitted_workflow, cal_data) {
-  winners <- select_best_candidate(score_candidates(fitted_workflow, cal_data))
+  scored <- as.data.table(cal_data)[, .(local_id, log_dist)]
+  scored[, pred_logq := predict(fitted_workflow, new_data = cal_data)$.pred]
+  winners <- select_best_candidate(scored)
   conformal_offset_from_residuals(winners$log_dist - winners$pred_logq)
 }
 
-# The published bound in kilometres: the model's predicted log-quantile lifted by the
-# conformal correction, back on the distance scale. Exp is monotone, so this is the
-# SELECTOR_QUANTILE-th percentile of distance, and the ranking it induces is the ranking on
-# pred_logq. Clamped at 0 because a bound below the offset would be a negative distance.
+# The published bound in kilometres: the predicted log-quantile lifted by the conformal
+# correction, back on the distance scale. Exp is monotone, so a quantile of log-distance
+# back-transforms to that quantile of distance -- which a mean would not. Clamped at 0
+# because a negative correction could otherwise produce a negative distance.
 conformal_bound_km <- function(pred_logq, offset) {
   pmax(exp(pred_logq + offset) - GBM_LOG_OFFSET, 0)
 }
@@ -499,32 +478,25 @@ train_model <- function(model_data, dev_mode) {
   list(
     tune_out = gbm_tune,
     final_fit = final_fit,
-    conformal = list(
-      offset = offset,
-      n_cal = uniqueN(testing_set$local_id),
-      level = SELECTOR_QUANTILE
-    )
+    conformal_offset = offset
   )
 }
 
 # Score every candidate match and attach its calibrated distance bound in kilometres.
+# Projects first and predicts into the narrow table: model_data carries every predictor and
+# runs to millions of rows, so scoring it in place would double the target's peak memory.
 get_predictions <- function(trained_model, model_data) {
   fitted <- tune::extract_workflow(trained_model$final_fit)
-  scored <- score_candidates(fitted, model_data)
-  scored[, conf_dist_km := conformal_bound_km(pred_logq, trained_model$conformal$offset)]
-
-  scored[
-    order(local_id, pred_logq),
-    .(
-      local_id,
-      match_type = type,
-      mindist,
-      desvio_km,
-      long,
-      lat,
-      dist,
-      conf_dist_km,
-      pred_logq
-    )
-  ]
+  out <- model_data[, .(
+    local_id,
+    match_type = type,
+    mindist,
+    desvio_km,
+    long,
+    lat,
+    dist
+  )]
+  out[, pred_logq := predict(fitted, new_data = model_data)$.pred]
+  out[, conf_dist_km := conformal_bound_km(pred_logq, trained_model$conformal_offset)]
+  out[]
 }

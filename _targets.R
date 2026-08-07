@@ -838,7 +838,7 @@ list(
 
   # --- Evaluation harness ---
   # Leakage-controlled out-of-fold accuracy over the TSE-covered set, plus TSE
-  # coverage density and the pred_dist calibration check. See R/evaluation.R.
+  # coverage density and the distance-bound calibration check. See R/evaluation.R.
 
   ## TSE coverage by year x state - ground-truth density.
   tar_target(
@@ -860,7 +860,7 @@ list(
     command = assign_eval_folds(model_data)
   ),
 
-  ## Out-of-fold pred_dist for every covered candidate. Memory-heavy (k LightGBM
+  ## Out-of-fold distance bounds for every covered candidate. Memory-heavy (k LightGBM
   ## refits over most of the covered data) -> memory_limited controller.
   tar_target(
     name = oof_predictions,
@@ -950,7 +950,7 @@ list(
     command = compare_geocodebr_to_model(geocodebr_selected_matches, oof_selected_matches)
   ),
 
-  ## pred_dist calibration: rank-and-filter plus reliability/ENCE.
+  ## Distance-bound calibration: rank-and-filter plus coverage and sharpness.
   tar_target(
     name = calibration_check,
     command = compute_calibration(oof_selected_matches)

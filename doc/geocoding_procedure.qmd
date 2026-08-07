@@ -139,7 +139,7 @@ tar_load(
 best_prediction <- model_predictions |>
   filter(!is.na(dist)) |>
   group_by(local_id) |>
-  arrange(local_id, pred_dist, dist) |>
+  arrange(local_id, conf_dist_km, dist) |>
   slice(1)
 
 geocoded_locais <- inner_join(locais, best_prediction) |>
@@ -149,11 +149,11 @@ geocoded_locais <- inner_join(locais, best_prediction) |>
   mutate(
     long = ifelse(is.na(tse_long), pred_long, tse_long),
     lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
-    pred_dist = ifelse(is.na(tse_lat), pred_dist, 0)
+    conf_dist_km = ifelse(is.na(tse_lat), conf_dist_km, 0)
   ) |>
   left_join(select(panel_ids, panel_id, local_id)) |>
   mutate(panel_id = ifelse(is.na(panel_id), local_id, panel_id)) |>
-  arrange(panel_id, pred_dist) |>
+  arrange(panel_id, conf_dist_km) |>
   group_by(panel_id) |>
   mutate(
     panel_lat = first(lat),
@@ -223,7 +223,7 @@ pick_string <- function(frame_key, col) {
 
 # model_predictions is the authoritative per-station candidate set: one row per
 # match_type, already carrying the string distance (mindist), coordinates, the
-# model's predicted error (pred_dist) and, for TSE-covered stations, the true
+# model's calibrated distance bound (conf_dist_km) and, for TSE-covered stations, the true
 # error (dist). Everything but the matched string text comes from here.
 ex_pred <- as.data.table(model_predictions)[local_id == example_id]
 stopifnot(all(ex_pred$match_type %in% match_spec$match_type))
@@ -231,7 +231,7 @@ stopifnot(all(ex_pred$match_type %in% match_spec$match_type))
 table_data <- ex_pred[, .(
   match_type,
   `String Distance` = mindist,
-  `Predicted Error (km)` = pred_dist,
+  `Error Bound (km)` = conf_dist_km,
   `True Error (km)` = dist
 )] |>
   inner_join(match_spec, by = "match_type") |>
@@ -243,11 +243,11 @@ table_data <- ex_pred[, .(
     `String Distance` = if (is.na(query_field)) NA_real_ else `String Distance`
   ) |>
   ungroup() |>
-  arrange(`Predicted Error (km)`) |>
+  arrange(`Error Bound (km)`) |>
   mutate(rank = row_number()) |>
   select(
     Data, `Polling Station String`, Match, `String Distance`,
-    `Predicted Error (km)`, `True Error (km)`, rank
+    `Error Bound (km)`, `True Error (km)`, rank
   )
 
 
@@ -268,7 +268,7 @@ table_data |>
     style = cell_fill(color = "lightcyan"),
     locations = cells_body(rows = (rank == 1))
   ) |>
-  tab_source_note("Highlighted row is the selected match (lowest predicted error).")
+  tab_source_note("Highlighted row is the selected match (lowest error bound).")
 ```
 
 ## Estimating Geocoding Error
@@ -348,19 +348,20 @@ acc[stratum %in% c("overall", "urban_rural", "region")][, .(
 #| label: calibration-summary
 #| output: asis
 rf <- as.data.table(calibration_check$rank_filter)
+cov_overall <- as.data.table(calibration_check$coverage)[stratum == "overall"]
 cat(sprintf(
   paste0(
-    "The pipeline's own `pred_dist` score is a usable ranking of error even ",
-    "where it is not calibrated in absolute metres: dropping the worst-predicted ",
-    "%.0f%% of stations lowers the realized median error from %.2f km to %.2f km ",
-    "and raises the share within 500 m from %.1f%% to %.1f%%. The absolute ",
-    "calibration gap (Expected Normalized Calibration Error) is %.3f. ",
-    "Prediction-interval coverage is deferred to the calibrated-quantile upgrade."
+    "The published `conf_dist_km` claims the true location is within it for at least ",
+    "%.0f%% of stations. Out of fold it holds for **%.1f%%**, at a median bound of ",
+    "**%.2f km** against a median realized error of %.2f km. It also ranks: dropping ",
+    "the %.0f%% of stations with the widest bounds lowers the realized median error ",
+    "from %.2f km to %.2f km and raises the share within 500 m from %.1f%% to %.1f%%."
   ),
+  calibration_check$nominal,
+  cov_overall$coverage, cov_overall$median_bound_km, cov_overall$median_error_km,
   100 * max(rf$drop_frac),
   rf[drop_frac == 0, median_km], rf[drop_frac == max(drop_frac), median_km],
-  rf[drop_frac == 0, within_500m], rf[drop_frac == max(drop_frac), within_500m],
-  calibration_check$ence
+  rf[drop_frac == 0, within_500m], rf[drop_frac == max(drop_frac), within_500m]
 ))
 ```
 

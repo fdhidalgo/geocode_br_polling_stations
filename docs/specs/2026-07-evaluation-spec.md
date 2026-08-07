@@ -1,4 +1,4 @@
-# Evaluation spec: honest held-out accuracy + `pred_dist` calibration
+# Evaluation spec: honest held-out accuracy + `conf_dist_km` calibration
 
 **Ticket:** [#25 — Decide the evaluation spec](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/25)
 **Feeds:** [#30 — methodology upgrade roadmap](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/30), [#36 — 2024 release run / cleanup phase 5](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/36)
@@ -36,8 +36,9 @@ Three facts about the current pipeline (established in the survey) fix everythin
   `final_long := ifelse(is.na(tse_long), pred_long, tse_long)`). The model-selected
   coordinate reaches the output **only for TSE-uncovered stations**.
 - **TSE coordinates are the model's training target** (`make_model_data()` /
-  `train_model()`, `R/model.R`): `pred_dist` regresses `log(haversine-to-TSE)` on match
-  features, and the best match per station is the smallest `pred_dist` (`R/model.R:432`).
+  `train_model()`, `R/model.R`): the selector fits the 90th percentile of
+  `log(haversine-to-TSE)` on match features, and the best match per station is the one with
+  the smallest bound (`select_best_candidate()`).
 - **TSE coordinates are field-collected (GEL system), not centrally geocoded** — so they
   are genuinely independent of any CNEFE-based geocoder, which is what qualifies them as
   ground truth. Their weaknesses here are (a) they are the training target, so evaluation
@@ -60,7 +61,7 @@ Two evaluation surfaces, hybrid-sited:
   2. Station-grouped k-fold out-of-fold (OOF) predictions over the covered set.
   3. Stratified accuracy tables (median / percentiles / %-within-threshold, joint with
      match rate), with small-cell suppression.
-  4. The `pred_dist` calibration check (rank-and-filter + reliability/ENCE).
+  4. The `conf_dist_km` calibration check (coverage + sharpness + rank-and-filter).
 - **A thin Quarto report** that renders the targets above for human reading and adds the
   one-time **frozen-Google reference-validation** (Google-vs-TSE agreement on a covered
   sample).
@@ -89,7 +90,7 @@ Requirements (all mandatory):
   [#33](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/33)) — this spec
   does not re-implement it; it depends on it.
 - **Per-station selected match from OOF scores.** For each covered station, rank its
-  candidates by OOF `pred_dist`, select the best, and score that pick's haversine distance
+  candidates by their OOF bound, select the best, and score that pick's haversine distance
   to the TSE coordinate. This is the number that enters the accuracy tables.
 - **k** is an execution detail (5 or 10); pick for stable per-stratum cells given TSE
   coverage density (§6).
@@ -157,7 +158,7 @@ pipeline, so their errors are correlated: agreement confirms CNEFE-consistency, 
 correctness, and (critically) the two agree precisely on the hard stations where both are
 confidently wrong — so a triage signal calibrated on covered stations would transfer
 *false confidence* to the uncovered ones. Its disagreement signal is also largely
-redundant with the pipeline's own `pred_dist` ranking. geocodebr's methodology role
+redundant with the pipeline's own candidate ranking. geocodebr's methodology role
 (features, deeper adoption) stays in
 [#26](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/26) /
 [#30](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/30); it has no role
@@ -179,24 +180,33 @@ and varies by state and year; it determines how much real ground truth each stra
 
 ---
 
-## 7. `pred_dist` calibration check
+## 7. `conf_dist_km` calibration check
 
-Validates the predicted-distance ranking the pipeline already trusts for match selection.
-Runs on the OOF predictions from §3.
+Validates the distance bound the pipeline publishes and uses to rank candidate matches.
+Runs on the OOF predictions from §3. The conformal correction is derived inside each fold
+from municipalities held out of that fold's fit, so coverage measured here is a test of the
+published number rather than a restatement of its construction.
 
-- **Rank-and-filter demonstration (headline artifact):** sort covered stations by
-  predicted error; show that dropping the worst-predicted tail *monotonically* lowers
-  realized median error and raises %-within-500 m. Proves the ranking carries information
-  even if not calibrated in absolute meters.
-- **Reliability diagram + ENCE:** bin by predicted error, plot predicted vs. realized,
-  summarize the gap with Expected Normalized Calibration Error. Measures absolute
-  calibration of the current point estimate.
-- **Prediction-interval coverage: deferred to
-  [#29](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/29).** Today's
-  `pred_dist` is a point estimate, so coverage is undefined until #29 exports a calibrated
-  quantile/interval — at which point this same harness validates it. This makes the
-  calibration check a baseline for the current selector *and* the acceptance test for #29's
-  replacement.
+- **Coverage and sharpness (headline artifact):** the share of covered stations whose
+  realized error falls inside their bound, against the nominal 90%, cut by urban/rural,
+  region, and vintage. Median bound width is reported in every cell: coverage alone can
+  always be bought with width, so the two are only meaningful together. Conformal
+  guarantees coverage *marginally* and promises nothing per stratum, which is exactly why
+  the cuts are reported — a rural cell below nominal is the expected failure mode.
+- **Conditional coverage across the bound's range:** bin by the bound itself, report
+  coverage per decile. An adaptive bound has to hold at both ends, not only on average.
+- **Rank-and-filter demonstration:** sort covered stations by their bound; show that
+  dropping the widest-bound tail *monotonically* lowers realized median error and raises
+  %-within-500 m. Coverage says the bound is honest; this says it is also informative.
+
+Coverage is a **reported diagnostic, not a release gate** — the column ships with whatever
+coverage it achieves, and the report is where a reader judges it. (Issue
+[#44](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/44) originally scoped
+it as a blocking gate; that was dropped deliberately.)
+
+All of this is measured on TSE-covered stations, which skew urban and easier to locate,
+while the column ships for uncovered stations too. There the guarantee is an extrapolation,
+not a measurement; closing that gap needs the gold set of §Design C.
 
 ---
 
@@ -360,8 +370,9 @@ using it as one).
   (2024 release run), [#30](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/30)
   (methodology roadmap) — both edges already wired.
 - **Interlocks with:** [#29](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/29)
-  (match-selection refresh) — the calibration harness (§7) is the acceptance test for
-  #29's calibrated quantile.
+  (match-selection refresh) — the calibration harness (§7) measures #29's calibrated
+  quantile, landed as `conf_dist_km` in
+  [#44](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/44).
 
 ## 11. Deferred / future fog (handed to the map)
 

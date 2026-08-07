@@ -60,36 +60,36 @@ process_year_pairs <- function(panel, best_pairs, year_from, year_to) {
 
 # Attach one coordinate per panel to its member station-years. geocoded_locais is the full
 # geocoded output, not the TSE-only table, so panels whose years predate TSE ground truth
-# still get the model's coordinate and its pred_dist.
+# still get the model's coordinate and its distance bound.
 make_panel_ids <- function(panel_ids_combined, geocoded_locais) {
   # geocoded_locais is deliberately not standardized: an inplace rename would corrupt the
   # shared in-memory object other consumers (export, release gates) read.
   standardize_column_names(panel_ids_combined)
 
-  # Attach each station-year's final coordinate and predicted error. pred_dist is 0 for
+  # Attach each station-year's final coordinate and distance bound. conf_dist_km is 0 for
   # TSE-covered rows, so ordering by it puts ground-truth coordinates ahead of model ones.
   panel_ids <- geocoded_locais[
     panel_ids_combined,
     on = .(local_id),
     nomatch = NA
-  ][, .(local_id, panel_id, ano, long = final_long, lat = final_lat, pred_dist)]
+  ][, .(local_id, panel_id, ano, long = final_long, lat = final_lat, conf_dist_km)]
 
-  # One coordinate per panel: smallest pred_dist, ties to the most recent year. Only
+  # One coordinate per panel: smallest bound, ties to the most recent year. Only
   # station-years carrying a coordinate compete, so a panel comes out blank only when
   # every year failed to geocode. unique(by=) takes the first row of the sorted table.
   panel_ids_best <- unique(
-    panel_ids[!is.na(long) & !is.na(lat)][order(panel_id, pred_dist, -ano)],
+    panel_ids[!is.na(long) & !is.na(lat)][order(panel_id, conf_dist_km, -ano)],
     by = "panel_id"
-  )[, .(panel_id, long, lat, pred_dist)]
+  )[, .(panel_id, long, lat, conf_dist_km)]
 
   # Swap the per-station coordinates for the chosen panel-level one.
-  panel_ids[, c("long", "lat", "pred_dist", "ano") := NULL]
+  panel_ids[, c("long", "lat", "conf_dist_km", "ano") := NULL]
   panel_ids <- panel_ids_best[
     panel_ids,
     on = .(panel_id),
     nomatch = NA
   ]
-  setcolorder(panel_ids, c("panel_id", "local_id", "long", "lat", "pred_dist"))
+  setcolorder(panel_ids, c("panel_id", "local_id", "long", "lat", "conf_dist_km"))
   panel_ids[]
 }
 

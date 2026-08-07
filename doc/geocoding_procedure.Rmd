@@ -129,7 +129,7 @@ tryCatch({
 best_prediction <- model_predictions |>
   #  filter(!is.na(dist)) |>
   group_by(local_id) |>
-  arrange(local_id, pred_dist, dist) |>
+  arrange(local_id, conf_dist_km, dist) |>
   slice(1)
 
 geocoded_locais <- left_join(locais, best_prediction) |>
@@ -139,11 +139,11 @@ geocoded_locais <- left_join(locais, best_prediction) |>
   mutate(
     long = ifelse(is.na(tse_long), pred_long, tse_long),
     lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
-    pred_dist = ifelse(is.na(tse_lat), pred_dist, 0)
+    conf_dist_km = ifelse(is.na(tse_lat), conf_dist_km, 0)
   ) |>
   left_join(select(panel_ids, panel_id, local_id)) |>
   mutate(panel_id = ifelse(is.na(panel_id), local_id, panel_id)) |>
-  arrange(panel_id, pred_dist) |>
+  arrange(panel_id, conf_dist_km) |>
   group_by(panel_id) |>
   mutate(
     panel_lat = first(lat),
@@ -233,7 +233,7 @@ table_data <- tibble(
     if(nrow(example_cnefe10) > 0) example_cnefe10$mindist_bairro_cnefe[1] else NA,
     if(nrow(example_cnefe22) > 0) example_cnefe22$mindist_bairro_cnefe[1] else NA
   ),
-  `Predicted Error (km)` = example_string_match$pred_dist,
+  `Error Bound (km)` = example_string_match$conf_dist_km,
   long = c(
     if(nrow(example_inep) > 0) example_inep$match_long_inep_name[1] else NA,
     if(nrow(example_inep) > 0) example_inep$match_long_inep_addr[1] else NA,
@@ -263,7 +263,7 @@ table_data <- tibble(
     if(nrow(example_cnefe22) > 0) example_cnefe22$match_lat_bairro_cnefe[1] else NA
   )
 ) |>
-  mutate(rank = rank(`Predicted Error (km)`, ties.method = "first")) |>
+  mutate(rank = rank(`Error Bound (km)`, ties.method = "first")) |>
   rowwise() |>
   mutate(
     `True Error (km)` = geosphere::distHaversine(

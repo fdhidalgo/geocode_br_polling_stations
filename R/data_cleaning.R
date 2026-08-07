@@ -397,12 +397,7 @@ import_locais <- function(locais_file, muni_ids) {
 
 # Attaches the best model prediction and TSE ground truth, then picks each station's final coords.
 finalize_coords <- function(locais, model_predictions, tsegeocoded_locais) {
-  # Order within local_id by pred_dist and pick the first one in each group
-  best_match <- model_predictions[
-    order(local_id, pred_dist),
-    .(local_id, long, lat, pred_dist)
-  ]
-  best_match <- best_match[, .SD[1], by = local_id]
+  best_match <- select_best_candidate(model_predictions)[, .(local_id, long, lat, conf_dist_km)]
 
   geocoded_locais <- merge(
     locais,
@@ -430,8 +425,9 @@ finalize_coords <- function(locais, model_predictions, tsegeocoded_locais) {
   geocoded_locais[, final_long := ifelse(is.na(tse_long), pred_long, tse_long)]
   geocoded_locais[, final_lat := ifelse(is.na(tse_lat), pred_lat, tse_lat)]
 
-  # pred_dist is the predicted error of the chosen coordinate; TSE coordinates are exact.
-  geocoded_locais[!is.na(tse_long) & !is.na(tse_lat), pred_dist := 0]
+  # conf_dist_km bounds the error of the chosen coordinate; a TSE coordinate is the
+  # field-collected truth, so its bound is zero.
+  geocoded_locais[!is.na(tse_long) & !is.na(tse_lat), conf_dist_km := 0]
 
   return(geocoded_locais)
 }

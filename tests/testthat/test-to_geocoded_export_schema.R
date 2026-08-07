@@ -1,9 +1,8 @@
 ## Spec test for to_geocoded_export_schema() (R/utilities.R). The published
-## geocoded file must keep the 0.141 column names and order - the recommended
-## coordinate ships as long/lat, NOT the internal final_long/final_lat - so
-## downstream code that read the 0.141 release keeps working.
+## geocoded file ships the recommended coordinate as long/lat, NOT the internal
+## final_long/final_lat, in the documented column order.
 
-test_that("to_geocoded_export_schema renames final_* to long/lat in 0.141 order", {
+test_that("to_geocoded_export_schema renames final_* to long/lat in schema order", {
   internal <- data.table::data.table(
     # Deliberately in a different order than the export schema, with the internal
     # final_long/final_lat names, to prove the function renames AND reorders.
@@ -21,7 +20,7 @@ test_that("to_geocoded_export_schema renames final_* to long/lat in 0.141 order"
     cod_localidade_ibge = 1L,
     pred_long = -67,
     pred_lat = -9,
-    pred_dist = 0,
+    conf_dist_km = 0,
     tse_lat = -9,
     tse_long = -67,
     final_long = -67,
@@ -30,7 +29,7 @@ test_that("to_geocoded_export_schema renames final_* to long/lat in 0.141 order"
 
   out <- to_geocoded_export_schema(internal)
 
-  # Exact published schema: 0.141 names (long/lat) in 0.141 order.
+  # Exact published schema, in order.
   expect_identical(names(out), GEOCODED_EXPORT_SCHEMA)
   expect_false(any(c("final_long", "final_lat") %in% names(out)))
   expect_equal(out$long, -67)

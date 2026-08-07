@@ -46,7 +46,11 @@ The dataset (`geocoded_polling_stations.csv.gz`) contains the following variable
 
 - `pred_lat`: Latitude as selected by our model
 
-- `pred_dist`: Predicted distance between chosen longitude and latitude and true longitude and latitude. For polling stations with coordinates provided by the TSE, this is set to 0.  This variable can be used to filter coordinates based on their likely accuracy.
+- `conf_dist_km`: Calibrated upper bound, in kilometres, on the error of the coordinate in `long`/`lat`. The true location is within `conf_dist_km` of the published one for at least 90% of polling stations. Use it to filter coordinates by accuracy — e.g. keeping `conf_dist_km <= 1` keeps stations whose error is very likely under a kilometre. Set to 0 for stations with a TSE-provided coordinate, which is field-collected rather than estimated.
+
+  Two limits worth knowing. The 90% guarantee is *marginal* — it holds across all stations together, not within every subgroup, and rural stations are covered somewhat less often than urban ones. And it is measured against TSE ground truth, which exists only for a subset of stations; for the rest the bound is an extrapolation from stations that skew more urban and easier to locate. The evaluation report breaks coverage down by region, urban/rural, and election year.
+
+  This column replaced `pred_dist`, which was a different quantity: a point estimate of the error that was systematically too low and carried no coverage guarantee. Do not treat the two as interchangeable.
 
 - `tse_lat`: Latitude provided by the TSE. This is only available for a  subset of data.
 
@@ -65,8 +69,9 @@ Subsequently, we use the Fellegi-Sunter framework for record linkage to choose t
 
 - `panel_id`: unique panel identifier. Units with the same `panel_id` are classified to be the same polling station in two different election years according to our fuzzy matching procedure. 
 - `local_id`: polling station identifier. Use this variable to merge with the coordinates data (one `local_id` per polling-station-election, so it also identifies the election year via that join). 
-- `long`: This is a longitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest predicted distance to the true location. Ties are broken by selecting the longitude from the latest year.
-- `lat`: This is a latitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest predicted distance to the true location. Ties are broken by selecting the latitude from the latest year.
+- `long`: This is a longitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest `conf_dist_km`. Ties are broken by selecting the longitude from the latest year.
+- `lat`: This is a latitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest `conf_dist_km`. Ties are broken by selecting the latitude from the latest year.
+- `conf_dist_km`: The distance bound of the chosen coordinate, defined as in the coordinates file above. Constant within a `panel_id`, since the whole panel shares one coordinate.
 
 ## Development Setup
 

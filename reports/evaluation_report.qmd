@@ -341,14 +341,65 @@ cov_wide |>
   tab_source_note("Share of polling stations with a non-missing TSE coordinate.")
 ```
 
-## `pred_dist` calibration
+## `conf_dist_km` calibration
+
+The published `conf_dist_km` claims the true location is within it for at least
+`r sprintf("%.0f%%", calibration_check$nominal)` of stations. Everything below is
+measured out of fold, and the conformal correction itself is derived from
+municipalities held out of each fold's fit, so these are tests of the published
+number rather than restatements of it.
+
+### Coverage and sharpness
+
+Coverage is the share of stations whose realized error falls inside their bound.
+The median bound is reported beside it because coverage alone can always be bought
+with width — a 50 km bound covers everything and tells a user nothing.
+
+Conformal guarantees coverage *marginally*, over the calibration population as a
+whole; it promises nothing within a stratum. A rural or older-vintage cell landing
+below nominal is the expected failure mode, not an anomaly, and is the reason this
+is cut rather than reported as one number.
+
+```{r}
+#| label: bound-coverage
+cov_tab <- as.data.table(calibration_check$coverage)
+cov_tab |>
+  gt() |>
+  fmt_number(columns = c("coverage", "median_bound_km", "median_error_km"), decimals = 2) |>
+  fmt_integer(columns = "n") |>
+  sub_missing(missing_text = "—") |>
+  cols_label(
+    stratum = "Stratum", level = "Level", n = "N",
+    coverage = "Coverage %", median_bound_km = "Median bound km",
+    median_error_km = "Median error km", suppressed = "Suppressed"
+  ) |>
+  tab_header(title = "Coverage of the published bound") |>
+  tab_source_note(sprintf(
+    "Nominal coverage is %.0f%%. Small cells show counts only.",
+    calibration_check$nominal
+  ))
+```
+
+```{r}
+#| label: coverage-by-bound
+cbb <- as.data.table(calibration_check$coverage_by_bound)
+ggplot(cbb, aes(x = median_bound_km, y = coverage)) +
+  geom_hline(yintercept = calibration_check$nominal, linetype = "dashed", color = "grey50") +
+  geom_line(color = "#007bff") +
+  geom_point(aes(size = n), color = "#007bff") +
+  scale_x_log10() +
+  labs(x = "Median bound in decile (km, log scale)", y = "Achieved coverage (%)",
+       size = "N",
+       title = "Conditional coverage across the range of the bound",
+       subtitle = "Dashed line is nominal coverage")
+```
 
 ### Rank-and-filter
 
-Sorting covered stations by predicted error and dropping the worst-predicted tail
-should monotonically lower realized median error and raise %-within-500 m. This
-demonstrates the ranking carries information even where it is not calibrated in
-absolute metres.
+Sorting covered stations by their bound and dropping the widest-bound tail should
+monotonically lower realized median error and raise %-within-500 m. Coverage says
+the bound is honest; this says it is also informative — it separates good matches
+from bad ones rather than being uniformly wide.
 
 ```{r}
 #| label: rank-filter
@@ -360,39 +411,17 @@ rf |>
   fmt_number(columns = c("within_500m"), decimals = 1) |>
   fmt_integer(columns = "n_retained") |>
   cols_label(
-    drop_frac = "Worst-predicted dropped", retained_frac = "Retained frac",
+    drop_frac = "Widest-bound dropped", retained_frac = "Retained frac",
     n_retained = "N retained", median_km = "Median km", within_500m = "<500m %"
   ) |>
-  tab_header(title = "Rank-and-filter on predicted error")
+  tab_header(title = "Rank-and-filter on the distance bound")
 
 ggplot(rf, aes(x = drop_frac)) +
   geom_line(aes(y = median_km), color = "#007bff") +
   geom_point(aes(y = median_km), color = "#007bff") +
-  labs(x = "Fraction of worst-predicted stations dropped",
+  labs(x = "Fraction of widest-bound stations dropped",
        y = "Realized median error (km)",
-       title = "Dropping the worst-predicted tail lowers realized error")
-```
-
-### Reliability & ENCE
-
-```{r}
-#| label: reliability
-rel <- as.data.table(calibration_check$reliability)
-ence <- calibration_check$ence
-```
-
-Expected Normalized Calibration Error (ENCE): **`r sprintf("%.3f", ence)`**
-(0 = perfectly calibrated point estimate).
-
-```{r}
-#| label: reliability-plot
-lim <- range(c(rel$mean_pred, rel$mean_realized), na.rm = TRUE)
-ggplot(rel, aes(x = mean_pred, y = mean_realized)) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
-  geom_point(aes(size = n), color = "#007bff") +
-  coord_equal(xlim = lim, ylim = lim) +
-  labs(x = "Mean predicted error (km)", y = "Mean realized error (km)",
-       size = "N", title = "Reliability: predicted vs realized error by bin")
+       title = "Dropping the widest-bound tail lowers realized error")
 ```
 
 ## Google reference-validation (spec section 8)

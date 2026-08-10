@@ -1,4 +1,4 @@
-## Geocoding accuracy and pred_dist calibration, measured on the TSE-covered subset
+## Geocoding accuracy and distance-bound calibration, measured on the TSE-covered subset
 ## with out-of-fold predictions. Errors are haversine distances in kilometres.
 
 library(data.table)
@@ -111,7 +111,7 @@ assign_eval_folds <- function(model_data) {
   data.table(cod_localidade_ibge = covered_munis, fold = folds)
 }
 
-# Out-of-fold pred_dist for every covered candidate row: per fold, refit the LightGBM
+# Out-of-fold distance bounds for every covered candidate row: per fold, refit the LightGBM
 # workflow on the other k-1 folds and predict the held-out one, reusing the production
 # model's tuned hyperparameters. Those hyperparameters were tuned on all municipalities,
 # a residual leakage channel deliberately accepted rather than paying for nested tuning.
@@ -123,24 +123,40 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
     "no covered rows to evaluate" = nrow(covered) > 0
   )
 
-  best_params <- tune::select_best(trained_model$tune_out, metric = "rmse")
+  best_params <- tune::select_best(trained_model$tune_out, metric = "pinball_loss")
 
   fold_ids <- sort(unique(covered$fold))
   preds <- vector("list", length(fold_ids))
   for (i in seq_along(fold_ids)) {
     f <- fold_ids[i]
-    # The recipe is dist ~ ., so `fold` must be dropped or it becomes a predictor.
-    train_df <- covered[fold != f][, fold := NULL]
-    test_df <- covered[fold == f]
-    test_features <- test_df[, !"fold"]
+    # The recipe is log_dist ~ ., so `fold` must be dropped or it becomes a predictor.
+    pool <- covered[fold != f][, fold := NULL]
+    test_features <- covered[fold == f, !"fold"]
+
+    # A quarter of the fold's training municipalities calibrates the conformal offset. It
+    # has to be data this fold's model never saw, or the coverage measured on the held-out
+    # fold is a fit statistic rather than a test. Municipality-grouped, matching the outer
+    # folds: a station's candidates must not straddle the fit/calibrate boundary either.
+    inner <- rsample::group_initial_split(pool, group = cod_localidade_ibge, prop = 0.75)
+    train_df <- as.data.table(rsample::training(inner))
+    cal_df <- as.data.table(rsample::testing(inner))
 
     wf <- tune::finalize_workflow(build_gbm_workflow(train_df), best_params)
     fitted_wf <- generics::fit(wf, data = train_df)
+    offset <- conformal_log_offset(fitted_wf, cal_df)
+    message(sprintf(
+      "OOF fold %d/%d: fit on %d rows, calibrated on %d (offset %.3f log-km)",
+      i,
+      length(fold_ids),
+      nrow(train_df),
+      nrow(cal_df),
+      offset
+    ))
 
-    pred_logdist <- predict(fitted_wf, new_data = test_features)$.pred
-    test_df[, pred_logdist := pred_logdist]
-    test_df[, pred_dist := exp(pred_logdist) - GBM_LOG_OFFSET]
-    preds[[i]] <- test_df[, .(
+    # test_features is this loop's own materialization, so it is scored in place.
+    test_features[, pred_logq := predict(fitted_wf, new_data = test_features)$.pred]
+    test_features[, conf_dist_km := conformal_bound_km(pred_logq, offset)]
+    preds[[i]] <- test_features[, .(
       local_id,
       cod_localidade_ibge,
       match_type = type,
@@ -149,12 +165,12 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
       long,
       lat,
       dist,
-      pred_dist,
-      pred_logdist,
-      fold
+      conf_dist_km,
+      pred_logq,
+      fold = f
     )]
   }
-  rbindlist(preds)[order(local_id, pred_dist)]
+  rbindlist(preds)
 }
 
 # Every TSE-covered station with the stratification axes accuracy is cut by: vintage,
@@ -193,16 +209,14 @@ attach_eval_universe <- function(selected, eval_universe) {
   out[]
 }
 
-# Per covered station, the smallest-OOF-pred_dist candidate (ties -> first, matching
-# finalize_coords()).
+# Per covered station, the candidate the pipeline would have picked from its out-of-fold
+# scores. `dist` is the realized haversine error to TSE, in km.
 select_oof_candidates <- function(oof_predictions) {
-  # oof_predictions arrives sorted by (local_id, pred_dist), so the first row per station
-  # is its best candidate. Its `dist` is the realized haversine error to TSE, in km.
-  unique(oof_predictions, by = "local_id")[, .(
+  select_best_candidate(oof_predictions)[, .(
     local_id,
     match_source = match_type,
     error_km = dist,
-    pred_dist,
+    conf_dist_km,
     fold
   )]
 }
@@ -544,19 +558,35 @@ compare_geocodebr_to_model <- function(geocodebr_selected_matches, oof_selected_
   out[]
 }
 
-# Check the predicted-distance ranking the pipeline trusts for match selection, two ways:
-# rank-and-filter (dropping the worst-predicted tail should lower realized median error)
-# and a reliability table summarized by Expected Normalized Calibration Error.
+# Metric columns of the coverage tables, suppressed together below the cell-size floor.
+EVAL_COVERAGE_COLS <- c("coverage", "median_bound_km", "median_error_km")
+
+# One coverage cell: the share inside the bound, plus the bound's own width and the realized
+# error. Width is never omitted -- coverage alone can always be bought by widening.
+.coverage_cell <- function(cell) {
+  list(
+    n = nrow(cell),
+    coverage = 100 * mean(cell$error_km <= cell$conf_dist_km),
+    median_bound_km = stats::median(cell$conf_dist_km),
+    median_error_km = stats::median(cell$error_km)
+  )
+}
+
+# Check the exported distance bound two ways: rank-and-filter (dropping the worst-scored
+# tail should lower realized median error, so the ranking carries information) and coverage
+# (does the bound hold as often as it claims, and how wide does it have to be to do it).
+# Coverage is cut by stratum because the conformal guarantee is marginal, not conditional.
 compute_calibration <- function(selected_matches) {
   n_bins <- 10L
   geo <- selected_matches[
-    geocoded == TRUE & !is.na(pred_dist),
-    .(pred_dist, error_km)
+    geocoded == TRUE,
+    .(urban_rural, region, vintage, conf_dist_km, error_km)
   ]
-  setorder(geo, pred_dist)
+  stopifnot("a geocoded station reached calibration without a bound" = !anyNA(geo$conf_dist_km))
+  setorder(geo, conf_dist_km)
   n <- nrow(geo)
 
-  # Rank-and-filter: retain the best-predicted (1 - drop) share.
+  # Rank-and-filter: retain the best-scored (1 - drop) share.
   drop_fracs <- seq(0, 0.5, by = 0.1)
   rank_filter <- rbindlist(lapply(drop_fracs, function(q) {
     keep <- seq_len(floor((1 - q) * n))
@@ -570,28 +600,28 @@ compute_calibration <- function(selected_matches) {
     )
   }))
 
-  # Reliability: quantile bins of predicted error; predicted vs realized per bin.
+  coverage <- rbindlist(
+    lapply(
+      list(character(0), "urban_rural", "region", "vintage"),
+      function(s) .by_stratum(geo, s, .coverage_cell, metric_cols = EVAL_COVERAGE_COLS, n_col = "n")
+    ),
+    use.names = TRUE
+  )
+
+  # Coverage across the range of the bound itself: an adaptive bound has to hold at both
+  # ends, not only on average.
   breaks <- unique(stats::quantile(
-    geo$pred_dist,
+    geo$conf_dist_km,
     probs = seq(0, 1, length.out = n_bins + 1L),
     names = FALSE
   ))
-  geo[, bin := cut(pred_dist, breaks = breaks, include.lowest = TRUE, labels = FALSE)]
-  reliability <- geo[,
-    .(
-      n = .N,
-      mean_pred = mean(pred_dist),
-      mean_realized = mean(error_km)
-    ),
-    by = bin
-  ][order(bin)]
-
-  # N-weighted mean of the per-bin predicted-vs-realized gap, normalized by prediction.
-  ence <- reliability[, sum(n * abs(mean_pred - mean_realized) / mean_pred) / sum(n)]
+  geo[, bin := cut(conf_dist_km, breaks = breaks, include.lowest = TRUE, labels = FALSE)]
+  coverage_by_bound <- geo[, .coverage_cell(.SD), by = bin][order(bin)]
 
   list(
     rank_filter = rank_filter,
-    reliability = reliability,
-    ence = ence
+    coverage = coverage,
+    coverage_by_bound = coverage_by_bound,
+    nominal = 100 * SELECTOR_QUANTILE
   )
 }

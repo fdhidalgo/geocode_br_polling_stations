@@ -20,7 +20,7 @@ RELEASE_EXPORT_COLS <- c(
   "local_id",
   "pred_long",
   "pred_lat",
-  "pred_dist",
+  "conf_dist_km",
   "tse_lat",
   "tse_long",
   "final_long",
@@ -38,13 +38,13 @@ validate_model_data_merge <- function(model_data) {
   nrow(model_data)
 }
 
-# Asserts every polling station carries a usable predicted match distance.
+# Asserts every candidate carries a usable calibrated distance bound.
 validate_model_predictions <- function(predictions) {
   stopifnot(
     nrow(predictions) > 0,
-    "pred_dist" %in% names(predictions),
-    is.numeric(predictions$pred_dist),
-    !anyNA(predictions$pred_dist)
+    "conf_dist_km" %in% names(predictions),
+    is.numeric(predictions$conf_dist_km),
+    !anyNA(predictions$conf_dist_km)
   )
   nrow(predictions)
 }
@@ -373,17 +373,17 @@ validate_release_gates <- function(
     )
   }
 
-  # Gate 8: TSE-covered stations ship ground-truth coordinates, so pred_dist must be 0.
+  # Gate 8: TSE-covered stations ship ground-truth coordinates, so conf_dist_km must be 0.
   # Column-guarded so a missing column stays Gate 2's failure rather than a raw error.
-  if (all(c("tse_long", "tse_lat", "pred_dist") %in% names(dt))) {
-    n_bad_preddist <- dt[
-      !is.na(tse_long) & !is.na(tse_lat) & (is.na(pred_dist) | pred_dist != 0),
+  if (all(c("tse_long", "tse_lat", "conf_dist_km") %in% names(dt))) {
+    n_bad_bound <- dt[
+      !is.na(tse_long) & !is.na(tse_lat) & (is.na(conf_dist_km) | conf_dist_km != 0),
       .N
     ]
-    if (n_bad_preddist > 0) {
+    if (n_bad_bound > 0) {
       add_fail(
-        "Gate 8 (pred_dist): %d TSE-covered rows have non-zero pred_dist (expected 0 for ground-truth coordinates)",
-        n_bad_preddist
+        "Gate 8 (conf_dist_km): %d TSE-covered rows have a non-zero bound (expected 0 for ground-truth coordinates)",
+        n_bad_bound
       )
     }
   }
@@ -429,15 +429,15 @@ validate_release_gates <- function(
 # when every one of its station-years failed to geocode, so the real rate sits well under 1%.
 RELEASE_PANEL_COORD_NA_MAX_PCT <- 1
 
-# Release gate for panel_ids.csv.gz: stops if pred_dist is missing or too many panels lack a coordinate.
+# Release gate for panel_ids.csv.gz: stops if conf_dist_km is missing or too many panels lack a coordinate.
 validate_panel_release <- function(panel_ids) {
   dt <- if (is.data.table(panel_ids)) panel_ids else as.data.table(panel_ids)
   failures <- character(0)
   add_fail <- function(...) failures <<- c(failures, sprintf(...))
 
   # Gate P1: the accuracy-filter column must reach the output.
-  if (!("pred_dist" %in% names(dt))) {
-    add_fail("Gate P1 (schema): panel_ids is missing the pred_dist column")
+  if (!("conf_dist_km" %in% names(dt))) {
+    add_fail("Gate P1 (schema): panel_ids is missing the conf_dist_km column")
   }
 
   # Gate P2: coordinates present for essentially every panel.

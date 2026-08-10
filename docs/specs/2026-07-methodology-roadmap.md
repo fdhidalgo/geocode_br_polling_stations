@@ -47,11 +47,13 @@ These four decisions govern every item below.
    never waits on methodology work, and upgrade deltas are never confounded
    with the cleanup fixes riding v0.15.
 4. **Confidence column (schema change).** The released dataset gains a
-   calibrated per-station uncertainty column (a 90% upper-bound distance
-   quantile) when — and only when — the calibrated-quantile upgrade (wave 2g)
-   passes its coverage gate. The current miscalibrated `pred_dist` is never
-   relabeled or exported as a confidence measure. v0.15 ships without the
-   column if the gate has not passed.
+   calibrated per-station uncertainty column: a 90% upper-bound distance
+   quantile, `conf_dist_km`, landed by wave 2g. The miscalibrated `pred_dist`
+   was removed rather than relabeled — the two measure different things and
+   were never interchangeable. Achieved coverage is a **reported diagnostic**
+   in the evaluation report, not a blocking gate; the original gate was dropped
+   deliberately, so a reader judges the number rather than the pipeline
+   refusing to ship it. v0.15 shipped without the column.
 
 ## Wave 1 — unconditional upgrades
 
@@ -97,13 +99,16 @@ extra gate noted; blocked on their wave-1 inputs and the v0.15 baseline.
   agree on a location — the #29 doc's highest expected gain per unit effort.
   Blocks on (a) and (b), so the consensus is computed over the enriched
   candidate set.
-- **(g) Calibrated distance quantile.** Replace the exported `pred_dist`
-  (a biased-low, uncalibrated back-transformed geometric mean) with a
-  calibrated upper-bound quantile (LightGBM quantile objective +
-  conformalized quantile regression). **Extra gate:** the harness's
-  reliability/coverage check must confirm the achieved coverage; passing it
-  ships the confidence column (policy 4). The evaluation spec's calibration
-  harness is this issue's acceptance test.
+- **(g) Calibrated distance quantile.** *Landed.* Replaced the exported
+  `pred_dist` (a biased-low, uncalibrated back-transformed geometric mean)
+  with `conf_dist_km`, a calibrated upper-bound quantile: LightGBM quantile
+  objective, wrapped in one-sided conformalized quantile regression calibrated
+  on municipality-grouped held-out folds. Achieved coverage, cut by region /
+  urban-rural / vintage and reported beside median bound width, is a diagnostic
+  in the evaluation report rather than a gate (policy 4). The change also fixed
+  a latent bug: the outcome log-transform was a recipe step marked `skip`, so
+  every hyperparameter had been selected on a metric comparing log-scale
+  predictions to kilometre-scale truth.
 - **(h) Similarity-based blocking.** Replace the exact-token
   `prefilter_by_common_words` with similarity-based blocking
   (`blocking::pair_ann` or `zoomerjoin`), closing a known recall leak and

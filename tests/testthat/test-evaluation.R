@@ -2,8 +2,8 @@
 ## These avoid the heavy pipeline (no model fitting, no spatial joins): they check
 ## the metric ladder, region mapping, coverage counting, fold assignment, the
 ## trivial-heuristic baseline selector and its comparison table, the geocodebr
-## selector and its head-to-head table, and the calibration rank-and-filter logic
-## with tiny synthetic inputs.
+## selector and its head-to-head table, and the calibration rank-and-filter and
+## coverage logic with tiny synthetic inputs.
 
 library(testthat)
 library(data.table)
@@ -106,18 +106,49 @@ test_that("compute_tse_coverage counts and flags small cells", {
 })
 
 test_that("compute_calibration rank-and-filter improves as tail is dropped", {
-  # pred_dist perfectly ranks error: dropping worst-predicted lowers realized error
+  # the bound perfectly ranks error: dropping the worst-scored tail lowers realized error
   n <- 200
   sel <- data.table(
     geocoded = TRUE,
-    pred_dist = seq_len(n) / 100,
+    urban_rural = "urban",
+    region = "Norte",
+    vintage = 2018L,
+    conf_dist_km = seq_len(n) / 100,
     error_km = seq_len(n) / 100
   )
   cal <- compute_calibration(sel)
   rf <- cal$rank_filter
   expect_true(all(diff(rf$median_km) <= 0)) # median monotonically down
   expect_true(all(diff(rf$within_500m) >= 0)) # within-500m monotonically up
-  expect_true(is.finite(cal$ence))
+})
+
+test_that("compute_calibration measures coverage as the share inside the bound", {
+  # 180 of 200 stations land inside their bound - exactly the nominal 90%.
+  n <- 200L
+  n_covered <- 180L
+  sel <- data.table(
+    geocoded = TRUE,
+    urban_rural = rep(c("urban", "rural"), each = n / 2),
+    region = "Norte",
+    vintage = 2018L,
+    # Two bound widths, both comfortably above the hits and below the misses, so the
+    # coverage arithmetic stays hand-checkable while the bound still has a distribution.
+    conf_dist_km = rep(c(1, 1.5), length.out = n),
+    # The misses are all rural, so the strata must disagree: marginal coverage holding
+    # while a stratum fails is the failure mode the cut exists to surface.
+    error_km = c(rep(0.5, n / 2), rep(0.5, n_covered - n / 2), rep(2, n - n_covered))
+  )
+  cal <- compute_calibration(sel)
+
+  expect_equal(cal$nominal, 90)
+  overall <- cal$coverage[stratum == "overall"]
+  expect_equal(overall$n, n)
+  expect_equal(overall$coverage, 100 * n_covered / n)
+  expect_equal(overall$median_bound_km, 1.25) # sharpness reported alongside coverage
+
+  by_zone <- cal$coverage[stratum == "urban_rural"]
+  expect_equal(by_zone[level == "urban"]$coverage, 100)
+  expect_equal(by_zone[level == "rural"]$coverage, 80)
 })
 
 test_that("select_baseline_candidates prefers source precedence over string distance", {

@@ -396,10 +396,10 @@ combine_match_batches <- function(batches, table_name) {
   out
 }
 
-# Column names and order of the published geocoded file, preserved from the
-# 0.141 release so downstream code that reads it keeps working. Internally the
-# pipeline names the recommended coordinate final_long/final_lat (to
-# disambiguate from pred_*/tse_*); the published file calls them long/lat.
+# Column names and order of the published geocoded file. Internally the pipeline
+# names the recommended coordinate final_long/final_lat (to disambiguate from
+# pred_*/tse_*); the published file calls them long/lat. conf_dist_km replaced the
+# 0.141-era pred_dist, which measured something different -- see the README.
 GEOCODED_EXPORT_SCHEMA <- c(
   "local_id",
   "ano",
@@ -415,7 +415,7 @@ GEOCODED_EXPORT_SCHEMA <- c(
   "ds_bairro",
   "pred_long",
   "pred_lat",
-  "pred_dist",
+  "conf_dist_km",
   "tse_long",
   "tse_lat",
   "long",
@@ -441,7 +441,7 @@ to_geocoded_export_schema <- function(geocoded_locais) {
     ds_bairro,
     pred_long,
     pred_lat,
-    pred_dist,
+    conf_dist_km,
     tse_long,
     tse_lat,
     long = final_long,

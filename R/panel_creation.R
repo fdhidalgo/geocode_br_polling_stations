@@ -189,8 +189,8 @@ combine_state_panel_ids <- function(panel_ids_list) {
 
 # Group municipalities into batches of roughly equal polling-station count, so workers
 # get balanced workloads and the largest cities are not batched with anything else.
-create_panel_municipality_batches <- function(locais_data, target_batch_size = 5000) {
-  muni_counts <- locais_data[
+create_panel_municipality_batches <- function(locais, target_batch_size = 5000) {
+  muni_counts <- locais[
     !is.na(cod_localidade_ibge),
     .(n_stations = uniqueN(local_id)),
     by = .(cod_localidade_ibge, sg_uf)
@@ -235,10 +235,10 @@ create_panel_municipality_batches <- function(locais_data, target_batch_size = 5
 }
 
 # Build panel IDs for one batch of municipalities, one municipality at a time.
-process_panel_ids_municipality_batch <- function(locais_full, municipality_batch) {
+process_panel_ids_municipality_batch <- function(locais, municipality_batch) {
   muni_codes <- municipality_batch$cod_localidade_ibge
 
-  batch_data <- locais_full[cod_localidade_ibge %in% muni_codes]
+  batch_data <- locais[cod_localidade_ibge %in% muni_codes]
 
   if (nrow(batch_data) == 0) {
     cat("No data found for municipality batch\n")

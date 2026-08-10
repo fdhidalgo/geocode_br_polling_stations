@@ -70,7 +70,7 @@ validate_final_output <- function(output_data) {
 }
 
 # Checks municipality, INEP, and polling-station row counts against expected ranges.
-validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, pipeline_config) {
+validate_inputs_consolidated <- function(muni_ids, inep_codes, locais, pipeline_config) {
   # Dev mode restricts the pipeline to two states, so municipality and polling-station
   # counts shrink; inep_codes is never filtered, so its range is always national.
   checks <- list(
@@ -86,7 +86,7 @@ validate_inputs_consolidated <- function(muni_ids, inep_codes, locais_filtered, 
     ),
     locais_size = list(
       name = "polling stations",
-      count = nrow(locais_filtered),
+      count = nrow(locais),
       range = if (pipeline_config$dev_mode) c(1000L, 20000L) else c(100000L, 1000000L)
     )
   )
@@ -283,18 +283,31 @@ validate_release_gates <- function(
     add_fail("Gate 2 (schema): unexpected extra columns: %s", paste(extra_cols, collapse = ", "))
   }
 
-  # Gate 3: coordinates not all-NA in any year.
-  coord_by_year <- dt[,
+  # Gate 3: coordinates not all-NA in any year-state cell. Grouping by year alone
+  # missed a whole state shipping blank in every year, which is how the Distrito
+  # Federal went out uncoordinated: 0.4% of national rows, invisible to a
+  # coverage threshold and to a per-year check.
+  coord_by_cell <- dt[,
     .(
       n = .N,
       n_coord = sum(!is.na(final_lat) & !is.na(final_long))
     ),
+    by = .(ano, sg_uf)
+  ][order(ano, sg_uf)]
+  zero_coord_cells <- coord_by_cell[n_coord == 0L]
+  if (nrow(zero_coord_cells) > 0) {
+    add_fail(
+      "Gate 3 (coords): year-state cells with zero non-NA coordinates: %s",
+      paste(zero_coord_cells$sg_uf, zero_coord_cells$ano, sep = "-", collapse = ", ")
+    )
+  }
+
+  # Gate 5 and the returned summary want national per-year counts, rolled up from
+  # the same pass rather than re-scanning the table.
+  coord_by_year <- coord_by_cell[,
+    .(n = sum(n), n_coord = sum(n_coord)),
     by = ano
   ][order(ano)]
-  zero_coord_years <- coord_by_year[n_coord == 0L, ano]
-  if (length(zero_coord_years) > 0) {
-    add_fail("Gate 3 (coords): years with zero non-NA coordinates: %s", paste(zero_coord_years, collapse = ", "))
-  }
 
   # Gate 4: output files exist on disk.
   for (p in export_paths) {

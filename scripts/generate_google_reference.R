@@ -34,9 +34,9 @@ if (!nzchar(api_key)) {
 }
 
 ## ---- Build the stratified covered sample ---------------------------------
-# oof_selected_matches carries the covered universe with strata; locais_filtered
-# and tsegeocoded_locais supply the address to send and the TSE coord to compare.
-tar_load(c(oof_selected_matches, locais_filtered, tsegeocoded_locais))
+# oof_selected_matches carries the covered universe with strata; locais and
+# tsegeocoded_locais supply the address to send and the TSE coord to compare.
+tar_load(c(oof_selected_matches, locais, tsegeocoded_locais))
 
 sel <- as.data.table(oof_selected_matches)
 covered <- sel[!is.na(urban_rural)] # need a stratum to sample within
@@ -47,7 +47,7 @@ sampled <- covered[,
   by = .(urban_rural, region)
 ]
 
-addr <- as.data.table(locais_filtered)[
+addr <- as.data.table(locais)[
   local_id %in% sampled$local_id,
   .(local_id, nr_zona, nr_locvot, cod_localidade_ibge, ds_endereco, ds_bairro, nm_localidade = nm_localidade, sg_uf)
 ]

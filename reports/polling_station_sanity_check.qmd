@@ -107,51 +107,6 @@ if (length(warnings) > 0) {
 }
 ```
 
-## Data Preprocessing Notes {.callout-info}
-
-### Brasília (DF) Filtering
-
-The Federal District (Brasília) has a special electoral status:
-- **No municipal elections**: As a Federal District, Brasília does not hold mayoral or city council elections
-- **Federal/State elections only**: Participates only in presidential, gubernatorial, senatorial, and legislative elections (every 4 years)
-
-**Filtering Applied**: 
-- Brasília polling stations have been removed from municipal election years (2008, 2012, 2016, 2020, 2024)
-- This filtering ensures accurate municipality counts and prevents false anomalies in year-over-year comparisons
-
-```{r}
-#| label: brasilia-filtering-summary
-
-# Check if Brasília appears in municipal years (should be 0 after filtering)
-municipal_years <- c(2008, 2012, 2016, 2020, 2024)
-federal_years <- c(2006, 2010, 2014, 2018, 2022)
-
-df_summary <- geocoded_locais[sg_uf == "DF", .(
-  n_stations = uniqueN(local_id),
-  n_records = .N
-), by = ano][order(ano)]
-
-if (nrow(df_summary) > 0) {
-  df_summary[, election_type := ifelse(ano %in% municipal_years, "Municipal", "Federal/State")]
-  
-  # Display summary
-  kable(df_summary, 
-        caption = "Brasília (DF) presence by election year",
-        col.names = c("Year", "Polling Stations", "Records", "Election Type"),
-        align = c("c", "r", "r", "c"))
-} else {
-  cat("No Brasília data found in the dataset.")
-}
-
-# Verify filtering worked
-df_in_municipal <- geocoded_locais[sg_uf == "DF" & ano %in% municipal_years, .N]
-if (df_in_municipal > 0) {
-  cat("\n⚠️ WARNING: Found", df_in_municipal, "Brasília records in municipal election years. Filtering may not have been applied correctly.\n")
-} else {
-  cat("\n✅ Brasília filtering verified: No records found in municipal election years.\n")
-}
-```
-
 ## 1. Year-over-Year Polling Station Changes
 
 ```{r}
@@ -284,7 +239,7 @@ if (nrow(state_changes_plot) > 0) {
 ::: {.callout-note}
 **Note on Municipality Counts**: 
 - Brazil has approximately 5,570 municipalities
-- Brasília (DF) is counted as a municipality but only appears in federal/state election years
+- The Federal District is not a municipality, but carries one IBGE code (5300108) covering all of Brasília, so counts come to 5,571
 - New municipalities may be created through administrative divisions (e.g., Mojuí dos Campos in 2010)
 - The total count may vary by year due to these administrative changes
 :::

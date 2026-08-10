@@ -134,7 +134,6 @@ match_schools_cnefe_muni <- function(locais_muni, schools_cnefe_muni) {
     mindist_schools_cnefe = name_results$min_dist,
     match_long_schools_cnefe = schools_cnefe_muni$cnefe_long[idx],
     match_lat_schools_cnefe = schools_cnefe_muni$cnefe_lat[idx],
-    match_bairro_schools_cnefe = schools_cnefe_muni$norm_bairro[idx],
     sim_name_schools_cnefe = field_distance(locais_muni$normalized_name, schools_cnefe_muni$norm_desc[idx]),
     sim_street_schools_cnefe = field_distance(locais_muni$normalized_st, schools_cnefe_muni$norm_street[idx]),
     sim_bairro_schools_cnefe = field_distance(locais_muni$normalized_bairro, schools_cnefe_muni$norm_bairro[idx]),

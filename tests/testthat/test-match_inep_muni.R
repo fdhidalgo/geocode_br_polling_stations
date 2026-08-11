@@ -59,13 +59,16 @@ test_that("match_inep_muni reports total dissimilarity as distance 1, not a drop
   expect_false(is.na(r3$match_long_inep_name))
 })
 
-test_that("match_inep_muni leaves a station with no name to match fully NA", {
+test_that("match_inep_muni leaves a station with neither name nor address fully NA", {
   locais <- make_locais()
-  locais[local_id == 3L, normalized_name := NA_character_]
+  locais[local_id == 3L, `:=`(normalized_name = NA_character_, normalized_addr = NA_character_)]
   r3 <- match_inep_muni(locais, make_inep())[local_id == 3L]
   expect_true(is.na(r3$match_inep_name))
+  expect_true(is.na(r3$match_inep_addr))
   expect_true(is.infinite(r3$mindist_inep_name))
+  expect_true(is.infinite(r3$mindist_inep_addr))
   expect_true(is.na(r3$match_long_inep_name))
+  expect_true(is.na(r3$match_long_inep_addr))
 })
 
 test_that("match_inep_muni scores both INEP fields on each candidate", {

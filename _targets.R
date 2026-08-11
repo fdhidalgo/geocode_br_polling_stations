@@ -655,8 +655,8 @@ list(
   ),
   # CNEFE 2010 street/neighborhood matching with batched dynamic branching.
   # The street/neighborhood matchers stay on `memory_limited` (8 workers): each branch
-  # holds its whole batch of municipalities' street and neighborhood reference tables at
-  # once, which at 28 workers would exceed the 50 GB machine.
+  # holds its whole batch of municipalities' street and neighborhood reference tables,
+  # the largest of the reference sets.
   tar_target(
     name = cnefe10_stbairro_match_batch,
     command = process_stbairro_batch(

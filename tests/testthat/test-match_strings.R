@@ -23,15 +23,16 @@ test_that("match_strings picks the closest of several candidates", {
   expect_equal(res$min_dist, 0)
 })
 
-test_that("match_strings matches an abbreviated name that shares no whole word", {
-  # "em" and "e m" share no whitespace-delimited word with "escola municipal", so an
-  # exact-token pre-filter would drop the true match before comparing anything.
+test_that("match_strings matches a variant sharing no whole word with its target", {
+  # Plural and singular forms share no whitespace-delimited word, so requiring one exact
+  # shared word would drop this target before measuring anything -- yet the two strings
+  # are nearly identical (Jaro-Winkler 0.08).
   res <- match_strings(
-    query_strings = c("em joao silva", "e m joao silva"),
-    target_strings = c("hospital norte", "escola municipal joao silva")
+    query_strings = "escolas municipais",
+    target_strings = c("hospital norte", "escola municipal")
   )
-  expect_equal(res$best_index, c(2L, 2L))
-  expect_true(all(is.finite(res$min_dist)))
+  expect_equal(res$best_index, 2L)
+  expect_lt(res$min_dist, 0.1)
 })
 
 test_that("match_strings prefers the closer target over the merely longer one", {

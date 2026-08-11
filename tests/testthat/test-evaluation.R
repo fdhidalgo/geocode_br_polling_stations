@@ -292,6 +292,71 @@ test_that("compare_geocodebr_to_model scores both selectors on both-geocoded sta
   expect_error(compare_geocodebr_to_model(gb[-1L], model), "different station universes")
 })
 
+## Fixture for compute_panel_coord_accuracy(): `n_panels` two-year panels, all covered.
+## Both members sit at the same truth. The 2018 member's out-of-fold coordinate is exact
+## but carries the wide bound; the 2022 member's is ~1.1 km off with a tight bound, so the
+## two ranking rules pick opposite years unless `agree` flips the bounds.
+panel_accuracy_fixture <- function(n_panels = 30L, agree = FALSE) {
+  n <- 2L * n_panels
+  ids <- seq_len(n)
+  first <- rep(c(TRUE, FALSE), n_panels)
+  truth_long <- rep(-60 + seq_len(n_panels) / 100, each = 2L)
+  list(
+    panel_ids_combined = data.table(
+      local_id = ids,
+      panel_id = rep(sprintf("p%02d", seq_len(n_panels)), each = 2L)
+    ),
+    oof_predictions = data.table(
+      local_id = ids,
+      long = truth_long,
+      lat = fifelse(first, -9, -9 + 0.01),
+      pred_logmean = fifelse(first, -2, -1),
+      conf_dist_km = if (agree) fifelse(first, 0.5, 4) else fifelse(first, 4, 0.5)
+    ),
+    eval_station_universe = data.table(
+      local_id = ids,
+      vintage = fifelse(first, 2018L, 2022L),
+      urban_rural = "urban",
+      region = "Norte"
+    ),
+    tsegeocoded_locais = data.table(
+      local_id = ids,
+      tse_long = truth_long,
+      tse_lat = -9
+    )
+  )
+}
+
+test_that("compute_panel_coord_accuracy scores both ranking rules on panel members", {
+  fx <- panel_accuracy_fixture()
+  out <- do.call(compute_panel_coord_accuracy, fx)
+
+  overall <- out[stratum == "overall"]
+  expect_equal(overall$n_stations, 60L)
+  expect_equal(overall$n_panels, 30L)
+  # Every panel ships a different coordinate under the two rules.
+  expect_equal(overall$pct_changed, 100)
+
+  # Expected error picks the exact 2018 coordinate for the whole panel; the bound picks
+  # the 2022 one, which misses both members by ~1.1 km.
+  expect_equal(overall$median_km_expected, 0)
+  expect_equal(overall$median_km_bound, 1.11, tolerance = 0.01)
+  expect_lt(overall$delta_median_km, 0) # shipped rule closer to truth
+  expect_equal(overall$within_500m_expected, 100)
+  expect_equal(overall$within_500m_bound, 0)
+  expect_equal(overall$delta_within_500m, 100)
+
+  # Every member is scored, including the year whose own coordinate did not win.
+  expect_equal(out[stratum == "vintage", sum(n_stations)], 60L)
+})
+
+test_that("compute_panel_coord_accuracy reports no change when the rules agree", {
+  out <- do.call(compute_panel_coord_accuracy, panel_accuracy_fixture(agree = TRUE))
+  overall <- out[stratum == "overall"]
+  expect_equal(overall$pct_changed, 0)
+  expect_equal(overall$delta_median_km, 0)
+})
+
 test_that("compute_accuracy_tables reports match rate and suppresses small cells", {
   dt <- data.table(
     local_id = 1:8,

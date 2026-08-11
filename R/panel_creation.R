@@ -66,24 +66,32 @@ make_panel_ids <- function(panel_ids_combined, geocoded_locais) {
   # shared in-memory object other consumers (export, release gates) read.
   standardize_column_names(panel_ids_combined)
 
-  # Attach each station-year's final coordinate and distance bound. conf_dist_km is 0 for
-  # TSE-covered rows, so ordering by it puts ground-truth coordinates ahead of model ones.
+  # Attach each station-year's final coordinate, its expected error, and its published
+  # bound. final_logmean holds the zero-error value for TSE-covered rows, so ordering by
+  # it puts ground-truth coordinates ahead of model ones.
   panel_ids <- geocoded_locais[
     panel_ids_combined,
     on = .(local_id),
     nomatch = NA
-  ][, .(local_id, panel_id, ano, long = final_long, lat = final_lat, conf_dist_km)]
+  ][, .(local_id, panel_id, ano, long = final_long, lat = final_lat, conf_dist_km, final_logmean)]
 
-  # One coordinate per panel: smallest bound, ties to the most recent year. Only
+  # One coordinate per panel: lowest expected error, ties to the most recent year. Ranking
+  # on final_logmean rather than the published conf_dist_km matches how each station-year's
+  # own coordinate was picked -- the bound is a calibrated upper bound, so ordering by it
+  # prefers a coordinate whose error is predictable over one whose error is small. Only
   # station-years carrying a coordinate compete, so a panel comes out blank only when
   # every year failed to geocode. unique(by=) takes the first row of the sorted table.
+  geocoded_years <- panel_ids[!is.na(long) & !is.na(lat)]
+  stopifnot(
+    "a geocoded station-year reached panel selection without an expected error" = !anyNA(geocoded_years$final_logmean)
+  )
   panel_ids_best <- unique(
-    panel_ids[!is.na(long) & !is.na(lat)][order(panel_id, conf_dist_km, -ano)],
+    geocoded_years[order(panel_id, final_logmean, -ano)],
     by = "panel_id"
   )[, .(panel_id, long, lat, conf_dist_km)]
 
   # Swap the per-station coordinates for the chosen panel-level one.
-  panel_ids[, c("long", "lat", "conf_dist_km", "ano") := NULL]
+  panel_ids[, c("long", "lat", "conf_dist_km", "final_logmean", "ano") := NULL]
   panel_ids <- panel_ids_best[
     panel_ids,
     on = .(panel_id),

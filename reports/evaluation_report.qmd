@@ -36,7 +36,8 @@ tar_load(c(
   baseline_comparison,
   geocodebr_accuracy_tables,
   geocodebr_vs_model,
-  calibration_check
+  calibration_check,
+  panel_coord_accuracy
 ))
 
 acc <- as.data.table(accuracy_tables)
@@ -44,6 +45,7 @@ cov <- as.data.table(tse_coverage)
 cmp <- as.data.table(baseline_comparison)
 gb_acc <- as.data.table(geocodebr_accuracy_tables)
 gb_cmp <- as.data.table(geocodebr_vs_model)
+pc <- as.data.table(panel_coord_accuracy)
 
 # One formatter per table schema, so every rendering of a schema agrees on decimals,
 # labels and spanners. Each caller adds only its own filter, counts and notes.
@@ -422,6 +424,86 @@ ggplot(rf, aes(x = drop_frac)) +
   labs(x = "Fraction of widest-bound stations dropped",
        y = "Realized median error (km)",
        title = "Dropping the widest-bound tail lowers realized error")
+```
+
+## Panel coordinates: which station-year should a panel ship?
+
+A panel is one polling station tracked across elections, and it publishes a **single**
+coordinate that every one of its station-years inherits. So the panel has its own
+selection problem: which member year's coordinate to hand to the rest. The pipeline ranks
+members on expected error, the same quantity that picks each station-year's own
+coordinate; before issue #142 it ranked them on the published `conf_dist_km` bound, which
+prefers a coordinate whose error is *predictable* over one whose error is *small*.
+
+This table scores both rules on ground truth: each rule's panel coordinate measured
+against every covered member's TSE coordinate. Two things to read carefully.
+
+- It runs on **out-of-fold model coordinates with no TSE substitution**. In production a
+  panel holding any covered year ships that year's ground truth under either rule, so the
+  rules can only diverge on panels with **no** covered year — the panels with no truth to
+  measure. Withholding the substitution makes the covered panels stand in for them.
+- `Changed %` is the share of station-years whose shipped coordinate differs between the
+  rules. The metric deltas are diluted by every station-year where both rules agree, so
+  read them against it.
+
+**Δ is expected-error minus bound**, so the shipped rule's advantage is a negative median Δ
+and a positive `<500 m` Δ.
+
+```{r}
+#| label: panel-coord-headline
+#| output: asis
+pc_overall <- pc[stratum == "overall"]
+cat(sprintf(
+  paste0(
+    "**Panel coordinates (covered members, out-of-fold):** the two rules ship a different ",
+    "coordinate for **%.1f%%** of **%s** station-years across **%s** panels. ",
+    "Median error **%.3f km** (expected error) vs **%.3f km** (bound), **%+.3f km**. ",
+    "Within 500 m: **%.1f%%** vs **%.1f%%**, **%+.1f pp**."
+  ),
+  pc_overall$pct_changed,
+  format(pc_overall$n_stations, big.mark = ","),
+  format(pc_overall$n_panels, big.mark = ","),
+  pc_overall$median_km_expected, pc_overall$median_km_bound, pc_overall$delta_median_km,
+  pc_overall$within_500m_expected, pc_overall$within_500m_bound, pc_overall$delta_within_500m
+))
+```
+
+```{r}
+#| label: panel-coord-table
+pc |>
+  gt(groupname_col = "stratum", rowname_col = "level") |>
+  fmt_number(
+    columns = c("median_km_bound", "median_km_expected", "delta_median_km"),
+    decimals = 3
+  ) |>
+  fmt_number(
+    columns = c("pct_changed", "within_500m_bound", "within_500m_expected", "delta_within_500m"),
+    decimals = 1
+  ) |>
+  fmt_integer(columns = c("n_stations", "n_panels")) |>
+  sub_missing(missing_text = "—") |>
+  cols_label(
+    n_stations = "N station-years", n_panels = "N panels", pct_changed = "Changed %",
+    median_km_bound = "Bound", median_km_expected = "Expected error",
+    delta_median_km = "Δ",
+    within_500m_bound = "Bound", within_500m_expected = "Expected error",
+    delta_within_500m = "Δ", suppressed = "Below N floor"
+  ) |>
+  tab_spanner(
+    label = "Median error (km)",
+    columns = c("median_km_bound", "median_km_expected", "delta_median_km")
+  ) |>
+  tab_spanner(
+    label = "Within 500 m (%)",
+    columns = c("within_500m_bound", "within_500m_expected", "delta_within_500m")
+  ) |>
+  tab_header(
+    title = "Panel coordinate accuracy by ranking rule",
+    subtitle = "Each rule's panel coordinate scored against every covered member's TSE coordinate"
+  ) |>
+  tab_source_note(
+    "Δ is expected-error minus bound: negative median and positive <500 m favour the shipped rule."
+  )
 ```
 
 ## Google reference-validation (spec section 8)

@@ -331,6 +331,39 @@ tables are what currently carry the stations that fall to coarser rungs.
 
 ---
 
+## 7c. Panel coordinate quality (added by [#142](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/142))
+
+Everything above scores a station-year against its own ground truth. A panel is a different
+object: it links one polling station across elections and publishes a **single** coordinate
+that all of its station-years inherit. So it makes its own selection — which member year's
+coordinate to hand to the rest — and that choice needs its own measurement, because a panel
+coordinate is wrong at a member year whenever the year it came from was wrong.
+
+**What changed.** `make_panel_ids()` ranked members on the published `conf_dist_km`. That is
+the same inversion §1's amendment describes at the candidate level: the bound is a calibrated
+upper bound, so ranking on it prefers a coordinate whose error is *predictable* over one whose
+error is *small*. Members are now ranked on expected error (`final_logmean`, the selection
+model's prediction for the coordinate that shipped, threaded through `geocoded_locais` as an
+internal column). Ties still break toward the most recent year, and a TSE-covered year still
+sorts first — it carries the zero-error value of `final_logmean`, as it carries `conf_dist_km = 0`.
+
+**The measurement.** `compute_panel_coord_accuracy()` runs both rules over the same panels and
+scores each rule's panel coordinate against **every covered member's** TSE coordinate, on the
+§4a ladder, cut overall and by the §4b axes. Delta orientation follows §7b's rule: the subject
+is the shipped rule, so the delta is expected-error minus bound.
+
+**Why it withholds the TSE substitution.** It scores out-of-fold *model* coordinates only. In
+production, a panel holding any covered year ships that year's ground truth under either rule,
+so the two rules can only diverge on panels with **no** covered year — precisely the panels
+with no truth to measure. Withholding the substitution makes the covered panels stand in for
+the uncovered ones; it is the same extrapolation §1 makes for stations, one level up.
+
+**Reading it.** The table reports the share of station-years whose shipped coordinate actually
+differs between the rules. Every station-year where the rules agree dilutes the metric deltas
+toward zero, so the deltas are only interpretable against that share.
+
+---
+
 ## 8. The Google reference-validation (covered-only this round)
 
 Purpose: quantify **Google's own error budget** relative to field-GPS TSE *before*

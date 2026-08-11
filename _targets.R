@@ -949,6 +949,19 @@ list(
     command = compute_calibration(oof_selected_matches)
   ),
 
+  ## Panel coordinate quality: the ranking rule the panel ships on against the published
+  ## bound it replaced, both scored on every panel member's ground truth.
+  tar_target(
+    name = panel_coord_accuracy,
+    command = compute_panel_coord_accuracy(
+      panel_ids_combined,
+      oof_predictions,
+      eval_station_universe,
+      tsegeocoded_locais
+    ),
+    format = "qs"
+  ),
+
   ## Thin Quarto report rendering the evaluation targets for human reading.
   tar_render(
     name = evaluation_report,

@@ -55,11 +55,22 @@ test_that("match_schools_cnefe_muni exposes a name match that disagrees on bairr
   expect_gt(r1$sim_bairro_schools_cnefe, 0)
 })
 
-test_that("match_schools_cnefe_muni leaves a non-matching station NA", {
+test_that("match_schools_cnefe_muni still returns the nearest row for a poor match", {
   out <- match_schools_cnefe_muni(make_locais(), make_schools_cnefe())
   r2 <- out[local_id == 2L]
+  # "qqq nomatch" resembles neither school, but the candidate is reported with the
+  # distance that says so rather than withheld from the selection model.
+  expect_false(is.na(r2$match_schools_cnefe))
+  expect_gt(r2$mindist_schools_cnefe, 0.4)
+  expect_false(is.na(r2$match_long_schools_cnefe))
+})
+
+test_that("match_schools_cnefe_muni leaves a station with no name to match NA", {
+  locais <- make_locais()
+  locais[local_id == 2L, normalized_name := NA_character_]
+  r2 <- match_schools_cnefe_muni(locais, make_schools_cnefe())[local_id == 2L]
   expect_true(is.na(r2$match_schools_cnefe))
-  expect_true(is.na(r2$match_long_schools_cnefe))
+  expect_true(is.infinite(r2$mindist_schools_cnefe))
   # No selected reference row means no field to compare against.
   expect_true(is.na(r2$sim_name_schools_cnefe))
   expect_true(is.na(r2$sim_street_schools_cnefe))

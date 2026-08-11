@@ -1,11 +1,12 @@
 ## Spec tests for match_inep_muni() (R/string_matching.R).
 ## For one municipality it matches polling-station names against INEP school
 ## names, and station addresses against INEP addresses, attaching the matched
-## school's coordinates for each. A station that matches nothing keeps NA
-## coordinates and an infinite distance. Empty INEP input returns NULL.
+## school's coordinates for each. Every station gets the nearest INEP row; how far
+## away it is, is what mindist reports. Deciding a candidate is too far to use is
+## the selection model's job, not this function's. Empty INEP input returns NULL.
 ##
 ## The fixture uses one name-match station, one address-only-match station, and
-## one non-matching station (the shape the spec prescribes).
+## one station that resembles nothing (the shape the spec prescribes).
 
 make_locais <- function() {
   data.table::data.table(
@@ -39,20 +40,32 @@ test_that("match_inep_muni links a station by school name and attaches coordinat
 test_that("match_inep_muni links a station by address when the name does not match", {
   out <- match_inep_muni(make_locais(), make_inep())
   r2 <- out[local_id == 2L]
-  expect_true(is.na(r2$match_inep_name)) # name shares no word -> no match
-  expect_true(is.infinite(r2$mindist_inep_name))
+  # The name still gets its nearest school, but at a distance that marks it unusable.
+  expect_gt(r2$mindist_inep_name, 0.4)
   expect_equal(r2$match_inep_addr, "avenida brasil")
+  expect_equal(r2$mindist_inep_addr, 0)
   expect_equal(r2$match_long_inep_addr, -61)
   expect_equal(r2$match_lat_inep_addr, -8)
 })
 
-test_that("match_inep_muni leaves a non-matching station fully NA", {
+test_that("match_inep_muni reports total dissimilarity as distance 1, not a dropped match", {
   out <- match_inep_muni(make_locais(), make_inep())
   r3 <- out[local_id == 3L]
+  # "qqq" / "www" share no character with any INEP row, so Jaro-Winkler saturates at 1.
+  # The row is still returned: an exact-token pre-filter would instead have dropped it,
+  # and the model would never have seen how bad it was.
+  expect_equal(r3$mindist_inep_name, 1)
+  expect_equal(r3$mindist_inep_addr, 1)
+  expect_false(is.na(r3$match_long_inep_name))
+})
+
+test_that("match_inep_muni leaves a station with no name to match fully NA", {
+  locais <- make_locais()
+  locais[local_id == 3L, normalized_name := NA_character_]
+  r3 <- match_inep_muni(locais, make_inep())[local_id == 3L]
   expect_true(is.na(r3$match_inep_name))
-  expect_true(is.na(r3$match_inep_addr))
+  expect_true(is.infinite(r3$mindist_inep_name))
   expect_true(is.na(r3$match_long_inep_name))
-  expect_true(is.na(r3$match_long_inep_addr))
 })
 
 test_that("match_inep_muni scores both INEP fields on each candidate", {

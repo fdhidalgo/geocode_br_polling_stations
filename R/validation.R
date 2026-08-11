@@ -2,10 +2,12 @@
 
 library(data.table)
 
-# The exact geocoded_locais schema written to geocoded_polling_stations.csv.gz, in the
-# order finalize_coords() produces it. Checked twice: validate_final_output() requires
-# every column before the export runs, release Gate 2 asserts set equality after it.
-RELEASE_EXPORT_COLS <- c(
+# The exact geocoded_locais schema, in the order finalize_coords() produces it. Checked
+# twice: validate_final_output() requires every column before the export runs, release
+# Gate 2 asserts set equality after it. This is the internal table, not the published
+# file: to_geocoded_export_schema() drops final_logmean and renames final_long/final_lat,
+# and Gate 9 checks that published header against GEOCODED_EXPORT_SCHEMA.
+GEOCODED_TABLE_COLS <- c(
   "cd_localidade_tse",
   "ano",
   "nr_zona",
@@ -21,6 +23,9 @@ RELEASE_EXPORT_COLS <- c(
   "pred_long",
   "pred_lat",
   "conf_dist_km",
+  # Internal: the expected error of the shipped coordinate, which make_panel_ids() ranks
+  # a panel's station-years on. Dropped at export.
+  "final_logmean",
   "tse_lat",
   "tse_long",
   "final_long",
@@ -52,7 +57,7 @@ validate_model_predictions <- function(predictions) {
 # Asserts the final geocoded table is shippable; stops before export on failure.
 validate_final_output <- function(output_data) {
   stopifnot(nrow(output_data) > 0)
-  missing_cols <- setdiff(RELEASE_EXPORT_COLS, names(output_data))
+  missing_cols <- setdiff(GEOCODED_TABLE_COLS, names(output_data))
   if (length(missing_cols) > 0) {
     stop(sprintf("geocoded_locais is missing required columns: %s", paste(missing_cols, collapse = ", ")))
   }
@@ -274,8 +279,8 @@ validate_release_gates <- function(
   }
 
   # Gate 2: exported schema exactly unchanged - no column removed or added.
-  missing_cols <- setdiff(RELEASE_EXPORT_COLS, names(dt))
-  extra_cols <- setdiff(names(dt), RELEASE_EXPORT_COLS)
+  missing_cols <- setdiff(GEOCODED_TABLE_COLS, names(dt))
+  extra_cols <- setdiff(names(dt), GEOCODED_TABLE_COLS)
   if (length(missing_cols) > 0) {
     add_fail("Gate 2 (schema): missing columns: %s", paste(missing_cols, collapse = ", "))
   }

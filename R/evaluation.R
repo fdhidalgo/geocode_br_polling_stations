@@ -568,6 +568,115 @@ compare_geocodebr_to_model <- function(geocodebr_selected_matches, oof_selected_
   out[]
 }
 
+# Metric columns of the panel-coordinate comparison, suppressed below the cell-size floor.
+EVAL_PANEL_COLS <- c(
+  "median_km_bound",
+  "median_km_expected",
+  "delta_median_km",
+  "within_500m_bound",
+  "within_500m_expected",
+  "delta_within_500m"
+)
+
+# Panel coordinate accuracy under the two candidate ranking rules: lowest expected error
+# (what the pipeline ships) against smallest published bound (what it shipped before).
+# A panel gives one coordinate to all of its station-years, so the quantity measured here
+# is that single coordinate against every member's TSE ground truth -- a different question
+# from the station-level tables above, which score each station-year's own pick.
+#
+# Scored on out-of-fold model coordinates with no TSE substitution, deliberately: in
+# production a panel holding any covered year ships ground truth under either rule, so the
+# rules can only diverge on panels with no covered year at all -- exactly the panels that
+# have no truth to be measured against. Withholding the substitution lets the covered
+# panels stand in for them.
+#
+# Members outside the covered universe have no out-of-fold coordinate, so they neither
+# compete for the panel coordinate nor are scored; a panel enters with the covered years
+# it has. Deltas are expected-error minus bound, so the shipped rule's advantage reads as
+# a negative median delta and a positive within-500 m delta.
+compute_panel_coord_accuracy <- function(
+  panel_ids_combined,
+  oof_predictions,
+  eval_station_universe,
+  tsegeocoded_locais
+) {
+  picks <- select_best_candidate(oof_predictions)[, .(local_id, long, lat, pred_logmean, conf_dist_km)]
+
+  members <- merge(
+    as.data.table(panel_ids_combined)[, .(local_id, panel_id)],
+    eval_station_universe[, .(local_id, vintage, urban_rural, region)],
+    by = "local_id"
+  )
+  members <- merge(members, picks, by = "local_id")
+  members <- merge(members, tsegeocoded_locais[, .(local_id, tse_long, tse_lat)], by = "local_id")
+  # A station in two panels would fan out the joins below into cross-panel coordinate
+  # pairs -- one rule's coordinate from one panel scored against the other's from another.
+  stopifnot(
+    "no covered panel members to score" = nrow(members) > 0,
+    "a station belongs to more than one panel" = !anyDuplicated(members$local_id)
+  )
+
+  # One rule's panel coordinate handed to every member, and each member's error under it.
+  # The ordering mirrors make_panel_ids(): rank column first, ties to the most recent year.
+  under_rule <- function(rank_col) {
+    best <- unique(
+      members[order(panel_id, get(rank_col), -vintage)],
+      by = "panel_id"
+    )[, .(panel_id, sel_long = long, sel_lat = lat)]
+    out <- merge(members[, .(local_id, panel_id, tse_long, tse_lat)], best, by = "panel_id")
+    out[, .(
+      local_id,
+      sel_long,
+      sel_lat,
+      error_km = geosphere::distHaversine(
+        cbind(sel_long, sel_lat),
+        cbind(tse_long, tse_lat),
+        r = EARTH_RADIUS_KM
+      )
+    )]
+  }
+
+  expected <- under_rule("pred_logmean")
+  bound <- under_rule("conf_dist_km")
+  setnames(expected, c("sel_long", "sel_lat", "error_km"), c("long_e", "lat_e", "error_km_expected"))
+  setnames(bound, c("sel_long", "sel_lat", "error_km"), c("long_b", "lat_b", "error_km_bound"))
+
+  paired <- merge(
+    members[, .(local_id, panel_id, urban_rural, region, vintage)],
+    merge(expected, bound, by = "local_id"),
+    by = "local_id"
+  )
+  paired[, changed := long_e != long_b | lat_e != lat_b]
+
+  cell <- function(dt) {
+    e <- accuracy_metrics(dt$error_km_expected)
+    b <- accuracy_metrics(dt$error_km_bound)
+    list(
+      n_stations = nrow(dt),
+      n_panels = uniqueN(dt$panel_id),
+      # How often the two rules disagree at all: the metric deltas below are diluted by
+      # every station-year where both rules ship the same coordinate.
+      pct_changed = 100 * mean(dt$changed),
+      median_km_bound = b$median_km,
+      median_km_expected = e$median_km,
+      delta_median_km = e$median_km - b$median_km,
+      within_500m_bound = b$within_500m,
+      within_500m_expected = e$within_500m,
+      delta_within_500m = e$within_500m - b$within_500m
+    )
+  }
+
+  out <- rbindlist(
+    lapply(
+      list(character(0), "urban_rural", "region", "vintage"),
+      function(s) .by_stratum(paired, s, cell, metric_cols = EVAL_PANEL_COLS, n_col = "n_stations")
+    ),
+    use.names = TRUE
+  )
+  setcolorder(out, c("stratum", "level", "n_stations", "n_panels", "pct_changed"))
+  out[]
+}
+
 # Metric columns of the coverage tables, suppressed together below the cell-size floor.
 EVAL_COVERAGE_COLS <- c("coverage", "median_bound_km", "median_error_km")
 

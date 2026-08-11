@@ -397,7 +397,7 @@ import_locais <- function(locais_file, muni_ids) {
 
 # Attaches the best model prediction and TSE ground truth, then picks each station's final coords.
 finalize_coords <- function(locais, model_predictions, tsegeocoded_locais) {
-  best_match <- select_best_candidate(model_predictions)[, .(local_id, long, lat, conf_dist_km)]
+  best_match <- select_best_candidate(model_predictions)[, .(local_id, long, lat, conf_dist_km, pred_logmean)]
 
   geocoded_locais <- merge(
     locais,
@@ -413,7 +413,11 @@ finalize_coords <- function(locais, model_predictions, tsegeocoded_locais) {
       "normalized_bairro"
     ) := NULL
   ]
-  setnames(geocoded_locais, c("long", "lat"), c("pred_long", "pred_lat"))
+  setnames(
+    geocoded_locais,
+    c("long", "lat", "pred_logmean"),
+    c("pred_long", "pred_lat", "final_logmean")
+  )
 
   geocoded_locais <- merge(
     geocoded_locais,
@@ -425,9 +429,17 @@ finalize_coords <- function(locais, model_predictions, tsegeocoded_locais) {
   geocoded_locais[, final_long := ifelse(is.na(tse_long), pred_long, tse_long)]
   geocoded_locais[, final_lat := ifelse(is.na(tse_lat), pred_lat, tse_lat)]
 
-  # conf_dist_km bounds the error of the chosen coordinate; a TSE coordinate is the
-  # field-collected truth, so its bound is zero.
-  geocoded_locais[!is.na(tse_long) & !is.na(tse_lat), conf_dist_km := 0]
+  # conf_dist_km bounds the error of the chosen coordinate and final_logmean is that
+  # error's expected value on the log scale; a TSE coordinate is the field-collected
+  # truth, so its error is zero and log(0) is -Inf. The infinity is load-bearing, not
+  # decorative: make_panel_ids() ranks a panel's station-years on final_logmean, and the
+  # LightGBM prediction is unconstrained, so any finite floor could in principle be
+  # undercut by a model candidate and hand a panel a model coordinate over ground truth.
+  # final_logmean is internal and dropped at export.
+  geocoded_locais[
+    !is.na(tse_long) & !is.na(tse_lat),
+    c("conf_dist_km", "final_logmean") := .(0, -Inf)
+  ]
 
   return(geocoded_locais)
 }

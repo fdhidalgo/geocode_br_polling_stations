@@ -69,9 +69,9 @@ Subsequently, we use the Fellegi-Sunter framework for record linkage to choose t
 
 - `panel_id`: unique panel identifier. Units with the same `panel_id` are classified to be the same polling station in two different election years according to our fuzzy matching procedure. 
 - `local_id`: polling station identifier. Use this variable to merge with the coordinates data (one `local_id` per polling-station-election, so it also identifies the election year via that join). 
-- `long`: This is a longitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest `conf_dist_km`. Ties are broken by selecting the longitude from the latest year.
-- `lat`: This is a latitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one with the smallest `conf_dist_km`. Ties are broken by selecting the latitude from the latest year.
-- `conf_dist_km`: The distance bound of the chosen coordinate, defined as in the coordinates file above. Constant within a `panel_id`, since the whole panel shares one coordinate.
+- `long`: This is a longitude variable that is constant for all observations with the same `panel_id` across years. To choose among coordinates from different years, we select the one whose expected error is smallest, the same criterion used to pick each polling station's own coordinate. A TSE-provided coordinate, being field-collected, always wins. Ties are broken by selecting the longitude from the latest year.
+- `lat`: This is a latitude variable that is constant for all observations with the same `panel_id` across years. Chosen by the same rule as `long`, and from the same year.
+- `conf_dist_km`: The distance bound of the chosen coordinate, defined as in the coordinates file above. Constant within a `panel_id`, since the whole panel shares one coordinate. It is the bound of the year that was selected, which is not necessarily the smallest bound in the panel — the selection ranks on expected error, not on the bound.
 
 ## Development Setup
 

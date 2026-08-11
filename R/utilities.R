@@ -274,7 +274,9 @@ process_schools_cnefe_batch <- function(municipality_batch_assignments, locais, 
   rbindlist(batch_results, use.names = TRUE, fill = TRUE)
 }
 
-# Geocode one batch's polling stations with geocodebr.
+# Geocode one batch's polling stations with geocodebr, in a single call. Unlike the other
+# match_*_muni functions, geocodebr needs no per-municipality reference slice, and its cost
+# is per call rather than per row -- so the batch goes to it whole.
 process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, locais) {
   batch_munis <- municipality_batch_assignments[
     batch_id == batch_ids
@@ -282,15 +284,7 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
 
   data.table::setkey(locais, cod_localidade_ibge)
 
-  results <- collect_batch_or_stop(
-    batch_munis,
-    function(muni_code) {
-      match_geocodebr_muni(locais[.(muni_code), nomatch = NULL])
-    },
-    task_label = "geocodebr matching"
-  )
-
-  rbindlist(results, use.names = TRUE, fill = TRUE)
+  match_geocodebr(locais[.(batch_munis), nomatch = NULL])
 }
 
 # Street/neighborhood match batch, shared by the CNEFE and Agro CNEFE vintages.

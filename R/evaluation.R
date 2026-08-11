@@ -609,7 +609,12 @@ compute_panel_coord_accuracy <- function(
   )
   members <- merge(members, picks, by = "local_id")
   members <- merge(members, tsegeocoded_locais[, .(local_id, tse_long, tse_lat)], by = "local_id")
-  stopifnot("no covered panel members to score" = nrow(members) > 0)
+  # A station in two panels would fan out the joins below into cross-panel coordinate
+  # pairs -- one rule's coordinate from one panel scored against the other's from another.
+  stopifnot(
+    "no covered panel members to score" = nrow(members) > 0,
+    "a station belongs to more than one panel" = !anyDuplicated(members$local_id)
+  )
 
   # One rule's panel coordinate handed to every member, and each member's error under it.
   # The ordering mirrors make_panel_ids(): rank column first, ties to the most recent year.

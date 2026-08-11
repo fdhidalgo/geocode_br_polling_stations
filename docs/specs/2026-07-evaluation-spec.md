@@ -345,7 +345,9 @@ upper bound, so ranking on it prefers a coordinate whose error is *predictable* 
 error is *small*. Members are now ranked on expected error (`final_logmean`, the selection
 model's prediction for the coordinate that shipped, threaded through `geocoded_locais` as an
 internal column). Ties still break toward the most recent year, and a TSE-covered year still
-sorts first — it carries the zero-error value of `final_logmean`, as it carries `conf_dist_km = 0`.
+sorts first: its error is zero, so its `final_logmean` is `log(0)` — `-Inf`, the same way its
+`conf_dist_km` is 0. The infinity is deliberate. A finite floor would make ground-truth
+precedence depend on no LightGBM prediction ever falling below it, which nothing enforces.
 
 **The measurement.** `compute_panel_coord_accuracy()` runs both rules over the same panels and
 scores each rule's panel coordinate against **every covered member's** TSE coordinate, on the

@@ -3,7 +3,7 @@
 ## final_logmean (expected error on the model's log scale, internal, and what
 ## make_panel_ids() ranks a panel's station-years on).
 
-test_that("finalize_coords carries the winner's expected error and zeroes it for TSE rows", {
+test_that("finalize_coords carries the winner's expected error and floors it for TSE rows", {
   locais <- data.table::data.table(
     local_id = c(1L, 2L),
     ano = c(2018L, 2022L),
@@ -38,13 +38,13 @@ test_that("finalize_coords carries the winner's expected error and zeroes it for
   expect_equal(out[local_id == 1L, conf_dist_km], 1.2)
   expect_equal(out[local_id == 1L, final_logmean], -1.5)
 
-  # Station 2 ships ground truth, so both take their zero-error values.
+  # Station 2 ships ground truth, so both take their zero-error values: a bound of 0 and
+  # log(0) expected error. -Inf rather than a finite floor because the LightGBM prediction
+  # is unconstrained, and a model candidate that undercut the floor would outrank the
+  # ground truth in make_panel_ids().
   expect_equal(out[local_id == 2L, final_long], -61.5)
   expect_equal(out[local_id == 2L, conf_dist_km], 0)
-  expect_equal(out[local_id == 2L, final_logmean], log(GBM_LOG_OFFSET))
-
-  # No model prediction can undercut the ground-truth value.
-  expect_lt(out[local_id == 2L, final_logmean], min(model_predictions$pred_logmean))
+  expect_equal(out[local_id == 2L, final_logmean], -Inf)
 })
 
 test_that("finalize_coords keeps final_logmean out of the published schema", {

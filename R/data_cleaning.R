@@ -430,12 +430,15 @@ finalize_coords <- function(locais, model_predictions, tsegeocoded_locais) {
   geocoded_locais[, final_lat := ifelse(is.na(tse_lat), pred_lat, tse_lat)]
 
   # conf_dist_km bounds the error of the chosen coordinate and final_logmean is that
-  # error's expected value on the model's log scale; a TSE coordinate is the
-  # field-collected truth, so both take their zero-error values. final_logmean is
-  # internal: it ranks a panel's station-years in make_panel_ids() and is dropped at export.
+  # error's expected value on the log scale; a TSE coordinate is the field-collected
+  # truth, so its error is zero and log(0) is -Inf. The infinity is load-bearing, not
+  # decorative: make_panel_ids() ranks a panel's station-years on final_logmean, and the
+  # LightGBM prediction is unconstrained, so any finite floor could in principle be
+  # undercut by a model candidate and hand a panel a model coordinate over ground truth.
+  # final_logmean is internal and dropped at export.
   geocoded_locais[
     !is.na(tse_long) & !is.na(tse_lat),
-    c("conf_dist_km", "final_logmean") := .(0, log(GBM_LOG_OFFSET))
+    c("conf_dist_km", "final_logmean") := .(0, -Inf)
   ]
 
   return(geocoded_locais)

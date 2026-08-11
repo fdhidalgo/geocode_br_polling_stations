@@ -67,8 +67,8 @@ make_panel_ids <- function(panel_ids_combined, geocoded_locais) {
   standardize_column_names(panel_ids_combined)
 
   # Attach each station-year's final coordinate, its expected error, and its published
-  # bound. final_logmean holds the zero-error value for TSE-covered rows, so ordering by
-  # it puts ground-truth coordinates ahead of model ones.
+  # bound. final_logmean is -Inf for TSE-covered rows, so ordering by it puts ground-truth
+  # coordinates ahead of every model one, and ties among them fall to the year rule below.
   panel_ids <- geocoded_locais[
     panel_ids_combined,
     on = .(local_id),

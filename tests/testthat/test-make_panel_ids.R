@@ -65,8 +65,9 @@ test_that("make_panel_ids ranks on expected error, not the published bound", {
 })
 
 test_that("make_panel_ids keeps TSE ground truth ahead of any model coordinate", {
-  # finalize_coords() gives a TSE-covered station-year the zero-error value of
-  # final_logmean, which no model prediction can undercut.
+  # finalize_coords() gives a TSE-covered station-year final_logmean = -Inf. The model
+  # prediction here is absurdly optimistic (log-km far below anything LightGBM produces)
+  # precisely to show the precedence does not rest on the model's range.
   panel_ids_combined <- data.table::data.table(
     local_id = c("t1", "t2"),
     panel_id = c("pt", "pt")
@@ -77,7 +78,7 @@ test_that("make_panel_ids keeps TSE ground truth ahead of any model coordinate",
     final_long = c(-30, -31),
     final_lat = c(-5, -6),
     conf_dist_km = c(0, 0.3),
-    final_logmean = c(log(GBM_LOG_OFFSET), log(0.05))
+    final_logmean = c(-Inf, -50)
   )
 
   out <- make_panel_ids(copy(panel_ids_combined), copy(geocoded_locais))

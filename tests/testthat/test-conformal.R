@@ -80,7 +80,7 @@ test_that("select_best_candidate keeps one lowest-expected-error candidate per s
   )
 
   # Selection must ignore the quantile bound when the selection score disagrees with
-  # it: ranking on the bound is the #140 regression.
+  # it: ranking on the bound would ship predictable-error candidates over small-error ones.
   two_scores <- data.table(
     local_id = c("l1", "l1"),
     type = c("small_error", "predictable_error"),

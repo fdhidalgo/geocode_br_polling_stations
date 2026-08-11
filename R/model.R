@@ -293,15 +293,11 @@ make_model_data <- function(
   add_consensus_features(model_data)
 }
 
-# Build one of the two unfitted tunable LightGBM workflows, sharing one recipe. The
-# pipeline answers two different questions with two models over the same features (#140):
+# Build one of the two unfitted tunable LightGBM workflows, sharing one recipe:
 # "regression" (L2 on log-distance) estimates expected error and ranks candidates for
 # selection; "quantile" predicts the SELECTOR_QUANTILE bound the pipeline publishes.
-# Selecting on the quantile prediction preferred candidates whose error is predictable
-# over candidates whose error is small, costing 2.9 pp of headline accuracy.
+# One model cannot serve both: a quantile fit prefers predictable error over small error.
 build_gbm_workflow <- function(data, objective) {
-  stopifnot(objective %in% c("regression", "quantile"))
-
   ## Define the model recipe
   gbm_recipe <- recipes::recipe(
     formula = log_dist ~ .,
@@ -334,8 +330,10 @@ build_gbm_workflow <- function(data, objective) {
       objective = "quantile",
       alpha = SELECTOR_QUANTILE
     )
-  } else {
+  } else if (objective == "regression") {
     parsnip::set_engine(gbm_spec, "lightgbm", num_leaves = tune(), objective = "regression")
+  } else {
+    stop("unknown objective: ", objective)
   }
 
   workflows::workflow() |>
@@ -378,10 +376,7 @@ pinball_loss.data.frame <- function(data, truth, estimate, na_rm = TRUE, case_we
 
 # The pipeline's pick: one candidate per station, the lowest expected log-distance under
 # the selection model, ties to the first row. Selection, conformal calibration, and
-# evaluation all read it here so they cannot diverge. Keyed on pred_logmean, not the
-# quantile bound: the ranking is invariant to the monotone back-transform, so the
-# geometric-mean bias that disqualifies exp(pred_logmean) as a published estimate is
-# irrelevant here.
+# evaluation all read it here so they cannot diverge.
 select_best_candidate <- function(scored) {
   stopifnot("candidates are missing a selection score" = !anyNA(scored$pred_logmean))
   unique(scored[order(local_id, pred_logmean)], by = "local_id")
@@ -423,37 +418,36 @@ conformal_bound_km <- function(pred_logq, offset) {
   pmax(exp(pred_logq + offset) - GBM_LOG_OFFSET, 0)
 }
 
-# Each model races on the loss its objective trains on; mae on the log scale rides along
-# as a readable companion. Racing uses the first metric.
-tune_metrics_for <- function(objective) {
-  if (objective == "quantile") {
-    list(metrics = yardstick::metric_set(pinball_loss, yardstick::mae), select_on = "pinball_loss")
-  } else {
-    list(metrics = yardstick::metric_set(yardstick::rmse, yardstick::mae), select_on = "rmse")
-  }
-}
-
 # Tune and fit one objective's workflow on the shared split, so the two production models
 # differ in nothing but their objective.
 tune_and_fit <- function(objective, vfolds, splits, grid_n) {
   gbm_workflow <- build_gbm_workflow(rsample::training(splits), objective)
-  m <- tune_metrics_for(objective)
+
+  # Each model races on the loss its objective trains on; mae on the log scale rides
+  # along as a readable companion. Racing uses the first metric.
+  if (objective == "quantile") {
+    metrics <- yardstick::metric_set(pinball_loss, yardstick::mae)
+    select_on <- "pinball_loss"
+  } else {
+    metrics <- yardstick::metric_set(yardstick::rmse, yardstick::mae)
+    select_on <- "rmse"
+  }
 
   gbm_tune <- finetune::tune_race_anova(
     gbm_workflow,
     resamples = vfolds,
     grid = grid_n,
-    metrics = m$metrics,
+    metrics = metrics,
     control = finetune::control_race(
       verbose_elim = TRUE,
       verbose = TRUE,
       allow_par = FALSE
     )
   )
-  best_params <- tune::select_best(gbm_tune, metric = m$select_on)
+  best_params <- tune::select_best(gbm_tune, metric = select_on)
 
   final_model <- tune::finalize_workflow(gbm_workflow, best_params)
-  final_fit <- tune::last_fit(final_model, split = splits, metrics = m$metrics)
+  final_fit <- tune::last_fit(final_model, split = splits, metrics = metrics)
 
   list(tune_out = gbm_tune, final_fit = final_fit)
 }

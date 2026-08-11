@@ -111,10 +111,11 @@ assign_eval_folds <- function(model_data) {
   data.table(cod_localidade_ibge = covered_munis, fold = folds)
 }
 
-# Out-of-fold distance bounds for every covered candidate row: per fold, refit the LightGBM
-# workflow on the other k-1 folds and predict the held-out one, reusing the production
-# model's tuned hyperparameters. Those hyperparameters were tuned on all municipalities,
-# a residual leakage channel deliberately accepted rather than paying for nested tuning.
+# Out-of-fold selection scores and distance bounds for every covered candidate row: per
+# fold, refit both LightGBM workflows on the other k-1 folds and predict the held-out one,
+# reusing each production model's tuned hyperparameters. Those hyperparameters were tuned
+# on all municipalities, a residual leakage channel deliberately accepted rather than
+# paying for nested tuning.
 compute_oof_predictions <- function(model_data, trained_model, fold_assignment) {
   covered <- model_data[!is.na(dist)]
   covered <- merge(covered, fold_assignment, by = "cod_localidade_ibge")
@@ -123,7 +124,8 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
     "no covered rows to evaluate" = nrow(covered) > 0
   )
 
-  best_params <- tune::select_best(trained_model$tune_out, metric = "pinball_loss")
+  selection_params <- tune::select_best(trained_model$selection$tune_out, metric = "rmse")
+  bound_params <- tune::select_best(trained_model$bound$tune_out, metric = "pinball_loss")
 
   fold_ids <- sort(unique(covered$fold))
   preds <- vector("list", length(fold_ids))
@@ -141,9 +143,15 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
     train_df <- as.data.table(rsample::training(inner))
     cal_df <- as.data.table(rsample::testing(inner))
 
-    wf <- tune::finalize_workflow(build_gbm_workflow(train_df), best_params)
-    fitted_wf <- generics::fit(wf, data = train_df)
-    offset <- conformal_log_offset(fitted_wf, cal_df)
+    selection_wf <- generics::fit(
+      tune::finalize_workflow(build_gbm_workflow(train_df, "regression"), selection_params),
+      data = train_df
+    )
+    bound_wf <- generics::fit(
+      tune::finalize_workflow(build_gbm_workflow(train_df, "quantile"), bound_params),
+      data = train_df
+    )
+    offset <- conformal_log_offset(selection_wf, bound_wf, cal_df)
     message(sprintf(
       "OOF fold %d/%d: fit on %d rows, calibrated on %d (offset %.3f log-km)",
       i,
@@ -154,7 +162,8 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
     ))
 
     # test_features is this loop's own materialization, so it is scored in place.
-    test_features[, pred_logq := predict(fitted_wf, new_data = test_features)$.pred]
+    test_features[, pred_logmean := predict(selection_wf, new_data = test_features)$.pred]
+    test_features[, pred_logq := predict(bound_wf, new_data = test_features)$.pred]
     test_features[, conf_dist_km := conformal_bound_km(pred_logq, offset)]
     preds[[i]] <- test_features[, .(
       local_id,
@@ -166,6 +175,7 @@ compute_oof_predictions <- function(model_data, trained_model, fold_assignment) 
       lat,
       dist,
       conf_dist_km,
+      pred_logmean,
       pred_logq,
       fold = f
     )]

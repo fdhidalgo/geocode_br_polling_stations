@@ -12,8 +12,9 @@ library(stringr)
 # shared by the forward transform and both inverse paths so they cannot drift apart.
 GBM_LOG_OFFSET <- 1e-4
 
-# The distance quantile the selector predicts and the pipeline publishes: the exported
-# bound claims the true error falls below it for this share of stations.
+# The distance quantile the bound model predicts and the pipeline publishes: the exported
+# bound claims the true error falls below it for this share of stations. Selection is a
+# different question and uses a different model -- see build_gbm_workflow().
 SELECTOR_QUANTILE <- 0.9
 
 # Earth radius in km, so every haversine distance in this file lands on one scale.
@@ -292,9 +293,11 @@ make_model_data <- function(
   add_consensus_features(model_data)
 }
 
-build_gbm_workflow <- function(data) {
-  # Build the unfitted tunable LightGBM workflow (recipe + spec) used for match selection.
-
+# Build one of the two unfitted tunable LightGBM workflows, sharing one recipe:
+# "regression" (L2 on log-distance) estimates expected error and ranks candidates for
+# selection; "quantile" predicts the SELECTOR_QUANTILE bound the pipeline publishes.
+# One model cannot serve both: a quantile fit prefers predictable error over small error.
+build_gbm_workflow <- function(data, objective) {
   ## Define the model recipe
   gbm_recipe <- recipes::recipe(
     formula = log_dist ~ .,
@@ -307,8 +310,6 @@ build_gbm_workflow <- function(data) {
     recipes::update_role(dist, new_role = "id variable") |>
     recipes::step_impute_median(logpop, pct_rural, area)
 
-  ## Quantile objective at SELECTOR_QUANTILE, so the log fit back-transforms to a distance
-  ## quantile rather than a geometric mean.
   gbm_spec <-
     parsnip::boost_tree(
       trees = tune(),
@@ -317,13 +318,23 @@ build_gbm_workflow <- function(data) {
       learn_rate = tune(),
       loss_reduction = tune()
     ) |>
-    parsnip::set_mode("regression") |>
+    parsnip::set_mode("regression")
+
+  ## For the bound model, a quantile fit on the log scale back-transforms to a distance
+  ## quantile rather than a geometric mean.
+  gbm_spec <- if (objective == "quantile") {
     parsnip::set_engine(
+      gbm_spec,
       "lightgbm",
       num_leaves = tune(),
       objective = "quantile",
       alpha = SELECTOR_QUANTILE
     )
+  } else if (objective == "regression") {
+    parsnip::set_engine(gbm_spec, "lightgbm", num_leaves = tune(), objective = "regression")
+  } else {
+    stop("unknown objective: ", objective)
+  }
 
   workflows::workflow() |>
     workflows::add_recipe(gbm_recipe) |>
@@ -363,13 +374,12 @@ pinball_loss.data.frame <- function(data, truth, estimate, na_rm = TRUE, case_we
   )
 }
 
-# The pipeline's pick: one candidate per station, the lowest predicted quantile, ties to the
-# first row. Selection, conformal calibration, and evaluation all read it here so they cannot
-# diverge. Keyed on pred_logq rather than the kilometre bound, which conformal_bound_km()
-# clamps at 0 and so would tie every near-exact match together.
+# The pipeline's pick: one candidate per station, the lowest expected log-distance under
+# the selection model, ties to the first row. Selection, conformal calibration, and
+# evaluation all read it here so they cannot diverge.
 select_best_candidate <- function(scored) {
-  stopifnot("candidates are missing a predicted quantile" = !anyNA(scored$pred_logq))
-  unique(scored[order(local_id, pred_logq)], by = "local_id")
+  stopifnot("candidates are missing a selection score" = !anyNA(scored$pred_logmean))
+  unique(scored[order(local_id, pred_logmean)], by = "local_id")
 }
 
 # The split-conformal order statistic: given calibration residuals (truth minus predicted
@@ -387,13 +397,15 @@ conformal_offset_from_residuals <- function(resid) {
   sort(resid)[k]
 }
 
-# The conformal correction for a fitted model, on the log scale. Computed on each station's
-# *chosen* candidate rather than all of them: the chosen one is the argmin of the predicted
-# quantile, so it skews toward candidates whose quantile came out too low, and calibrating
-# over every candidate would leave the published number under-covering.
-conformal_log_offset <- function(fitted_workflow, cal_data) {
+# The conformal correction for a fitted bound model, on the log scale. Computed on each
+# station's *chosen* candidate rather than all of them: selection skews toward candidates
+# scored optimistically, and calibrating over every candidate would leave the published
+# number under-covering. The winners are the selection model's picks, because the bound
+# must cover the candidates that actually ship.
+conformal_log_offset <- function(selection_workflow, bound_workflow, cal_data) {
   scored <- as.data.table(cal_data)[, .(local_id, log_dist)]
-  scored[, pred_logq := predict(fitted_workflow, new_data = cal_data)$.pred]
+  scored[, pred_logmean := predict(selection_workflow, new_data = cal_data)$.pred]
+  scored[, pred_logq := predict(bound_workflow, new_data = cal_data)$.pred]
   winners <- select_best_candidate(scored)
   conformal_offset_from_residuals(winners$log_dist - winners$pred_logq)
 }
@@ -406,11 +418,45 @@ conformal_bound_km <- function(pred_logq, offset) {
   pmax(exp(pred_logq + offset) - GBM_LOG_OFFSET, 0)
 }
 
+# Tune and fit one objective's workflow on the shared split, so the two production models
+# differ in nothing but their objective.
+tune_and_fit <- function(objective, vfolds, splits, grid_n) {
+  gbm_workflow <- build_gbm_workflow(rsample::training(splits), objective)
+
+  # Each model races on the loss its objective trains on; mae on the log scale rides
+  # along as a readable companion. Racing uses the first metric.
+  if (objective == "quantile") {
+    metrics <- yardstick::metric_set(pinball_loss, yardstick::mae)
+    select_on <- "pinball_loss"
+  } else {
+    metrics <- yardstick::metric_set(yardstick::rmse, yardstick::mae)
+    select_on <- "rmse"
+  }
+
+  gbm_tune <- finetune::tune_race_anova(
+    gbm_workflow,
+    resamples = vfolds,
+    grid = grid_n,
+    metrics = metrics,
+    control = finetune::control_race(
+      verbose_elim = TRUE,
+      verbose = TRUE,
+      allow_par = FALSE
+    )
+  )
+  best_params <- tune::select_best(gbm_tune, metric = select_on)
+
+  final_model <- tune::finalize_workflow(gbm_workflow, best_params)
+  final_fit <- tune::last_fit(final_model, split = splits, metrics = metrics)
+
+  list(tune_out = gbm_tune, final_fit = final_fit)
+}
+
 train_model <- function(model_data, dev_mode) {
   # tune_race_anova needs more than its 3 burn-in resamples, so 4 is the dev-mode floor.
   n_folds <- if (dev_mode) 4 else 10
   grid_n <- if (dev_mode) 5 else 50
-  message(sprintf("Training model with %d CV folds and a grid of %d candidates", n_folds, grid_n))
+  message(sprintf("Training models with %d CV folds and a grid of %d candidates each", n_folds, grid_n))
 
   if (nrow(model_data) == 0) {
     stop("No data available for model training")
@@ -439,35 +485,17 @@ train_model <- function(model_data, dev_mode) {
     v = n_folds
   )
 
-  ## Build the tunable workflow (recipe + model spec) from the training data.
-  gbm_workflow <- build_gbm_workflow(training_set)
-
-  ## Hyperparameters are selected on the loss the model is trained on; mae on the log scale
-  ## rides along as a readable companion. Racing uses the first metric.
-  metrics <- yardstick::metric_set(pinball_loss, yardstick::mae)
-
-  ### Use racing models to tune hyperparameters
-  gbm_tune <- finetune::tune_race_anova(
-    gbm_workflow,
-    resamples = vfolds,
-    grid = grid_n,
-    metrics = metrics,
-    control = finetune::control_race(
-      verbose_elim = TRUE,
-      verbose = TRUE,
-      allow_par = FALSE
-    )
-  )
-  best_params <- tune::select_best(gbm_tune, metric = "pinball_loss")
-
-  final_model <- tune::finalize_workflow(gbm_workflow, best_params)
-
-  final_fit <- tune::last_fit(final_model, split = splits, metrics = metrics)
+  selection <- tune_and_fit("regression", vfolds, splits, grid_n)
+  bound <- tune_and_fit("quantile", vfolds, splits, grid_n)
 
   ## last_fit() fits on the training half only, so the testing half is already held out and
   ## serves as the conformal calibration set at no extra fitting cost. Municipality-grouped,
   ## so no station's candidates straddle the fit/calibrate boundary.
-  offset <- conformal_log_offset(tune::extract_workflow(final_fit), testing_set)
+  offset <- conformal_log_offset(
+    tune::extract_workflow(selection$final_fit),
+    tune::extract_workflow(bound$final_fit),
+    testing_set
+  )
   message(sprintf(
     "Conformal offset for %.0f%% coverage: %.3f log-km over %d calibration stations",
     100 * SELECTOR_QUANTILE,
@@ -476,17 +504,19 @@ train_model <- function(model_data, dev_mode) {
   ))
 
   list(
-    tune_out = gbm_tune,
-    final_fit = final_fit,
+    selection = selection,
+    bound = bound,
     conformal_offset = offset
   )
 }
 
-# Score every candidate match and attach its calibrated distance bound in kilometres.
+# Score every candidate match under both models: the selection score that ranks candidates
+# and the calibrated distance bound in kilometres that ships with the winner.
 # Projects first and predicts into the narrow table: model_data carries every predictor and
 # runs to millions of rows, so scoring it in place would double the target's peak memory.
 get_predictions <- function(trained_model, model_data) {
-  fitted <- tune::extract_workflow(trained_model$final_fit)
+  selection_wf <- tune::extract_workflow(trained_model$selection$final_fit)
+  bound_wf <- tune::extract_workflow(trained_model$bound$final_fit)
   out <- model_data[, .(
     local_id,
     match_type = type,
@@ -496,7 +526,8 @@ get_predictions <- function(trained_model, model_data) {
     lat,
     dist
   )]
-  out[, pred_logq := predict(fitted, new_data = model_data)$.pred]
+  out[, pred_logmean := predict(selection_wf, new_data = model_data)$.pred]
+  out[, pred_logq := predict(bound_wf, new_data = model_data)$.pred]
   out[, conf_dist_km := conformal_bound_km(pred_logq, trained_model$conformal_offset)]
   out[]
 }

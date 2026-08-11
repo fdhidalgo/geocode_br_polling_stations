@@ -1,7 +1,7 @@
 ## Spec tests for the calibrated distance bound (R/model.R): the pinball loss the
-## selector is trained and tuned on, the conformal order statistic that turns a
+## bound model is trained and tuned on, the conformal order statistic that turns a
 ## predicted quantile into a bound with finite-sample coverage, the back-transform
-## to kilometres, and the per-station candidate pick all three feed.
+## to kilometres, and the per-station candidate pick the selection model drives.
 
 library(testthat)
 library(data.table)
@@ -61,21 +61,31 @@ test_that("conformal_bound_km inverts the log transform and never goes negative"
   expect_equal(conformal_bound_km(log(GBM_LOG_OFFSET), -5), 0)
 })
 
-test_that("select_best_candidate keeps one lowest-bound candidate per station", {
+test_that("select_best_candidate keeps one lowest-expected-error candidate per station", {
   scored <- data.table(
     local_id = c("l1", "l1", "l1", "l2", "l2"),
     type = c("a", "b", "c", "a", "b"),
-    pred_logq = c(2.0, 0.5, 1.0, 3.0, 3.0)
+    pred_logmean = c(2.0, 0.5, 1.0, 3.0, 3.0)
   )
   best <- select_best_candidate(scored)
   expect_equal(nrow(best), 2L)
-  expect_equal(best[local_id == "l1"]$type, "b") # smallest predicted quantile
+  expect_equal(best[local_id == "l1"]$type, "b") # smallest expected log-distance
   expect_equal(best[local_id == "l2"]$type, "a") # tie -> first row
 
   # An unscored candidate must error: it would sort ahead of or behind every real
   # one depending on the sort, silently changing which coordinate ships.
   expect_error(
-    select_best_candidate(data.table(local_id = "l1", pred_logq = NA_real_)),
-    "missing a predicted quantile"
+    select_best_candidate(data.table(local_id = "l1", pred_logmean = NA_real_)),
+    "missing a selection score"
   )
+
+  # Selection must ignore the quantile bound when the selection score disagrees with
+  # it: ranking on the bound would ship predictable-error candidates over small-error ones.
+  two_scores <- data.table(
+    local_id = c("l1", "l1"),
+    type = c("small_error", "predictable_error"),
+    pred_logmean = c(0.5, 1.0),
+    pred_logq = c(4.0, 1.5)
+  )
+  expect_equal(select_best_candidate(two_scores)$type, "small_error")
 })

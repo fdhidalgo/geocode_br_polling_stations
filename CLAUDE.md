@@ -114,7 +114,7 @@ The project uses `targets` package for pipeline management with these stages:
 Other source files: `R/config.R` (pipeline config + crew controllers), `R/utilities.R` (helpers, `%||%`), `R/string_match_diagnostics.R` (match-quality reporting). Inventory functions with `grep "<- function" R/*.R`.
 
 ### Key Functions
-- **String Matching**: `match_inep_muni()`, `match_schools_cnefe_muni()`, `match_stbairro_cnefe_muni()`, `match_geocodebr_muni()` - fuzzy matching with Levenshtein/string distance (`R/string_matching.R`)
+- **String Matching**: `match_inep_muni()`, `match_schools_cnefe_muni()`, `match_stbairro_cnefe_muni()`, `match_geocodebr()` - fuzzy matching with Levenshtein/string distance (`R/string_matching.R`)
 - **Panel IDs**: Fellegi-Sunter record linkage (`reclin2`) with Jaro-Winkler similarity (`R/panel_creation.R`)
 - **Data Cleaning**: `normalize_address()`, `normalize_school()`, `clean_inep()`, `clean_agro_cnefe()`, `clean_tsegeocoded_locais()` (`R/data_cleaning.R`)
 - **Parallel Processing**: Uses `crew` (mirai-backed) local controllers, not `future`. Two controllers are defined in `get_crew_controllers()` in `R/config.R`: `standard` (up to 28 workers) and `memory_limited` (up to 8 workers) for memory-heavy CNEFE/matching targets. Assign a target to one via `resources = tar_resources(crew = tar_resources_crew(controller = "memory_limited"))`.

@@ -198,28 +198,33 @@ record_geocodebr_provenance <- function() {
   )
 }
 
-match_geocodebr_muni <- function(locais_muni) {
-  # Match polling stations with geocodebr for a single municipality.
-
-  # Geocoding errors propagate to the caller; a municipality never drops out silently.
+# estado and municipio are ordinary columns to geocodebr, so any set of stations geocodes in
+# one call regardless of how many municipalities it spans. Cost is almost entirely the fixed
+# per-call subprocess startup (~2.1 s: callr, package load, DuckDB init, 4.5 GB CNEFE cache
+# attach) against ~0.16 ms/row, so a call should cover as many municipalities as it can.
+# In the pipeline that is one crew batch -- batch size is set by parallelism, not by this.
+match_geocodebr <- function(locais) {
+  # Geocoding errors propagate to the caller; a station never drops out silently.
   if (!requireNamespace("geocodebr", quietly = TRUE)) {
-    stop("geocodebr package not installed; it is required for match_geocodebr_muni().")
+    stop("geocodebr package not installed; it is required for match_geocodebr().")
   }
 
   # No polling stations to geocode is a legitimate empty case, not an error.
-  if (nrow(locais_muni) == 0) {
+  if (nrow(locais) == 0) {
     return(NULL)
   }
 
-  muni_code <- unique(locais_muni$cod_localidade_ibge)
-  muni_name <- unique(locais_muni$nm_localidade)
-  message(sprintf("Processing municipality: %s (%s)", muni_name[1], muni_code[1]))
+  message(sprintf(
+    "geocodebr: %d stations across %d municipalities",
+    nrow(locais),
+    uniqueN(locais$cod_localidade_ibge)
+  ))
 
   # geocodebr cascades from the most precise field combination it can satisfy down to the
   # municipality centroid, so every field supplied is a rung it can reach. local_id rides
   # along as a non-address column: geocodebr reattaches it to each result itself, rather
   # than us reassigning coordinates by position afterward.
-  dt_geocode <- locais_muni[, .(
+  dt_geocode <- locais[, .(
     local_id = local_id,
     estado = sg_uf,
     municipio = clean_text_for_geocodebr(nm_localidade),
@@ -262,7 +267,7 @@ match_geocodebr_muni <- function(locais_muni) {
     resolver_empates = TRUE,
     verboso = FALSE,
     cache = TRUE,
-    # crew already runs a worker per municipality; leave the cores to it.
+    # crew already runs a worker per batch; leave the cores to it.
     n_cores = 1
   )
 
@@ -271,12 +276,21 @@ match_geocodebr_muni <- function(locais_muni) {
     return(NULL)
   }
 
-  # Assert the round-trip so a coordinate can never be tied to the wrong station.
-  stopifnot(
-    "local_id" %in% names(geocoded_result),
-    nrow(geocoded_result) == nrow(dt_geocode),
-    !anyNA(geocoded_result$local_id)
-  )
+  # Assert the round-trip so a coordinate can never be tied to the wrong station. The call
+  # spans a whole batch, so name the municipalities: otherwise a tripped assertion says only
+  # that one of ~15 of them is bad.
+  if (
+    !("local_id" %in% names(geocoded_result)) ||
+      nrow(geocoded_result) != nrow(dt_geocode) ||
+      anyNA(geocoded_result$local_id)
+  ) {
+    stop(sprintf(
+      "geocodebr did not round-trip local_id: %d rows in, %d out, for municipalities %s",
+      nrow(dt_geocode),
+      nrow(geocoded_result),
+      paste(sort(unique(locais$cod_localidade_ibge)), collapse = ", ")
+    ))
+  }
 
   # geocodebr returns one formatted string, "STREET, NUMBER - BAIRRO, MUNICIPIO - UF",
   # rather than structured fields, so the only field feature available is a
@@ -285,8 +299,8 @@ match_geocodebr_muni <- function(locais_muni) {
   found_addr <- normalize_address(sub(",.*$", "", geocoded_result$endereco_encontrado))
   street_tiers <- c("numero", "numero_aproximado", "logradouro")
   found_addr[!geocoded_result$precisao %in% street_tiers] <- NA_character_
-  station_addr <- locais_muni$normalized_addr[
-    match(geocoded_result$local_id, locais_muni$local_id)
+  station_addr <- locais$normalized_addr[
+    match(geocoded_result$local_id, locais$local_id)
   ]
 
   # Create output in format consistent with other matching functions

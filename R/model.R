@@ -322,16 +322,28 @@ build_gbm_workflow <- function(data, objective) {
 
   ## For the bound model, a quantile fit on the log scale back-transforms to a distance
   ## quantile rather than a geometric mean.
+  ##
+  ## num_threads overrides bonsai's default of 0, which spawns one thread per core.
+  ## Histogram building over ~20 predictors is memory-bound, so it stops scaling at 8
+  ## threads and reverses past it: measured on the training half, one fit takes 7.4s at
+  ## 8 threads, 8.0s at 16, and 16.1s at 32 -- no better than 2.
   gbm_spec <- if (objective == "quantile") {
     parsnip::set_engine(
       gbm_spec,
       "lightgbm",
       num_leaves = tune(),
+      num_threads = 8,
       objective = "quantile",
       alpha = SELECTOR_QUANTILE
     )
   } else if (objective == "regression") {
-    parsnip::set_engine(gbm_spec, "lightgbm", num_leaves = tune(), objective = "regression")
+    parsnip::set_engine(
+      gbm_spec,
+      "lightgbm",
+      num_leaves = tune(),
+      num_threads = 8,
+      objective = "regression"
+    )
   } else {
     stop("unknown objective: ", objective)
   }

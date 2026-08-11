@@ -36,13 +36,26 @@ Three facts about the current pipeline (established in the survey) fix everythin
   `final_long := ifelse(is.na(tse_long), pred_long, tse_long)`). The model-selected
   coordinate reaches the output **only for TSE-uncovered stations**.
 - **TSE coordinates are the model's training target** (`make_model_data()` /
-  `train_model()`, `R/model.R`): the selector fits the 90th percentile of
-  `log(haversine-to-TSE)` on match features, and the best match per station is the one with
-  the smallest bound (`select_best_candidate()`).
+  `train_model()`, `R/model.R`): the models fit `log(haversine-to-TSE)` on match features,
+  and the best match per station is the one with the lowest expected error
+  (`select_best_candidate()`).
 - **TSE coordinates are field-collected (GEL system), not centrally geocoded** — so they
   are genuinely independent of any CNEFE-based geocoder, which is what qualifies them as
   ground truth. Their weaknesses here are (a) they are the training target, so evaluation
   needs a strict held-out split, and (b) coverage varies by state and year.
+
+> **Amendment 2026-08-11 ([#143](https://github.com/fdhidalgo/geocode_br_polling_stations/pull/143)):**
+> when this spec was written, one quantile model did both jobs — the pipeline fit the 90th
+> percentile of `log(haversine-to-TSE)` and selected each station's match on the smallest
+> bound. The pipeline now fits two models on the same features and split: an L2 model whose
+> expected error does the selecting, and the quantile model, which still produces the
+> published `conf_dist_km` after the conformal correction. Selecting on the bound favored
+> candidates whose error was predictable over candidates whose error was small, costing
+> ~4 points of within-500 m accuracy. Nothing in this spec's *design* changes — the
+> protocol, metrics, strata, and calibration checks all still apply — but three passages
+> described the old rule and have been updated in place: this bullet, §3's per-station
+> selection requirement, and §7's opening sentence. The bound is still what §7 validates;
+> it is simply no longer what ranks candidates.
 
 **Consequence.** The stations whose output the model actually determines (TSE-uncovered)
 are exactly the ones with no reference. Any accuracy number is measured on the
@@ -90,8 +103,9 @@ Requirements (all mandatory):
   [#33](https://github.com/fdhidalgo/geocode_br_polling_stations/issues/33)) — this spec
   does not re-implement it; it depends on it.
 - **Per-station selected match from OOF scores.** For each covered station, rank its
-  candidates by their OOF bound, select the best, and score that pick's haversine distance
-  to the TSE coordinate. This is the number that enters the accuracy tables.
+  candidates by their OOF expected error, select the best, and score that pick's haversine
+  distance to the TSE coordinate. This is the number that enters the accuracy tables. Both
+  models are refit per fold, so the bound reported alongside each pick is out-of-fold too.
 - **k** is an execution detail (5 or 10); pick for stable per-stratum cells given TSE
   coverage density (§6).
 
@@ -182,7 +196,7 @@ and varies by state and year; it determines how much real ground truth each stra
 
 ## 7. `conf_dist_km` calibration check
 
-Validates the distance bound the pipeline publishes and uses to rank candidate matches.
+Validates the distance bound the pipeline publishes for each station's selected match.
 Runs on the OOF predictions from §3. The conformal correction is derived inside each fold
 from municipalities held out of that fold's fit, so coverage measured here is a test of the
 published number rather than a restatement of its construction.

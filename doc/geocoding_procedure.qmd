@@ -72,7 +72,7 @@ Each result carries the precision tier it was resolved at and an uncertainty rad
 
 To geocode polling stations, we use fuzzy string matching to match polling stations to coordinates in the administrative datasets by name, address, street, or neighborhood.
 This string matching procedure generates several candidate coordinates.
-To choose among these possible coordinates, we use a Random Forest model trained on a sample of polling stations with coordinates provided by the election authorities.
+To choose among these possible coordinates, we use a boosted tree model trained on a sample of polling stations with coordinates provided by the election authorities.
 
 The general approach is a follows:
 
@@ -96,9 +96,13 @@ The string matching procedure above generates 12 different potential matches.
 
 ### Choosing Among Potential Matches
 
-After string matching, we use a boosted tree model to predict the distance between the possible coordinates and the true coordinates.
+After string matching, we use boosted tree models to predict the distance between the possible coordinates and the true coordinates.
 We treat the coordinates provided by the election authorities as the "ground truth".
-This distance is modeled as a function of the following set of covariates:
+Two questions have to be answered about each candidate, and they are not the same question: which candidate is likely to be closest, and how far off the one we ship might be.
+We therefore fit two models on the same features and the same training split, differing only in what they estimate.
+The *selection* model estimates a candidate's expected error and is what ranks candidates; the *bound* model estimates the 90th percentile of that error and, after a conformal correction, becomes the published `conf_dist_km`.
+Using the bound to also do the picking --- as earlier versions of this pipeline did --- favors candidates whose error is predictable over candidates whose error is small, and measurably costs accuracy.
+Both models are fit on the following set of covariates:
 
 -   Length-normalized Jaro-Winkler string distance of the match that produced the candidate (string-matched sources only).
 -   `geocodebr`'s uncertainty radius, as a separate covariate. It is a distance in kilometers rather than a normalized string distance, so the two do not share a scale and cannot share a column: a six-metre radius would otherwise sort below every possible string distance, and a coarse one above every possible string distance. Each is missing for the candidates the other describes.
@@ -113,10 +117,10 @@ This distance is modeled as a function of the following set of covariates:
 -   Proportion of the population classified as rural
 -   Area of the municipality
 
-We use the implementation of the boosted tree model provided in the [`lightgbm`](https://github.com/Microsoft/LightGBM) package and use the [`tidymodels`](https://www.tidymodels.org/) framework for preprocessing and training. We train our model on half of the polling stations with ground truth coordinates and use the other half for testing. We tune the hyperpareters of the model using adaptive resampling[^4] and 10 fold cross-validation.
-After tuning, we train the model on all polling stations with ground truth coordinates.
-We then use this model to predict the distance between the true coordinates and the candidate coordinates.
-For each polling station, we choose the candidate coordinate with the smallest predicted distance.
+We use the implementation of the boosted tree model provided in the [`lightgbm`](https://github.com/Microsoft/LightGBM) package and use the [`tidymodels`](https://www.tidymodels.org/) framework for preprocessing and training. We split the polling stations with ground truth coordinates in half by municipality, training on one half and holding out the other. We tune the hyperparameters of each model using adaptive resampling[^4] and 10 fold cross-validation, each on the loss it is trained for: squared error for the selection model, pinball loss for the bound.
+The held-out half then serves as the calibration set for the conformal correction that turns the bound model's prediction into `conf_dist_km`.
+That correction is computed on each station's *selected* candidate rather than on all of them, so the published bound covers the coordinate that actually ships.
+For each polling station, we choose the candidate coordinate with the smallest expected error under the selection model.
 
 [^4]: See the `finetune` package reference [materials](https://finetune.tidymodels.org/reference/tune_race_anova.html) for more information on adaptive resampling.
 
@@ -124,60 +128,38 @@ For each polling station, we choose the candidate coordinate with the smallest p
 
 ```{r}
 #| label: load-data
-# When run via tar_render(), targets should be available without store argument
-# When run manually, we need to specify the store location
-
+# geocoded_locais is the pipeline's own output, carrying the candidate finalize_coords()
+# selected (pred_long/pred_lat) and the TSE coordinate where one exists. Selection is read
+# from it rather than recomputed here, so this document cannot drift from what shipped.
 tar_load(
     c(
       inep_string_match, cnefe10_stbairro_match, cnefe22_stbairro_match,
       schools_cnefe10_match, schools_cnefe22_match,
-      agrocnefe_stbairro_match, locais, model_predictions,
-      tsegeocoded_locais, panel_ids
+      agrocnefe_stbairro_match, locais, model_predictions, geocoded_locais
     ))
-
-
-best_prediction <- model_predictions |>
-  filter(!is.na(dist)) |>
-  group_by(local_id) |>
-  arrange(local_id, conf_dist_km, dist) |>
-  slice(1)
-
-geocoded_locais <- inner_join(locais, best_prediction) |>
-  rename("pred_long" = "long", "pred_lat" = "lat") |>
-  left_join(select(tsegeocoded_locais, local_id, tse_lat, tse_long)) |>
-  ## if we have ground truth distance from TSE, then assign ground truth
-  mutate(
-    long = ifelse(is.na(tse_long), pred_long, tse_long),
-    lat = ifelse(is.na(tse_lat), pred_lat, tse_lat),
-    conf_dist_km = ifelse(is.na(tse_lat), conf_dist_km, 0)
-  ) |>
-  left_join(select(panel_ids, panel_id, local_id)) |>
-  mutate(panel_id = ifelse(is.na(panel_id), local_id, panel_id)) |>
-  arrange(panel_id, conf_dist_km) |>
-  group_by(panel_id) |>
-  mutate(
-    panel_lat = first(lat),
-    panel_long = first(long)
-  ) |>
-  relocate(local_id, panel_id, ano, sg_uf, cd_localidade_tse, cod_localidade_ibge,
-    .before = everything()
-  )
+geocoded_locais <- as.data.table(geocoded_locais)
 ```
 
 To illustrate the string matching procedure, the table below shows the string matching procedure for one polling station where the coordinates are known.
 "String distance" is the length-normalized Jaro-Winkler string distance between the address component and its potential match.
-"Predicted distance" is the distance from the truth predicted by the gradient-boosted tree model.
-The blue row shows the selected match, which is the potential match with the smallest predicted distance.
-The last column labeled "Error (km)" is the difference between the known geocoded coordinates and the coordinates from the selected match.
+"Expected error" is the error the selection model predicts for that candidate, and "Error bound" is the calibrated 90% upper bound the bound model produces for it.
+The blue row shows the selected match, which is the candidate with the smallest expected error.
+Its error bound is the `conf_dist_km` published for the station, and it is not necessarily the smallest bound in the table --- the two models are ranking on different quantities.
+The last column labeled "True error (km)" is the distance between the known TSE coordinates and the coordinates from each candidate.
 
 ```{r}
 #| label: string-match-example
-# One randomly chosen TSE-covered station, illustrating how each administrative
-# data source proposes a candidate coordinate and how the model ranks them. The
-# seed keeps the rendered example stable across builds.
+# One randomly chosen TSE-covered station that the model also geocoded, illustrating how
+# each administrative data source proposes a candidate coordinate and how the model ranks
+# them. The seed keeps the rendered example stable across builds. The normalized address
+# fields come from locais, since finalize_coords() drops them from the output.
 set.seed(1)
-example_id <- sample(geocoded_locais$local_id[!is.na(geocoded_locais$tse_lat)], 1)
-example_ps <- as.data.frame(geocoded_locais[geocoded_locais$local_id == example_id, ])
+example_id <- sample(
+  geocoded_locais[!is.na(tse_lat) & !is.na(pred_lat), local_id],
+  1
+)
+example_ps <- as.data.frame(locais[locais$local_id == example_id, ])
+example_pick <- geocoded_locais[local_id == example_id]
 
 # Per-source match tables, filtered to the example station (0 or 1 row each).
 frames <- list(
@@ -198,11 +180,12 @@ match_spec <- tibble::tribble(
   "schools_inep_addr", "INEP School Address", "normalized_addr", "inep", "match_inep_addr",
   "schools_cnefe_name_2010", "2010 CNEFE School", "normalized_name", "cnefe10_sch", "match_schools_cnefe",
   "schools_cnefe_name_2022", "2022 CNEFE School", "normalized_name", "cnefe22_sch", "match_schools_cnefe",
-  "st_cnefe_2010", "2010 CNEFE Street", "normalized_st", "cnefe10", "match_cnefe_st",
-  "st_cnefe_2022", "2022 CNEFE Street", "normalized_st", "cnefe22", "match_cnefe_st",
-  "bairro_cnefe_2010", "2010 CNEFE Neighborhood", "normalized_bairro", "cnefe10", "match_cnefe_bairro",
-  "bairro_cnefe_2022", "2022 CNEFE Neighborhood", "normalized_bairro", "cnefe22", "match_cnefe_bairro",
-  "bairro_cnefe_2017", "2017 CNEFE Neighborhood", "normalized_bairro", "agrocnefe", "match_agrocnefe_bairro",
+  "st_cnefe_2010", "2010 CNEFE Street", "normalized_st", "cnefe10", "match_st",
+  "st_cnefe_2022", "2022 CNEFE Street", "normalized_st", "cnefe22", "match_st",
+  "st_agrocnefe_2017", "2017 CNEFE Street", "normalized_st", "agrocnefe", "match_st",
+  "bairro_cnefe_2010", "2010 CNEFE Neighborhood", "normalized_bairro", "cnefe10", "match_bairro",
+  "bairro_cnefe_2022", "2022 CNEFE Neighborhood", "normalized_bairro", "cnefe22", "match_bairro",
+  "bairro_agrocnefe_2017", "2017 CNEFE Neighborhood", "normalized_bairro", "agrocnefe", "match_bairro",
   "geocodebr", "geocodebr", NA, NA, NA
 )
 
@@ -222,15 +205,21 @@ pick_string <- function(frame_key, col) {
 }
 
 # model_predictions is the authoritative per-station candidate set: one row per
-# match_type, already carrying the string distance (mindist), coordinates, the
-# model's calibrated distance bound (conf_dist_km) and, for TSE-covered stations, the true
-# error (dist). Everything but the matched string text comes from here.
+# match_type, already carrying the string distance (mindist), coordinates, the selection
+# model's score (pred_logmean), the calibrated distance bound (conf_dist_km) and, for
+# TSE-covered stations, the true error (dist). Everything but the matched string text
+# comes from here.
 ex_pred <- as.data.table(model_predictions)[local_id == example_id]
 stopifnot(all(ex_pred$match_type %in% match_spec$match_type))
+
+# The selection model is fit on log(dist + 1e-4); the offset only keeps log() finite at
+# dist == 0 and is four orders of magnitude below the precision shown here.
+ex_pred[, expected_km := pmax(exp(pred_logmean) - 1e-4, 0)]
 
 table_data <- ex_pred[, .(
   match_type,
   `String Distance` = mindist,
+  `Expected Error (km)` = expected_km,
   `Error Bound (km)` = conf_dist_km,
   `True Error (km)` = dist
 )] |>
@@ -243,12 +232,20 @@ table_data <- ex_pred[, .(
     `String Distance` = if (is.na(query_field)) NA_real_ else `String Distance`
   ) |>
   ungroup() |>
-  arrange(`Error Bound (km)`) |>
+  # The pipeline's rule: lowest expected error wins (select_best_candidate(), R/model.R).
+  arrange(`Expected Error (km)`) |>
   mutate(rank = row_number()) |>
   select(
     Data, `Polling Station String`, Match, `String Distance`,
-    `Error Bound (km)`, `True Error (km)`, rank
+    `Expected Error (km)`, `Error Bound (km)`, `True Error (km)`, rank
   )
+
+# Fail loud if the row highlighted below is not the one the pipeline actually shipped.
+winner <- ex_pred[order(pred_logmean)][1]
+stopifnot(
+  "highlighted candidate is not the pipeline's pick" =
+    isTRUE(all.equal(c(winner$long, winner$lat), c(example_pick$pred_long, example_pick$pred_lat)))
+)
 
 
 table_data |>
@@ -268,7 +265,7 @@ table_data |>
     style = cell_fill(color = "lightcyan"),
     locations = cells_body(rows = (rank == 1))
   ) |>
-  tab_source_note("Highlighted row is the selected match (lowest error bound).")
+  tab_source_note("Highlighted row is the selected match (lowest expected error).")
 ```
 
 ## Estimating Geocoding Error

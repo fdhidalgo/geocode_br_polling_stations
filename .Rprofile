@@ -10,6 +10,11 @@ if (!nzchar(Sys.getenv("DUCKDB_EXTENSION_DIRECTORY"))) {
   local({
     dir <- tools::R_user_dir("duckdb", "cache")
     dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+    # Fail here rather than let DuckDB fail later, inside a geocoding worker, pointed at a
+    # directory that does not exist.
+    if (!dir.exists(dir)) {
+      stop("could not create DuckDB extension directory: ", dir)
+    }
     Sys.setenv(DUCKDB_EXTENSION_DIRECTORY = dir)
   })
 }

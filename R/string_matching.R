@@ -201,7 +201,8 @@ record_geocodebr_provenance <- function() {
 # estado and municipio are ordinary columns to geocodebr, so any set of stations geocodes in
 # one call regardless of how many municipalities it spans. Cost is almost entirely the fixed
 # per-call subprocess startup (~2.1 s: callr, package load, DuckDB init, 4.5 GB CNEFE cache
-# attach) against ~0.16 ms/row, so callers should pass the largest set they have.
+# attach) against ~0.16 ms/row, so a call should cover as many municipalities as it can.
+# In the pipeline that is one crew batch -- batch size is set by parallelism, not by this.
 match_geocodebr <- function(locais) {
   # Geocoding errors propagate to the caller; a station never drops out silently.
   if (!requireNamespace("geocodebr", quietly = TRUE)) {
@@ -275,12 +276,21 @@ match_geocodebr <- function(locais) {
     return(NULL)
   }
 
-  # Assert the round-trip so a coordinate can never be tied to the wrong station.
-  stopifnot(
-    "local_id" %in% names(geocoded_result),
-    nrow(geocoded_result) == nrow(dt_geocode),
-    !anyNA(geocoded_result$local_id)
-  )
+  # Assert the round-trip so a coordinate can never be tied to the wrong station. The call
+  # spans a whole batch, so name the municipalities: otherwise a tripped assertion says only
+  # that one of ~15 of them is bad.
+  if (
+    !("local_id" %in% names(geocoded_result)) ||
+      nrow(geocoded_result) != nrow(dt_geocode) ||
+      anyNA(geocoded_result$local_id)
+  ) {
+    stop(sprintf(
+      "geocodebr did not round-trip local_id: %d rows in, %d out, for municipalities %s",
+      nrow(dt_geocode),
+      nrow(geocoded_result),
+      paste(sort(unique(locais$cod_localidade_ibge)), collapse = ", ")
+    ))
+  }
 
   # geocodebr returns one formatted string, "STREET, NUMBER - BAIRRO, MUNICIPIO - UF",
   # rather than structured fields, so the only field feature available is a

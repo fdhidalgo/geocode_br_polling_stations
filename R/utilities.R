@@ -284,7 +284,9 @@ process_geocodebr_batch <- function(batch_ids, municipality_batch_assignments, l
 
   data.table::setkey(locais, cod_localidade_ibge)
 
-  match_geocodebr(locais[.(batch_munis), nomatch = NULL])
+  # rbindlist so an empty batch is a zero-row table, as in the sibling batch helpers --
+  # match_geocodebr() signals empty with NULL, and this is the only branched match target.
+  rbindlist(list(match_geocodebr(locais[.(batch_munis), nomatch = NULL])))
 }
 
 # Street/neighborhood match batch, shared by the CNEFE and Agro CNEFE vintages.

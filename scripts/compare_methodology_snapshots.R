@@ -32,6 +32,14 @@ read_snapshot <- function(label) {
 base <- read_snapshot(args[1])
 cand <- read_snapshot(args[2])
 
+# Every delta below is a difference between two runs over the same stations. A dev-mode
+# snapshot against a production one merges cleanly on stratum:level and prints deltas that
+# are differences between populations, not methodologies.
+universe <- function(snap) as.data.table(snap$accuracy_tables)[stratum == "overall", n_total]
+stopifnot(
+  "the two snapshots cover different station universes" = universe(base) == universe(cand)
+)
+
 cat(sprintf(
   "baseline  %s (built_from %s, taken %s)\ncandidate %s (built_from %s, taken %s)\n",
   base$label,
@@ -76,7 +84,8 @@ cat("delta_within_500m is model minus trivial selector within each run.\n\n")
 bc <- merge(
   as.data.table(base$baseline_comparison)[, .(stratum, level, base_run = delta_within_500m)],
   as.data.table(cand$baseline_comparison)[, .(stratum, level, cand_run = delta_within_500m)],
-  by = c("stratum", "level")
+  by = c("stratum", "level"),
+  all = TRUE
 )
 bc[, shift := cand_run - base_run]
 print(bc[stratum %in% c("overall", "urban_rural", "region")], digits = 3)

@@ -93,5 +93,9 @@ ms <- merge(
   by = "match_source",
   all = TRUE
 )
+# A source absent from one run was picked zero times there -- an observed zero, so the
+# share it gained or lost is reportable. Its accuracy stays NA: no picks, nothing to score.
+ms[is.na(share_base), share_base := 0]
+ms[is.na(share_cand), share_cand := 0]
 ms[, d_share := share_cand - share_base]
 print(ms[order(-share_cand)], digits = 3)

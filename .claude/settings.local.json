@@ -57,7 +57,8 @@
       "WebFetch(domain:docs.ropensci.org)",
       "WebFetch(domain:wlandau.github.io)",
       "WebFetch(domain:future.futureverse.org)",
-      "WebFetch(domain:localhost)"
+      "WebFetch(domain:localhost)",
+      "Bash(git -C /home/dhidalgo/projects/geocode_br_polling_stations status --short)"
     ],
     "deny": []
   }

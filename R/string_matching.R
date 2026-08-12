@@ -6,10 +6,8 @@ library(stringdist)
 
 # Nearest target string for each query, by Jaro-Winkler distance, considering only targets
 # that share at least one whitespace-delimited word with the query. A query with no such
-# target gets min_dist = Inf and an NA match. normalize_by_length divides the distance by
-# the longer of the two strings, which favours longer targets; neighbourhood matching turns
-# it off. Ties go to the lowest target index.
-match_strings <- function(query_strings, target_strings, normalize_by_length = TRUE) {
+# target gets min_dist = Inf and an NA match. Ties go to the lowest target index.
+match_strings <- function(query_strings, target_strings) {
   # An inverted word -> target index makes each query's candidate set a lookup, so no
   # query x target matrix is ever built.
   target_words <- strsplit(tolower(target_strings), "\\s+")
@@ -17,7 +15,6 @@ match_strings <- function(query_strings, target_strings, normalize_by_length = T
     rep.int(seq_along(target_words), lengths(target_words)),
     unlist(target_words, use.names = FALSE)
   )
-  target_nchar <- nchar(target_strings)
 
   # A municipality's rows are station-years, so the same address recurs across elections
   # (roughly 6 times nationally). Matching is pure, so each distinct query is matched once
@@ -40,10 +37,6 @@ match_strings <- function(query_strings, target_strings, normalize_by_length = T
     }
 
     dists <- stringdist::stringdist(queries[i], target_strings[candidates], method = "jw")
-    if (normalize_by_length) {
-      dists <- dists / pmax(nchar(queries[i]), target_nchar[candidates])
-    }
-
     best <- which.min(dists)
     min_dist[i] <- dists[best]
     best_index[i] <- candidates[best]
@@ -158,17 +151,16 @@ match_stbairro_muni <- function(locais_muni, st_muni, bairro_muni) {
   # Match on neighborhood
   bairro_results <- match_strings(
     locais_muni$normalized_bairro,
-    bairro_muni$norm_bairro,
-    normalize_by_length = FALSE # Don't normalize for neighborhoods
+    bairro_muni$norm_bairro
   )
 
   st_idx <- st_results$best_index
   bairro_idx <- bairro_results$best_index
 
   # These two references are coordinate medians over a whole street or neighborhood, so each
-  # knows exactly one field; the other three similarities are NA. sim_bairro_bairro repeats
-  # mindist_bairro, the one match run unnormalized, so the two are the same number.
-  # The NA columns are still emitted -- melt_match_candidates() explains why.
+  # knows exactly one field; the other three similarities are NA. The one similarity each does
+  # carry repeats its own mindist, since both are now plain Jaro-Winkler on the field the match
+  # was made on. The NA columns are still emitted -- melt_match_candidates() explains why.
   data.table(
     local_id = locais_muni$local_id,
     match_st = st_results$best_match,

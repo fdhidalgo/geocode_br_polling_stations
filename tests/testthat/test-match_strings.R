@@ -1,7 +1,7 @@
 ## Spec tests for match_strings() (R/string_matching.R).
-## For each query string it returns the nearest target (Jaro-Winkler, length-normalized
-## by default), but only among targets that share at least one whitespace-delimited
-## word with the query. A query sharing no word with any target gets no candidate:
+## For each query string it returns the nearest target (Jaro-Winkler), but only among
+## targets that share at least one whitespace-delimited word with the query. A query
+## sharing no word with any target gets no candidate:
 ## min_dist stays Inf and best_match/best_index are NA. Returns a list of three
 ## parallel vectors: min_dist, best_match, best_index.
 
@@ -34,6 +34,21 @@ test_that("match_strings returns NA/Inf when no target shares a word", {
   expect_true(is.na(res$best_match[2]))
   expect_true(is.na(res$best_index[2]))
   expect_true(is.infinite(res$min_dist[2]))
+})
+
+test_that("match_strings ranks by similarity alone, not string length", {
+  # Jaro-Winkler is already normalized to 0-1, so candidate length must not enter the
+  # ranking. Here the sprawling name is the worse match (JW 0.43 vs 0.30), but dividing
+  # by max(nchar) made its extra 64 characters win the comparison.
+  res <- match_strings(
+    query_strings = "jose joaquim",
+    target_strings = c(
+      "escola estadual indigena jose joaquim de sousa filho da comunidade raposa serra do sol",
+      "indigena jose joaquim"
+    )
+  )
+  expect_equal(res$best_index, 2L)
+  expect_equal(res$min_dist, stringdist::stringdist("jose joaquim", "indigena jose joaquim", method = "jw"))
 })
 
 test_that("match_strings is case-insensitive when gating candidates", {

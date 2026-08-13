@@ -233,9 +233,8 @@ select_oof_candidates <- function(oof_predictions) {
 
 # The trivial deterministic selector the model has to beat: per covered station, the
 # highest-precedence candidate available, ties within a rank broken on the smallest
-# string distance. mindist is on incomparable scales across ranks (length-normalized
-# Jaro-Winkler for most sources, unnormalized for bairro, over different fields, absent
-# for geocodebr), so it can only break ties inside one.
+# string distance. mindist is not comparable across ranks -- it is Jaro-Winkler over
+# different fields, and absent for geocodebr -- so it can only break ties inside one.
 select_baseline_candidates <- function(model_data) {
   # Precedence, most specific reference first: references that locate the building, then
   # the address, then the aggregates that only stand in for it. Census vintages of the

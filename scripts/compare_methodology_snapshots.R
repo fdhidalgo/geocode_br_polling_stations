@@ -3,7 +3,7 @@
 ##   Rscript scripts/compare_methodology_snapshots.R <baseline_label> <candidate_label>
 ##
 ## Reads output/methodology_snapshot_<label>.rds for each. Prints the accuracy deltas the
-## evaluation spec gates on, the model-free baseline_comparison control, and the shift in
+## evaluation spec gates on, the trivial precedence selector beside them, and the shift in
 ## which source gets selected.
 ##
 ## Deltas are candidate minus baseline: within_500m up is better, median/p90/p95 down is
@@ -76,19 +76,31 @@ cat("\n== accuracy delta (candidate - baseline) ==\n")
 cat("within_500m up is better; median_km / p90 / p95 down is better.\n\n")
 print(acc[stratum %in% c("overall", "urban_rural", "region", "urban_rural:region")], digits = 3)
 
-# The model-free control: how each run's selector compares to the trivial precedence
-# baseline it shares. Immune to retrain churn, so it separates a real ranking improvement
-# from the model landing somewhere different.
-cat("\n== model-vs-trivial-baseline gap, both runs ==\n")
-cat("delta_within_500m is model minus trivial selector within each run.\n\n")
-bc <- merge(
-  as.data.table(base$baseline_comparison)[, .(stratum, level, base_run = delta_within_500m)],
-  as.data.table(cand$baseline_comparison)[, .(stratum, level, cand_run = delta_within_500m)],
-  by = c("stratum", "level"),
-  all = TRUE
+# The trivial precedence selector, which trains on nothing. Read it in absolute terms:
+# it breaks ties within a rank on mindist, so a change to the matcher moves it too, and
+# it is model-free but not matcher-free. The model-minus-trivial gap is therefore not a
+# control -- a matcher that improves raw ranking lifts the trivial selector most, and the
+# gap narrows while both selectors get better. What the trivial column does isolate is
+# match quality with no learned compensation on top.
+cat("\n== trivial precedence selector, within_500m ==\n")
+cat("d_trivial is the matcher's effect with nothing learned on top; d_model is beside it.\n\n")
+bc_cols <- function(snap) {
+  as.data.table(snap$baseline_comparison)[, .(
+    stratum,
+    level,
+    trivial = within_500m_baseline,
+    model = within_500m_model
+  )]
+}
+bc <- merge(bc_cols(base), bc_cols(cand), by = c("stratum", "level"), suffixes = c("_base", "_cand"), all = TRUE)
+bc[, `:=`(d_trivial = trivial_cand - trivial_base, d_model = model_cand - model_base)]
+print(
+  bc[
+    stratum %in% c("overall", "urban_rural", "region"),
+    .(stratum, level, trivial_base, trivial_cand, d_trivial, d_model)
+  ],
+  digits = 3
 )
-bc[, shift := cand_run - base_run]
-print(bc[stratum %in% c("overall", "urban_rural", "region")], digits = 3)
 
 # Which source the model picks, and how accurate each pick is. Expect movement here.
 cat("\n== selected match source ==\n")

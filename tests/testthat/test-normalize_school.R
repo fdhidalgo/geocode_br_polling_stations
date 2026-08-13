@@ -26,6 +26,13 @@ test_that("normalize_school is vectorized and preserves order", {
   expect_equal(out, c("dom pedro", "tia ana"))
 })
 
+test_that("normalize_school returns NA when the name was nothing but generic terms", {
+  # A station recorded only as its school type has no distinctive name left to match on.
+  expect_true(is.na(normalize_school("Escola Municipal")))
+  expect_true(is.na(normalize_school("CRECHE")))
+  expect_true(is.na(normalize_school(NA_character_)))
+})
+
 test_that("normalize_school matches the curated real-string fixture", {
   fx <- data.table::fread(
     testthat::test_path("fixtures", "normalize_strings.csv"),

@@ -3,25 +3,23 @@ title: "Brazilian Polling Station Data Quality Report"
 subtitle: "Automated Sanity Checks for 2024 Data Integration"
 author: "Pipeline Automated Report"
 date: "`r Sys.Date()`"
-format:
-  html:
+output:
+  html_document:
     toc: true
-    toc-depth: 3
-    toc-location: left
-    code-fold: true
+    toc_depth: 3
+    toc_float: true
     theme: cosmo
-    fig-width: 10
-    fig-height: 6
-    self-contained: true
-execute:
-  echo: false
-  warning: false
-  message: false
+    fig_width: 10
+    fig_height: 6
+    self_contained: true
 ---
 
 ```{r}
 #| label: setup
 #| include: false
+# Rendered by tar_render() (rmarkdown), so only knitr-style options work here;
+# Quarto-only options (format:, execute:) are silently ignored (#146).
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 
 # Load required libraries
 library(data.table)

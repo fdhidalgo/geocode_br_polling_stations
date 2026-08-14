@@ -1,7 +1,8 @@
 # Release notes draft: v0.16
 
-Draft body for the GitHub release. Attach `output/geocoded_polling_stations.csv.gz` and
-`output/panel_ids.csv.gz` from the production rebuild.
+Draft body for the GitHub release. Attach `output/geocoded_polling_stations.csv.gz`,
+`output/panel_ids.csv.gz`, and `output/section_panel_mapping.csv.gz` from the
+production rebuild.
 
 ---
 
@@ -24,6 +25,10 @@ in its entirety.
   upper bound on the coordinate's error that holds for at least 90% of stations
   (achieved out-of-fold coverage: 90.0%). See the interface changes below.
 - **Every record has an IBGE municipality code.** `cod_localidade_ibge` is now complete.
+- **A new section-to-panel file.** `section_panel_mapping.csv.gz` maps each electoral
+  section (seção) directly to a `panel_id` — 4.37 million section-election records —
+  so section-level TSE election results can be joined to the panel without first
+  aggregating them to the polling-station level. Column documentation is in the README.
 
 ### ⚠️ Interface changes
 
@@ -80,6 +85,7 @@ Each upgrade was measured against the frozen v0.15 baseline before adoption
 
 - `geocoded_polling_stations.csv.gz` — geocoded coordinates (2006–2024)
 - `panel_ids.csv.gz` — panel identifiers linking stations across elections
+- `section_panel_mapping.csv.gz` — electoral sections mapped to panel identifiers (new in 0.16)
 
 Methodology and column documentation: [README](https://github.com/fdhidalgo/geocode_br_polling_stations#readme)
 and the [methodology document](https://raw.githack.com/fdhidalgo/geocode_br_polling_stations/master/doc/geocoding_procedure.html).

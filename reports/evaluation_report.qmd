@@ -3,25 +3,23 @@ title: "Geocoding Evaluation: Honest Held-Out Accuracy & Calibration"
 subtitle: "Leakage-controlled evaluation harness (spec 2026-07, issue #47)"
 author: "Pipeline Automated Report"
 date: "`r Sys.Date()`"
-format:
-  html:
+output:
+  html_document:
     toc: true
-    toc-depth: 3
-    toc-location: left
-    code-fold: true
+    toc_depth: 3
+    toc_float: true
     theme: cosmo
-    fig-width: 10
-    fig-height: 6
-    self-contained: true
-execute:
-  echo: false
-  warning: false
-  message: false
+    fig_width: 10
+    fig_height: 6
+    self_contained: true
 ---
 
 ```{r}
 #| label: setup
 #| include: false
+# Rendered by tar_render() (rmarkdown), so only knitr-style options work here;
+# Quarto-only options (format:, execute:, output: asis) are silently ignored (#146).
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 library(data.table)
 library(ggplot2)
 library(gt)
@@ -122,7 +120,7 @@ a fully nested estimate.*
 
 ```{r}
 #| label: headline
-#| output: asis
+#| results: asis
 overall <- acc[stratum == "overall"]
 cat(sprintf(
   paste0(
@@ -166,7 +164,7 @@ is better.
 
 ```{r}
 #| label: baseline-headline
-#| output: asis
+#| results: asis
 cmp_overall <- cmp[stratum == "overall"]
 cat(sprintf(
   paste0(
@@ -262,7 +260,7 @@ question lives.
 
 ```{r}
 #| label: geocodebr-headline
-#| output: asis
+#| results: asis
 gate <- gb_cmp[universe == "cnefe22_winner" & stratum == "overall"]
 cat(sprintf(
   paste0(
@@ -451,7 +449,7 @@ and a positive `<500 m` Δ.
 
 ```{r}
 #| label: panel-coord-headline
-#| output: asis
+#| results: asis
 pc_overall <- pc[stratum == "overall"]
 cat(sprintf(
   paste0(
@@ -517,7 +515,7 @@ Geocoding API key).
 
 ```{r}
 #| label: google
-#| output: asis
+#| results: asis
 google_file <- "../data/google_geocoded.csv"
 if (!file.exists(google_file)) google_file <- "data/google_geocoded.csv"
 

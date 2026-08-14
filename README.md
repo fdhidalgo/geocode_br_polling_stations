@@ -73,6 +73,21 @@ Subsequently, we use the Fellegi-Sunter framework for record linkage to choose t
 - `lat`: This is a latitude variable that is constant for all observations with the same `panel_id` across years. Chosen by the same rule as `long`, and from the same year.
 - `conf_dist_km`: The distance bound of the chosen coordinate, defined as in the coordinates file above. Constant within a `panel_id`, since the whole panel shares one coordinate. It is the bound of the year that was selected, which is not necessarily the smallest bound in the panel — the selection ranks on expected error, not on the bound.
 
+### Section-to-Panel Mapping
+
+Election results from the TSE are reported at the "seção" (section) level. The dataset `section_panel_mapping.csv.gz` maps each section directly to a `panel_id`, so section-level results can be joined to the panel without aggregating to the polling-station level first. It has the following variables:
+
+- `nr_secao`: Section number
+- `nr_zona`: Electoral zone number
+- `nr_local_votacao`: Polling station number
+- `ano`: Election year
+- `estado_abrev`: State abbreviation
+- `cd_localidade_tse`: Municipal identifier used by the TSE. Part of the join key, because zone and section numbers are reused across municipalities.
+- `nm_localidade`: Municipality
+- `panel_id`: Panel identifier, as in `panel_ids.csv.gz`
+
+Each section appears once per election year (unique on `nr_secao`, `nr_zona`, `ano`, `estado_abrev`, `cd_localidade_tse`). Sections whose polling station could not be linked to a panel are omitted rather than published with a guess, as are a handful of sections listed at more than one polling place in the source data.
+
 ## Development Setup
 
 ### Prerequisites

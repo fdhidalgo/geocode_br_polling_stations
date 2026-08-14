@@ -1,7 +1,7 @@
 ---
 title: "Geocoding Brazilian Polling Stations with Administrative Data Sets"
 author: "F. Daniel Hidalgo"
-date: "2021-01-22"
+date: "2026-08-14"
 format:
   html:
     toc: true
@@ -84,7 +84,7 @@ The general approach is a follows:
 
 4.  Compute the Jaccard string distance over character trigrams between polling station name and the names of schools in the INEP and  CNEFE data in the same municipality as the polling station.
 
-5.  Compute the string distance between the address of polling stations and address of schools in INPE and  CNEFE data.
+5.  Compute the string distance between the address of polling stations and address of schools in INEP and CNEFE data.
 
 6.  Compute the string distance between the street name and neighborhood name of the polling station and street and neighborhood names from the CNEFE datasets.
 
@@ -92,7 +92,7 @@ The general approach is a follows:
 
 [^3]: We remove common, but uninformative words, such as "povoado" and "localidade". We standardize common street abbreviations such as replacing "Av" with "Avenida". Finally, for polling station names, we remove words most common in school names, such as "unidade escolar" and "colegio estadual". These are very common, yet not used consistently and as a result, are relatively uninformative. We found that removing them improves matching performance.
 
-The string matching procedure above generates 12 different potential matches.
+The string matching procedure above generates up to ten potential matches; together with the coordinate `geocodebr` resolves directly, each polling station has up to eleven candidate coordinates.
 
 ### Choosing Among Potential Matches
 

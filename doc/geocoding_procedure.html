@@ -7,7 +7,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
 <meta name="author" content="F. Daniel Hidalgo">
-<meta name="dcterms.date" content="2021-01-22">
+<meta name="dcterms.date" content="2026-08-14">
 
 <title>Geocoding Brazilian Polling Stations with Administrative Data Sets</title>
 <style>
@@ -2151,7 +2151,11 @@ vertical-align: -.125em;
   <li><a href="#choosing-among-potential-matches" id="toc-choosing-among-potential-matches" class="nav-link" data-scroll-target="#choosing-among-potential-matches">Choosing Among Potential Matches</a></li>
   <li><a href="#example-of-string-matching" id="toc-example-of-string-matching" class="nav-link" data-scroll-target="#example-of-string-matching">Example of String Matching</a></li>
   </ul></li>
-  <li><a href="#estimating-geocoding-error" id="toc-estimating-geocoding-error" class="nav-link" data-scroll-target="#estimating-geocoding-error">Estimating Geocoding Error</a></li>
+  <li><a href="#estimating-geocoding-error" id="toc-estimating-geocoding-error" class="nav-link" data-scroll-target="#estimating-geocoding-error">Estimating Geocoding Error</a>
+  <ul class="collapse">
+  <li><a href="#is-the-selection-model-doing-the-work" id="toc-is-the-selection-model-doing-the-work" class="nav-link" data-scroll-target="#is-the-selection-model-doing-the-work">Is the selection model doing the work?</a></li>
+  <li><a href="#how-much-of-this-could-an-off-the-shelf-geocoder-do" id="toc-how-much-of-this-could-an-off-the-shelf-geocoder-do" class="nav-link" data-scroll-target="#how-much-of-this-could-an-off-the-shelf-geocoder-do">How much of this could an off-the-shelf geocoder do?</a></li>
+  </ul></li>
   </ul>
 </nav>
 </div>
@@ -2178,7 +2182,7 @@ vertical-align: -.125em;
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">January 22, 2021</p>
+      <p class="date">August 14, 2026</p>
     </div>
   </div>
   
@@ -2194,47 +2198,55 @@ vertical-align: -.125em;
 <p>Our general approach is to generate a series of potential coordinates from a variety of administrative datasets. We use a machine learning model trained on a subset of the data with coordinates provided by Supreme Electoral Tribunal (<em>TSE</em>) to choose among the candidate coordinates. Inputs to this model are mostly measures of the quality of string matches between the polling station address and administrative data sources, as well as other characteristics of the address and municipality of the polling station. For each polling station, we select the coordinates with the predicted smallest error among the possible coordinates.</p>
 <section id="data-sources" class="level2">
 <h2 class="anchored" data-anchor-id="data-sources">Data Sources</h2>
-<p>To geocode the polling stations, we leverage three main data sources:</p>
+<p>To geocode the polling stations, we leverage four main data sources:</p>
 <ul>
 <li><em>Cadastro Nacional de Endereços para Fins Estatísticos</em> (CNEFE) from the 2010 and the 2022 editions of the Census.</li>
 <li><em>Cadastro Nacional de Endereços para Fins Estatísticos</em> from the 2017 Agricultural Census.</li>
 <li><em>Catálogo de Escolas</em> from INEP.</li>
+<li>The <a href="https://ipea.github.io/geocodebr/"><code>geocodebr</code></a> geocoder, which resolves an address against IBGE’s own address surface.</li>
 </ul>
 <p>The CNEFE datasets are national databases of addresses prepared by IBGE for the census and include detailed data on streets and addresses. The 2010 and 2017 versions includes private addresses, as well as listings of government buildings (such as schools) and the names of local establishments (such as the names of schools or businesses). The 2017<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> version only includes agricultural properties. Addresses in <em>rural</em> census tracts (<em>setores censitários</em>) in the 2010 CNEFE have longitude and latitude, while all agricultural properties in the 2017 CNEFE are geocoded. The 2022 CNEFE geocodes all addresses.</p>
 <p>The 2010 Census data did not include coordinates for addresses in urban census tracts. To partially overcome this issue, we compute the centroid of the census tract and assign this coordinate to each property in the urban census tract. Because urban census tracts tend to be compact, tract centroid should still be fairly close to the true coordinates. Nevertheless, this imputation step will lead to more error for urban addresses than rural addresses when the chosen coordinate is from the 2010 CNEFE data.</p>
 <p>The INEP data is a catalog of private and public schools with addresses and longitude and latitude.<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a></p>
+<p>Unlike the three datasets above, <code>geocodebr</code> is not matched by string distance. It takes an address as separate fields — state, municipality, street, house number, neighborhood, and postal code (CEP) — and resolves it against IBGE’s address surface, returning a coordinate directly. It works down a cascade: it uses the most precise combination of fields it can satisfy, and where it cannot satisfy one it falls back to a coarser rung, ending at the municipal centroid. We therefore supply every field the TSE record carries. The house number has to be recovered from the free-text address line, which is not a simple matter of removing digits: Brazilian street names routinely contain numbers (“BR 364”, “Avenida 12 de Outubro”, “Rua 15”), and rural addresses are often located by highway milepost rather than by house number. The CEP is supplied for the 97% of station-years that carry a usable one, which is often enough to place a station in the right neighborhood even when its street cannot be resolved.</p>
+<p>Each result carries the precision tier it was resolved at and an uncertainty radius in meters (<code>desvio_metros</code>), which is the geocoder’s own statement of how far the returned point may be from the address. The radius spans four orders of magnitude across tiers — a few meters at house-number precision against roughly 17 km at the municipal centroid — and it enters the selection model as its own covariate, telling the model how much to trust this source for a given station.</p>
 </section>
 <section id="string-matching" class="level2">
 <h2 class="anchored" data-anchor-id="string-matching">String Matching</h2>
-<p>To geocode polling stations, we use fuzzy string matching to match polling stations to coordinates in the administrative datasets by name, address, street, or neighborhood. This string matching procedure generates several candidate coordinates. To choose among these possible coordinates, we use a Random Forest model trained on a sample of polling stations with coordinates provided by the election authorities.</p>
+<p>To geocode polling stations, we use fuzzy string matching to match polling stations to coordinates in the administrative datasets by name, address, street, or neighborhood. This string matching procedure generates several candidate coordinates. To choose among these possible coordinates, we use a boosted tree model trained on a sample of polling stations with coordinates provided by the election authorities.</p>
 <p>The general approach is a follows:</p>
 <ol type="1">
 <li><p>Normalize<a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a> name and address of polling station.</p></li>
 <li><p>Normalize addresses and school names in administrative datasets.</p></li>
 <li><p>Find the “medioid” (i.e. the median point) for all unique streets and neighborhoods in the CNEFE datasets.</p></li>
-<li><p>Compute the normalized Levenshtein string distance between polling station name and the names of schools in the INEP and CNEFE data in the same municipality as the polling station.</p></li>
-<li><p>Compute the string distance between the address of polling stations and address of schools in INPE and CNEFE data.</p></li>
+<li><p>Compute the Jaccard string distance over character trigrams between polling station name and the names of schools in the INEP and CNEFE data in the same municipality as the polling station.</p></li>
+<li><p>Compute the string distance between the address of polling stations and address of schools in INEP and CNEFE data.</p></li>
 <li><p>Compute the string distance between the street name and neighborhood name of the polling station and street and neighborhood names from the CNEFE datasets.</p></li>
+<li><p>For each candidate produced by steps 4–6, compute a <em>further</em> string distance for every address component the matched reference record happens to carry, not only the component the match was made on: school name, street, neighborhood, and (where the source stores a single unsplit address line) the whole address. A CNEFE school record, for example, is a single establishment and so carries a street and a neighborhood alongside its name; scoring all three reveals a school whose name matches perfectly but which sits in the wrong neighborhood. Where a source has no such field — the street and neighborhood reference tables are coordinate medians over a whole street or neighborhood, and know only the one field they are keyed on — the corresponding distance is missing, which the boosted tree handles natively.</p></li>
 </ol>
-<p>The string matching procedure above generates 12 different potential matches.</p>
+<p>The string matching procedure above generates up to ten potential matches; together with the coordinate <code>geocodebr</code> resolves directly, each polling station has up to eleven candidate coordinates.</p>
 <section id="choosing-among-potential-matches" class="level3">
 <h3 class="anchored" data-anchor-id="choosing-among-potential-matches">Choosing Among Potential Matches</h3>
-<p>After string matching, we use a boosted tree model to predict the distance between the possible coordinates and the true coordinates. We treat the coordinates provided by the election authorities as the “ground truth”. This distance is modeled as a function of the following set of covariates:</p>
+<p>After string matching, we use boosted tree models to predict the distance between the possible coordinates and the true coordinates. We treat the coordinates provided by the election authorities as the “ground truth”. Two questions have to be answered about each candidate, and they are not the same question: which candidate is likely to be closest, and how far off the one we ship might be. We therefore fit two models on the same features and the same training split, differing only in what they estimate. The <em>selection</em> model estimates a candidate’s expected error and is what ranks candidates; the <em>bound</em> model estimates the 90th percentile of that error and, after a conformal correction, becomes the published <code>conf_dist_km</code>. Using the bound to also do the picking — as earlier versions of this pipeline did — favors candidates whose error is predictable over candidates whose error is small, and measurably costs accuracy. Both models are fit on the following set of covariates:</p>
 <ul>
-<li>Normalized Levenshtein string distance.</li>
+<li>Trigram string distance of the match that produced the candidate (string-matched sources only).</li>
+<li><code>geocodebr</code>’s uncertainty radius, as a separate covariate. It is a distance in kilometers rather than a normalized string distance, so the two do not share a scale and cannot share a column: a six-metre radius would otherwise sort below every possible string distance, and a coarse one above every possible string distance. Each is missing for the candidates the other describes.</li>
+<li>Four per-component string distances between the polling station and the matched reference record: school name, street, neighborhood, and whole address line (step 7 above). Each is missing when the source carries no such field.</li>
 <li>Coordinate data source</li>
+<li>Measures of where the station’s <em>other</em> candidates fall, which let the model treat independent references landing on the same spot as evidence and a lone outlier as suspect: how many candidates the station has at all; the distance to the nearest candidate drawn from a different reference dataset, and which dataset that is; how many different datasets fall within 500 metres; the spread of the station’s whole candidate cloud (the median distance between its pairs); and how far this candidate sits from the cloud’s centre. Agreement is counted across the five underlying datasets rather than the individual matches, because two matches into the same dataset — a street median and a neighborhood median from one census, a school matched by name and the same school matched by address — often agree because they resolve the same record rather than because anything was independently corroborated. A station whose candidates all come from one dataset has nothing to corroborate it, so its agreement count is zero and its distance to a candidate from another dataset is missing.</li>
 <li>Indicator for whether the address mentions the city center (“centro”)</li>
 <li>Indicator for whether the address mentions being in the countryside (includes the word “rural”)</li>
 <li>Indicator for whether the address mentions a school</li>
+<li>Indicator for whether the address gives no house number (“s/n”), which is true of roughly a quarter of polling stations and signals informal or rural addressing</li>
 <li>Log of municipal population</li>
 <li>Proportion of the population classified as rural</li>
 <li>Area of the municipality</li>
 </ul>
-<p>We use the implementation of the boosted tree model provided in the <a href="https://github.com/Microsoft/LightGBM"><code>lightgbm</code></a> package and use the <a href="https://www.tidymodels.org/"><code>tidymodels</code></a> framework for preprocessing and training. We train our model on half of the polling stations with ground truth coordinates and use the other half for testing. We tune the hyperpareters of the model using adaptive resampling<a href="#fn4" class="footnote-ref" id="fnref4" role="doc-noteref"><sup>4</sup></a> and 10 fold cross-validation. After tuning, we train the model on all polling stations with ground truth coordinates. We then use this model to predict the distance between the true coordinates and the candidate coordinates. For each polling station, we choose the candidate coordinate with the smallest predicted distance.</p>
+<p>We use the implementation of the boosted tree model provided in the <a href="https://github.com/Microsoft/LightGBM"><code>lightgbm</code></a> package and use the <a href="https://www.tidymodels.org/"><code>tidymodels</code></a> framework for preprocessing and training. We split the polling stations with ground truth coordinates in half by municipality, training on one half and holding out the other. We tune the hyperparameters of each model using adaptive resampling<a href="#fn4" class="footnote-ref" id="fnref4" role="doc-noteref"><sup>4</sup></a> and 10 fold cross-validation, each on the loss it is trained for: squared error for the selection model, pinball loss for the bound. The held-out half then serves as the calibration set for the conformal correction that turns the bound model’s prediction into <code>conf_dist_km</code>. That correction is computed on each station’s <em>selected</em> candidate rather than on all of them, so the published bound covers the coordinate that actually ships. For each polling station, we choose the candidate coordinate with the smallest expected error under the selection model.</p>
 </section>
 <section id="example-of-string-matching" class="level3">
 <h3 class="anchored" data-anchor-id="example-of-string-matching">Example of String Matching</h3>
-<p>To illustrate the string matching procedure, the table below shows the string matching procedure for one polling station where the coordinates are known. “String distance” is the normalized Levenshtein string distance between the address component and its potential match. “Predicted distance” is the distance from the truth predicted by the gradient-boosted tree model. The blue row shows the selected match, which is the potential match with the smallest predicted distance. The last column labeled “Error (km)” is the difference between the known geocoded coordinates and the coordinates from the selected match.</p>
+<p>To illustrate the string matching procedure, the table below shows the string matching procedure for one polling station where the coordinates are known. “String distance” is the Jaccard distance over character trigrams between the address component and its potential match. “Expected error” is the error the selection model predicts for that candidate, and “Error bound” is the calibrated 90% upper bound the bound model produces for it. The blue row shows the selected match, which is the candidate with the smallest expected error. Its error bound is the <code>conf_dist_km</code> published for the station, and it is not necessarily the smallest bound in the table — the two models are ranking on different quantities. The last column labeled “True error (km)” is the distance between the known TSE coordinates and the coordinates from each candidate.</p>
 <div class="cell">
 <div class="cell-output-display">
 <div id="gabwknrsau" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
@@ -2637,40 +2649,115 @@ height: 0px !important;
 <table class="gt_table caption-top table table-sm table-striped small" data-quarto-postprocess="true" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
 <thead>
 <tr class="gt_heading header">
-<th colspan="6" class="gt_heading gt_title gt_font_normal">Example of String Matching</th>
+<th colspan="7" class="gt_heading gt_title gt_font_normal">Example of String Matching</th>
 </tr>
 <tr class="gt_heading even">
-<th colspan="6" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border">Polling Station Name is UNIDADE ESCOLAR OLAVO BILAC. Polling Station Address is CAMPINHO</th>
+<th colspan="7" class="gt_heading gt_subtitle gt_font_normal gt_bottom_border">Polling Station Name is COLEGIO FRANCISCANO AVE MARIA. Polling Station Address is RUA URUGUAIANA, 420</th>
 </tr>
 <tr class="gt_col_headings header">
 <th id="Data" class="gt_col_heading gt_columns_bottom_border gt_left" data-quarto-table-cell-role="th" scope="col">Data</th>
 <th id="Polling-Station-String" class="gt_col_heading gt_columns_bottom_border gt_left" data-quarto-table-cell-role="th" scope="col">Polling Station String</th>
 <th id="Match" class="gt_col_heading gt_columns_bottom_border gt_left" data-quarto-table-cell-role="th" scope="col">Match</th>
 <th id="String-Distance" class="gt_col_heading gt_columns_bottom_border gt_right" data-quarto-table-cell-role="th" scope="col">String Distance</th>
-<th id="Predicted-Error-(km)" class="gt_col_heading gt_columns_bottom_border gt_right" data-quarto-table-cell-role="th" scope="col">Predicted Error (km)</th>
+<th id="Expected-Error-(km)" class="gt_col_heading gt_columns_bottom_border gt_right" data-quarto-table-cell-role="th" scope="col">Expected Error (km)</th>
+<th id="Error-Bound-(km)" class="gt_col_heading gt_columns_bottom_border gt_right" data-quarto-table-cell-role="th" scope="col">Error Bound (km)</th>
 <th id="True-Error-(km)" class="gt_col_heading gt_columns_bottom_border gt_right" data-quarto-table-cell-role="th" scope="col">True Error (km)</th>
 </tr>
 </thead>
 <tbody class="gt_table_body">
 <tr class="odd">
-<td class="gt_row gt_left" headers="Data" style="background-color: #E0FFFF">2017 CNEFE Neighborhood</td>
-<td class="gt_row gt_left" headers="Polling Station String" style="background-color: #E0FFFF">campinho</td>
-<td class="gt_row gt_left" headers="Match" style="background-color: #E0FFFF">campinho</td>
-<td class="gt_row gt_right" headers="String Distance" style="background-color: #E0FFFF">0.00</td>
-<td class="gt_row gt_right" headers="Predicted Error (km)" style="background-color: #E0FFFF">2.20</td>
-<td class="gt_row gt_right" headers="True Error (km)" style="background-color: #E0FFFF">3.35</td>
+<td class="gt_row gt_left" headers="Data" style="background-color: #E0FFFF">geocodebr</td>
+<td class="gt_row gt_left" headers="Polling Station String" style="background-color: #E0FFFF">NA</td>
+<td class="gt_row gt_left" headers="Match" style="background-color: #E0FFFF">NA</td>
+<td class="gt_row gt_right" headers="String Distance" style="background-color: #E0FFFF">NA</td>
+<td class="gt_row gt_right" headers="Expected Error (km)" style="background-color: #E0FFFF">0.02</td>
+<td class="gt_row gt_right" headers="Error Bound (km)" style="background-color: #E0FFFF">0.08</td>
+<td class="gt_row gt_right" headers="True Error (km)" style="background-color: #E0FFFF">0.03</td>
 </tr>
 <tr class="even">
-<td class="gt_row gt_left" headers="Data">geocodebr</td>
-<td class="gt_row gt_left" headers="Polling Station String">NA</td>
-<td class="gt_row gt_left" headers="Match">NA</td>
-<td class="gt_row gt_right" headers="String Distance">NA</td>
-<td class="gt_row gt_right" headers="Predicted Error (km)">35.11</td>
-<td class="gt_row gt_right" headers="True Error (km)">60.23</td>
+<td class="gt_row gt_left" headers="Data">2022 CNEFE School</td>
+<td class="gt_row gt_left" headers="Polling Station String">franciscano ave maria</td>
+<td class="gt_row gt_left" headers="Match">ave maria</td>
+<td class="gt_row gt_right" headers="String Distance">0.63</td>
+<td class="gt_row gt_right" headers="Expected Error (km)">0.02</td>
+<td class="gt_row gt_right" headers="Error Bound (km)">0.08</td>
+<td class="gt_row gt_right" headers="True Error (km)">0.03</td>
+</tr>
+<tr class="odd">
+<td class="gt_row gt_left" headers="Data">INEP School Address</td>
+<td class="gt_row gt_left" headers="Polling Station String">rua uruguaiana 420 bosque</td>
+<td class="gt_row gt_left" headers="Match">jaguara barao 190 rua bosque</td>
+<td class="gt_row gt_right" headers="String Distance">0.79</td>
+<td class="gt_row gt_right" headers="Expected Error (km)">0.03</td>
+<td class="gt_row gt_right" headers="Error Bound (km)">0.07</td>
+<td class="gt_row gt_right" headers="True Error (km)">0.03</td>
+</tr>
+<tr class="even">
+<td class="gt_row gt_left" headers="Data">INEP School Name</td>
+<td class="gt_row gt_left" headers="Polling Station String">franciscano ave maria</td>
+<td class="gt_row gt_left" headers="Match">franciscano ave maria</td>
+<td class="gt_row gt_right" headers="String Distance">0.00</td>
+<td class="gt_row gt_right" headers="Expected Error (km)">0.03</td>
+<td class="gt_row gt_right" headers="Error Bound (km)">0.07</td>
+<td class="gt_row gt_right" headers="True Error (km)">0.03</td>
+</tr>
+<tr class="odd">
+<td class="gt_row gt_left" headers="Data">2010 CNEFE Street</td>
+<td class="gt_row gt_left" headers="Polling Station String">rua uruguaiana 420</td>
+<td class="gt_row gt_left" headers="Match">rua uruguaiana</td>
+<td class="gt_row gt_right" headers="String Distance">0.25</td>
+<td class="gt_row gt_right" headers="Expected Error (km)">0.09</td>
+<td class="gt_row gt_right" headers="Error Bound (km)">0.19</td>
+<td class="gt_row gt_right" headers="True Error (km)">0.12</td>
+</tr>
+<tr class="even">
+<td class="gt_row gt_left" headers="Data">2022 CNEFE Street</td>
+<td class="gt_row gt_left" headers="Polling Station String">rua uruguaiana 420</td>
+<td class="gt_row gt_left" headers="Match">rua uruguaiana</td>
+<td class="gt_row gt_right" headers="String Distance">0.25</td>
+<td class="gt_row gt_right" headers="Expected Error (km)">0.12</td>
+<td class="gt_row gt_right" headers="Error Bound (km)">0.20</td>
+<td class="gt_row gt_right" headers="True Error (km)">0.13</td>
+</tr>
+<tr class="odd">
+<td class="gt_row gt_left" headers="Data">2010 CNEFE School</td>
+<td class="gt_row gt_left" headers="Polling Station String">franciscano ave maria</td>
+<td class="gt_row gt_left" headers="Match">ave maria</td>
+<td class="gt_row gt_right" headers="String Distance">0.63</td>
+<td class="gt_row gt_right" headers="Expected Error (km)">0.22</td>
+<td class="gt_row gt_right" headers="Error Bound (km)">0.26</td>
+<td class="gt_row gt_right" headers="True Error (km)">0.21</td>
+</tr>
+<tr class="even">
+<td class="gt_row gt_left" headers="Data">2010 CNEFE Neighborhood</td>
+<td class="gt_row gt_left" headers="Polling Station String">bosque</td>
+<td class="gt_row gt_left" headers="Match">bosque</td>
+<td class="gt_row gt_right" headers="String Distance">0.00</td>
+<td class="gt_row gt_right" headers="Expected Error (km)">0.23</td>
+<td class="gt_row gt_right" headers="Error Bound (km)">0.30</td>
+<td class="gt_row gt_right" headers="True Error (km)">0.27</td>
+</tr>
+<tr class="odd">
+<td class="gt_row gt_left" headers="Data">2022 CNEFE Neighborhood</td>
+<td class="gt_row gt_left" headers="Polling Station String">bosque</td>
+<td class="gt_row gt_left" headers="Match">bosque</td>
+<td class="gt_row gt_right" headers="String Distance">0.00</td>
+<td class="gt_row gt_right" headers="Expected Error (km)">0.25</td>
+<td class="gt_row gt_right" headers="Error Bound (km)">0.31</td>
+<td class="gt_row gt_right" headers="True Error (km)">0.27</td>
+</tr>
+<tr class="even">
+<td class="gt_row gt_left" headers="Data">2017 CNEFE Street</td>
+<td class="gt_row gt_left" headers="Polling Station String">rua uruguaiana 420</td>
+<td class="gt_row gt_left" headers="Match">rua um</td>
+<td class="gt_row gt_right" headers="String Distance">0.82</td>
+<td class="gt_row gt_right" headers="Expected Error (km)">8.04</td>
+<td class="gt_row gt_right" headers="Error Bound (km)">8.64</td>
+<td class="gt_row gt_right" headers="True Error (km)">7.88</td>
 </tr>
 </tbody><tfoot>
 <tr class="gt_sourcenotes odd">
-<td colspan="6" class="gt_sourcenote">Highlighted row is the selected match (lowest predicted error).</td>
+<td colspan="7" class="gt_sourcenote">Highlighted row is the selected match (lowest expected error).</td>
 </tr>
 </tfoot>
 
@@ -2684,7 +2771,7 @@ height: 0px !important;
 <section id="estimating-geocoding-error" class="level2">
 <h2 class="anchored" data-anchor-id="estimating-geocoding-error">Estimating Geocoding Error</h2>
 <p>Estimating accuracy honestly is constrained by one fact: wherever the TSE has a coordinate, our published output <em>is</em> that TSE coordinate, and the TSE coordinate is also the model’s training target. The model-selected coordinate reaches the output only for stations the TSE did <strong>not</strong> cover. So accuracy can only be measured on the TSE-<strong>covered</strong> subset, and it must be measured out-of-fold — each covered station scored by a model refit on other municipalities, never on itself — or the numbers flatter themselves. <strong>The numbers below are therefore an extrapolation to the uncovered stations the model actually determines; that uncovered subset is unmeasured, not silently folded into the headline.</strong> These figures are produced by the evaluation harness targets (<code>accuracy_tables</code>, <code>calibration_check</code>, <code>tse_coverage</code>; see <code>R/evaluation.R</code> and <code>docs/specs/2026-07-evaluation-spec.md</code>) and are rebuilt with the pipeline so this document stays in lockstep with them. (One caveat: the per-fold refits are leak-free, but the model hyperparameters were tuned once on the production split and reused across folds rather than re-tuned per fold, leaving a weak residual hyperparameter-selection channel — an accepted simplification over nested tuning, so these figures may be marginally optimistic.)</p>
-<p>On the covered set, the out-of-fold median error is <strong>0.05 km</strong> and <strong>74.6%</strong> of stations land within 500 m of their TSE coordinate, at a match rate of <strong>100.0%</strong> over 257,339 covered stations. Positional error is a right-skewed distribution, so we report percentiles and within-threshold shares rather than a single mean, and always alongside the match rate (the two trade off).</p>
+<p>On the covered set, the out-of-fold median error is <strong>0.03 km</strong> and <strong>85.1%</strong> of stations land within 500 m of their TSE coordinate, at a match rate of <strong>100.0%</strong> over 258,555 covered stations. Positional error is a right-skewed distribution, so we report percentiles and within-threshold shares rather than a single mean, and always alongside the match rate (the two trade off).</p>
 <p>The table below cuts accuracy by urban/rural census tract and by region; rural stations are multiples worse than urban, the dominant axis of variation. Strata below the held-out sample-size floor are suppressed (counts shown, medians not).</p>
 <div class="cell">
 <div class="cell-output-display">
@@ -3105,38 +3192,38 @@ height: 0px !important;
 </tr>
 <tr class="gt_row_group_first even">
 <td id="stub_1_1" class="gt_row gt_left gt_stub" data-quarto-table-cell-role="th" scope="row">all</td>
-<td class="gt_row gt_right" headers="overall stub_1_1 N covered">257,339</td>
+<td class="gt_row gt_right" headers="overall stub_1_1 N covered">258,555</td>
 <td class="gt_row gt_right" headers="overall stub_1_1 Match %">100.0</td>
-<td class="gt_row gt_right" headers="overall stub_1_1 Median km">0.05</td>
-<td class="gt_row gt_right" headers="overall stub_1_1 &lt;500m %">74.6</td>
-<td class="gt_row gt_right" headers="overall stub_1_1 &lt;1km %">79.9</td>
+<td class="gt_row gt_right" headers="overall stub_1_1 Median km">0.03</td>
+<td class="gt_row gt_right" headers="overall stub_1_1 &lt;500m %">85.1</td>
+<td class="gt_row gt_right" headers="overall stub_1_1 &lt;1km %">89.4</td>
 </tr>
 <tr class="gt_group_heading_row odd">
 <td colspan="6" id="urban_rural" class="gt_group_heading" data-quarto-table-cell-role="th" scope="colgroup">urban_rural</td>
 </tr>
 <tr class="gt_row_group_first even">
 <td id="stub_1_2" class="gt_row gt_left gt_stub" data-quarto-table-cell-role="th" scope="row">urban</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_2 N covered">175,766</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_2 N covered">176,890</td>
 <td class="gt_row gt_right" headers="urban_rural stub_1_2 Match %">100.0</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_2 Median km">0.04</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_2 &lt;500m %">82.4</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_2 &lt;1km %">87.4</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_2 Median km">0.03</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_2 &lt;500m %">92.0</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_2 &lt;1km %">95.3</td>
 </tr>
 <tr class="odd">
 <td id="stub_1_3" class="gt_row gt_left gt_stub" data-quarto-table-cell-role="th" scope="row">rural</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_3 N covered">79,439</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_3 N covered">79,524</td>
 <td class="gt_row gt_right" headers="urban_rural stub_1_3 Match %">100.0</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_3 Median km">0.21</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_3 &lt;500m %">57.2</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_3 &lt;1km %">63.3</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_3 Median km">0.05</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_3 &lt;500m %">69.7</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_3 &lt;1km %">76.1</td>
 </tr>
 <tr class="even">
 <td id="stub_1_4" class="gt_row gt_left gt_stub" data-quarto-table-cell-role="th" scope="row">NA</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_4 N covered">2,134</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_4 N covered">2,141</td>
 <td class="gt_row gt_right" headers="urban_rural stub_1_4 Match %">100.0</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_4 Median km">0.04</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_4 &lt;500m %">79.6</td>
-<td class="gt_row gt_right" headers="urban_rural stub_1_4 &lt;1km %">84.8</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_4 Median km">0.02</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_4 &lt;500m %">91.5</td>
+<td class="gt_row gt_right" headers="urban_rural stub_1_4 &lt;1km %">94.1</td>
 </tr>
 <tr class="gt_group_heading_row odd">
 <td colspan="6" id="region" class="gt_group_heading" data-quarto-table-cell-role="th" scope="colgroup">region</td>
@@ -3145,41 +3232,41 @@ height: 0px !important;
 <td id="stub_1_5" class="gt_row gt_left gt_stub" data-quarto-table-cell-role="th" scope="row">Norte</td>
 <td class="gt_row gt_right" headers="region stub_1_5 N covered">24,696</td>
 <td class="gt_row gt_right" headers="region stub_1_5 Match %">100.0</td>
-<td class="gt_row gt_right" headers="region stub_1_5 Median km">0.04</td>
-<td class="gt_row gt_right" headers="region stub_1_5 &lt;500m %">70.6</td>
-<td class="gt_row gt_right" headers="region stub_1_5 &lt;1km %">74.6</td>
+<td class="gt_row gt_right" headers="region stub_1_5 Median km">0.02</td>
+<td class="gt_row gt_right" headers="region stub_1_5 &lt;500m %">83.4</td>
+<td class="gt_row gt_right" headers="region stub_1_5 &lt;1km %">86.1</td>
 </tr>
 <tr class="odd">
 <td id="stub_1_6" class="gt_row gt_left gt_stub" data-quarto-table-cell-role="th" scope="row">Nordeste</td>
 <td class="gt_row gt_right" headers="region stub_1_6 N covered">93,096</td>
 <td class="gt_row gt_right" headers="region stub_1_6 Match %">100.0</td>
-<td class="gt_row gt_right" headers="region stub_1_6 Median km">0.04</td>
-<td class="gt_row gt_right" headers="region stub_1_6 &lt;500m %">76.1</td>
-<td class="gt_row gt_right" headers="region stub_1_6 &lt;1km %">81.3</td>
+<td class="gt_row gt_right" headers="region stub_1_6 Median km">0.02</td>
+<td class="gt_row gt_right" headers="region stub_1_6 &lt;500m %">87.5</td>
+<td class="gt_row gt_right" headers="region stub_1_6 &lt;1km %">91.6</td>
 </tr>
 <tr class="even">
 <td id="stub_1_7" class="gt_row gt_left gt_stub" data-quarto-table-cell-role="th" scope="row">Sudeste</td>
 <td class="gt_row gt_right" headers="region stub_1_7 N covered">60,044</td>
 <td class="gt_row gt_right" headers="region stub_1_7 Match %">100.0</td>
-<td class="gt_row gt_right" headers="region stub_1_7 Median km">0.04</td>
-<td class="gt_row gt_right" headers="region stub_1_7 &lt;500m %">84.1</td>
-<td class="gt_row gt_right" headers="region stub_1_7 &lt;1km %">87.8</td>
+<td class="gt_row gt_right" headers="region stub_1_7 Median km">0.03</td>
+<td class="gt_row gt_right" headers="region stub_1_7 &lt;500m %">93.1</td>
+<td class="gt_row gt_right" headers="region stub_1_7 &lt;1km %">95.5</td>
 </tr>
 <tr class="odd">
 <td id="stub_1_8" class="gt_row gt_left gt_stub" data-quarto-table-cell-role="th" scope="row">Sul</td>
 <td class="gt_row gt_right" headers="region stub_1_8 N covered">63,347</td>
 <td class="gt_row gt_right" headers="region stub_1_8 Match %">100.0</td>
-<td class="gt_row gt_right" headers="region stub_1_8 Median km">0.15</td>
-<td class="gt_row gt_right" headers="region stub_1_8 &lt;500m %">63.0</td>
-<td class="gt_row gt_right" headers="region stub_1_8 &lt;1km %">71.0</td>
+<td class="gt_row gt_right" headers="region stub_1_8 Median km">0.06</td>
+<td class="gt_row gt_right" headers="region stub_1_8 &lt;500m %">73.6</td>
+<td class="gt_row gt_right" headers="region stub_1_8 &lt;1km %">80.9</td>
 </tr>
 <tr class="even">
 <td id="stub_1_9" class="gt_row gt_left gt_stub" data-quarto-table-cell-role="th" scope="row">Centro-Oeste</td>
-<td class="gt_row gt_right" headers="region stub_1_9 N covered">16,156</td>
+<td class="gt_row gt_right" headers="region stub_1_9 N covered">17,372</td>
 <td class="gt_row gt_right" headers="region stub_1_9 Match %">100.0</td>
-<td class="gt_row gt_right" headers="region stub_1_9 Median km">0.04</td>
-<td class="gt_row gt_right" headers="region stub_1_9 &lt;500m %">81.6</td>
-<td class="gt_row gt_right" headers="region stub_1_9 &lt;1km %">85.9</td>
+<td class="gt_row gt_right" headers="region stub_1_9 Median km">0.03</td>
+<td class="gt_row gt_right" headers="region stub_1_9 &lt;500m %">89.0</td>
+<td class="gt_row gt_right" headers="region stub_1_9 &lt;1km %">92.2</td>
 </tr>
 </tbody><tfoot>
 <tr class="gt_sourcenotes odd">
@@ -3192,8 +3279,20 @@ height: 0px !important;
 </div>
 </div>
 </div>
-<p>The pipeline’s own <code>pred_dist</code> score is a usable ranking of error even where it is not calibrated in absolute metres: dropping the worst-predicted 50% of stations lowers the realized median error from 0.05 km to 0.02 km and raises the share within 500 m from 74.6% to 91.4%. The absolute calibration gap (Expected Normalized Calibration Error) is 24.125. Prediction-interval coverage is deferred to the calibrated-quantile upgrade.</p>
+<p>The published <code>conf_dist_km</code> claims the true location is within it for at least 90% of stations. Out of fold it holds for <strong>90.0%</strong>, at a median bound of <strong>0.21 km</strong> against a median realized error of 0.03 km. It also ranks: dropping the 50% of stations with the widest bounds lowers the realized median error from 0.03 km to 0.02 km and raises the share within 500 m from 85.1% to 98.1%.</p>
+<section id="is-the-selection-model-doing-the-work" class="level3">
+<h3 class="anchored" data-anchor-id="is-the-selection-model-doing-the-work">Is the selection model doing the work?</h3>
+<p>A model that barely beats a one-line rule is not paying for its complexity. We score a trivial deterministic alternative through the same protocol: for each station, take the highest-precedence candidate available — INEP school matched on name, then CNEFE school, then INEP matched on address, then a geocoded address, then the matched street’s median coordinate, then the neighborhood’s centroid — breaking ties within a rank on the closest string match. It trains on nothing. Both selectors rank the same candidates, so they geocode exactly the same stations and the comparison is pure accuracy.</p>
+<p>On the covered set, the heuristic reaches a median error of <strong>0.05 km</strong> with <strong>65.7%</strong> of stations within 500 m, against <strong>0.03 km</strong> and <strong>85.1%</strong> for the selection model — a difference of <strong>-0.02 km</strong> in median error and <strong>+19.4 percentage points</strong> within 500 m (a negative and a positive, respectively, favour the model).</p>
+<p>The full per-stratum comparison is in the evaluation report (<code>reports/evaluation_report.qmd</code>).</p>
+</section>
+<section id="how-much-of-this-could-an-off-the-shelf-geocoder-do" class="level3">
+<h3 class="anchored" data-anchor-id="how-much-of-this-could-an-off-the-shelf-geocoder-do">How much of this could an off-the-shelf geocoder do?</h3>
+<p><code>geocodebr</code> is one of the candidate sources, and it is built on IBGE’s own aggregation of the same 2022 census address file that two of our reference tables — matched street segments and matched neighborhoods — are built from. That overlap raises a fair question: are those hand-built tables earning their place, or would the off-the-shelf geocoder do as well on its own? We answer it by scoring <code>geocodebr</code>’s coordinates against the TSE ground truth on the stations where one of those two tables currently supplies the winning match, comparing only stations both approaches resolve so a difference in accuracy is not a difference in coverage in disguise.</p>
+<p>On the 19,483 covered stations the 2022 street and neighborhood tables win, <code>geocodebr</code> returns a coordinate for 19,332. Where both resolve the station, <code>geocodebr</code>’s median error is <strong>1.68 km</strong> against <strong>0.54 km</strong> for the pipeline’s pick, and <strong>30.8%</strong> of its coordinates land within 500 m against <strong>48.0%</strong> — a difference of <strong>+1.14 km</strong> and <strong>-17.2 percentage points</strong> (a negative and a positive, respectively, favour <code>geocodebr</code>).</p>
+<p>The breakdown by <code>geocodebr</code>’s own precision tier — how far down its cascade each result came from — is in the evaluation report, along with the same comparison over the whole covered set.</p>
 <p>A separate, covered-only Google reference-validation (Google-vs-TSE agreement) is reported in the exploratory evaluation report (<code>reports/evaluation_report.qmd</code>) when its frozen artifact is present; it quantifies Google’s error budget and is not a pipeline accuracy number.</p>
+</section>
 </section>
 
 

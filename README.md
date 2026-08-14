@@ -26,7 +26,7 @@ The dataset (`geocoded_polling_stations.csv.gz`) contains the following variable
 
 - `cd_localidade_tse`: Municipal identifier used by the TSE.
 
-- `cod_localidade_ibge`: Municipal identifier used by the IBGE
+- `cod_localidade_ibge`: Municipal identifier used by the IBGE. Complete for every record as of v0.16.
 
 - `nr_zona`: Electoral zone number
 
@@ -102,20 +102,25 @@ This project uses:
 - **`renv`** for reproducible package management
 - **`targets`** for pipeline orchestration
 - **`data.table`** for efficient data manipulation
-- **`crew`** for parallel processing with unified controller
+- **`crew`** for parallel processing (two controllers: standard and memory-limited)
 
 ### Project Structure
 
 ```
-├── _targets.R           # Pipeline configuration
+├── _targets.R           # Pipeline manifest
 ├── R/                   # Core functions
-│   ├── data_cleaning_fns.R
-│   ├── string_matching_geocode_fns.R
-│   ├── panel_id_fns.R
-│   └── functions_validate.R
+│   ├── config.R         # Pipeline config + crew controllers
+│   ├── data_cleaning.R
+│   ├── string_matching.R
+│   ├── model.R          # Match-selection and error-bound models
+│   ├── panel_creation.R
+│   ├── evaluation.R     # Out-of-fold accuracy evaluation
+│   ├── validation.R
+│   └── utilities.R
 ├── data/               # Input data
 ├── output/             # Generated outputs
-└── doc/                # Documentation
+├── reports/            # Evaluation and sanity-check reports
+└── doc/                # Methodology documentation
 ```
 
 ## Running the Pipeline
@@ -142,9 +147,9 @@ targets::tar_outdated()
 
 ### Pipeline Configuration
 
-The pipeline can be configured in `_targets.R`:
-- **Parallel workers**: Adjust `future::plan()` settings
-- **Memory limits**: Currently set to 2GB for future globals
+The pipeline is configured in `_targets.R` and `R/config.R`:
+- **Parallel workers**: Two `crew` controllers, defined in `get_crew_controllers()` — `standard` (up to 28 workers) and `memory_limited` (up to 8 workers) for memory-heavy CNEFE and matching targets
+- **Development mode**: Set `TAR_PROJECT=dev` to run on a small two-state subset (minutes instead of hours; outputs go to `output/dev/`)
 - **Target-specific options**: Modify individual target settings
 
 ### Common Pipeline Commands
@@ -163,15 +168,15 @@ targets::tar_deps(target_name)
 
 ## Testing
 
-*Note: Test infrastructure is currently being implemented (Task #1)*
+The test layer has two tiers:
 
-Once implemented, tests can be run with:
-```r
-# Run all tests
-devtools::test()
+```bash
+# Fast unit tests over pure functions (seconds; no data, network, or pipeline store)
+Rscript tests/testthat.R
 
-# Run specific test file
-testthat::test_file("tests/testthat/test-string_matching.R")
+# Slow end-to-end check: builds the pipeline fresh in dev mode (two states) and
+# asserts structural properties of the two final outputs (minutes; needs input data)
+Rscript tests/integration/dev_pipeline_check.R
 ```
 
 ## Code Style Guide
@@ -179,22 +184,20 @@ testthat::test_file("tests/testthat/test-string_matching.R")
 ### R Code Conventions
 
 - **Naming**: Use snake_case for functions and variables
-- **Functions**: Document with Roxygen2 comments
+- **Functions**: One comment line saying what the function does
 - **Data manipulation**: Use `data.table` syntax consistently
-- **File paths**: Use relative paths or `here::here()`
+- **File paths**: Use relative paths
 
 ### Pre-commit Hooks
 
-*Note: Pre-commit hooks are being implemented*
-
-The project uses a committed pre-commit hook for:
+The project uses a committed pre-commit hook (activate with `git config core.hooksPath .githooks`) for:
 - Code formatting with [`air`](https://posit-dev.github.io/air/) (`air format --check` on staged `.R` files)
 
 ### Best Practices
 
 1. **Memory Management**: Monitor memory usage with large datasets
-2. **Parallel Processing**: Uses unified crew controller with 28 workers
-3. **Validation**: Add checks after major data transformations
+2. **Parallel Processing**: Uses `crew` controllers — `standard` (up to 28 workers) and `memory_limited` (up to 8 workers)
+3. **Validation**: Assert invariants once, where each table is built
 4. **Documentation**: Update function documentation when modifying code
 
 ## Working with the Data
@@ -244,6 +247,7 @@ All other data can be found in the `data` folder.
 | Polling Station Addresses          | [Centro de Política e Economia do Setor Público](https://www.cepespdata.io)                                                                                                                            |
 | Census Tract Shape Files\*         | [`geobr` Package](https://github.com/ipeaGIT/geobr)                                                                                                                                                    |
 | Municipal Demographic Variables    | [Atlas do Desenvolvimento Humano no Brasil](http://www.atlasbrasil.org.br)                                                                                                                             |
+| `geocodebr` Address Geocoder       | [`geocodebr` Package](https://ipea.github.io/geocodebr/) (resolves addresses against IBGE's address database; used as one of the candidate coordinate sources)                                          |
 
 ## Contributing
 
@@ -257,7 +261,7 @@ Please report bugs or request features through [GitHub Issues](https://github.co
 
 ### Common Issues
 
-1. **Memory errors**: Reduce workers in unified controller (currently 28) in `_targets.R`
+1. **Memory errors**: Reduce workers in the crew controllers in `R/config.R`
 2. **Package conflicts**: Run `renv::status()` and `renv::restore()`
 3. **Missing data files**: Check [Data Sources](#data-sources) for download links
 4. **Pipeline failures**: Use `targets::tar_meta()` to inspect errors

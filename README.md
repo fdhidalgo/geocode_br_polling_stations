@@ -48,7 +48,7 @@ The dataset (`geocoded_polling_stations.csv.gz`) contains the following variable
 
 - `conf_dist_km`: Calibrated upper bound, in kilometres, on the error of the coordinate in `long`/`lat`. The true location is within `conf_dist_km` of the published one for at least 90% of polling stations. Use it to filter coordinates by accuracy — e.g. keeping `conf_dist_km <= 1` keeps stations whose error is very likely under a kilometre. Set to 0 for stations with a TSE-provided coordinate, which is field-collected rather than estimated.
 
-  Two limits worth knowing. The 90% guarantee is *marginal* — it holds across all stations together, not within every subgroup, and rural stations are covered somewhat less often than urban ones. And it is measured against TSE ground truth, which exists only for a subset of stations; for the rest the bound is an extrapolation from stations that skew more urban and easier to locate. The evaluation report breaks coverage down by region, urban/rural, and election year.
+  Two limits worth knowing. The 90% guarantee is *marginal* — it holds across all stations together, not within every subgroup, and rural stations are covered somewhat less often than urban ones. And it is measured against TSE ground truth, which exists only for a subset of stations; for the rest the bound is an extrapolation from stations that skew more urban and easier to locate.
 
   This column replaced `pred_dist`, which was a different quantity: a point estimate of the error that was systematically too low and carried no coverage guarantee. Do not treat the two as interchangeable.
 
@@ -134,7 +134,6 @@ This project uses:
 │   └── utilities.R
 ├── data/               # Input data
 ├── output/             # Generated outputs
-├── reports/            # Evaluation and sanity-check reports
 └── doc/                # Methodology documentation
 ```
 

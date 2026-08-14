@@ -3,9 +3,9 @@
 ##
 ## ONE-TIME, MANUAL script. It geocodes a stratified covered-only sample of
 ## polling stations with the Google Geocoding API and writes the results to
-## data/google_geocoded.csv, which is then COMMITTED as a frozen artifact so the
-## evaluation report (reports/evaluation_report.qmd) reading it stays reproducible
-## even though the API call is not free to rerun. This is a reference-validation
+## data/google_geocoded.csv, which is then COMMITTED as a frozen artifact so
+## any analysis reading it stays reproducible even though the API call is not
+## free to rerun. This is a reference-validation
 ## (Google's error budget vs field-GPS TSE), NOT a pipeline accuracy number and
 ## NOT a release gate.
 ##

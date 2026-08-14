@@ -962,13 +962,6 @@ list(
     format = "qs"
   ),
 
-  ## Thin Quarto report rendering the evaluation targets for human reading.
-  tar_render(
-    name = evaluation_report,
-    path = "reports/evaluation_report.qmd",
-    output_dir = run_output_dir("reports", DEV_MODE)
-  ),
-
   # --- Final geocoding ---
 
   tar_target(
@@ -1047,11 +1040,5 @@ list(
     ),
     # Always run monitoring to catch issues early
     cue = tar_cue(mode = "always")
-  ),
-  ## Sanity Check Report
-  tar_render(
-    name = sanity_check_report,
-    path = "reports/polling_station_sanity_check.qmd",
-    output_dir = run_output_dir("reports", DEV_MODE)
   )
 )

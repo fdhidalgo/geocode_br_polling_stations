@@ -391,8 +391,8 @@ cat(sprintf(
 ))
 ```
 
-The full per-stratum comparison is in the evaluation report
-(`reports/evaluation_report.qmd`).
+The full per-stratum comparison is available from the `baseline_comparison`
+pipeline target.
 
 ### How much of this could an off-the-shelf geocoder do?
 
@@ -431,10 +431,10 @@ cat(sprintf(
 ```
 
 The breakdown by `geocodebr`'s own precision tier --- how far down its cascade
-each result came from --- is in the evaluation report, along with the same
-comparison over the whole covered set.
+each result came from --- is available from the `geocodebr_vs_model` pipeline
+target, along with the same comparison over the whole covered set.
 
-A separate, covered-only Google reference-validation (Google-vs-TSE agreement) is
-reported in the exploratory evaluation report (`reports/evaluation_report.qmd`)
-when its frozen artifact is present; it quantifies Google's error budget and is
-not a pipeline accuracy number.
+A separate, covered-only Google reference-validation (Google-vs-TSE agreement)
+can be produced by running `scripts/generate_google_reference.R` once to freeze
+`data/google_geocoded.csv`; it quantifies Google's error budget and is not a
+pipeline accuracy number.

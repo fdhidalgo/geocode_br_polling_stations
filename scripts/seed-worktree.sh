@@ -51,13 +51,12 @@ TOPUP_DIRS="data renv/library"
 # Gitignored directories the pipeline writes, cloned together as one snapshot.
 # The stores belong here, alongside every directory their file targets point at
 # — miss one and each target writing there is rebuilt in the worktree whatever
-# the branch touched, because its file is simply absent. reports/ is here for
-# the .html the two tar_render targets emit.
+# the branch touched, because its file is simply absent.
 #
 # Order matters: the stores go last. They are what every later run compares
 # against, so a run killed partway leaves them still matching the stamp, which is
 # what makes the next run re-clone rather than call the mixture seeded.
-SNAPSHOT_DIRS="output reports $STORE_DIRS"
+SNAPSHOT_DIRS="output $STORE_DIRS"
 
 # The checkout to seed is the one holding this script, not the one the caller
 # happens to be standing in. Resolving from the working directory instead would
@@ -343,8 +342,7 @@ if [ "$snapshot_action" = "clone" ] || [ "$topup_count" -gt 0 ]; then
       cp $clone_flag -Rp "$main_root/$rel" "$staged"
 
       # Tracked files inside a snapshot directory belong to the branch, not to
-      # the snapshot: reports/ holds committed .qmd sources beside the .html
-      # rendered from them, and each store a committed .gitignore. Replacing the
+      # the snapshot: each store carries a committed .gitignore. Replacing the
       # directory wholesale would hand the worktree the main checkout's copies,
       # silently reverting branch edits and leaving git reporting the difference.
       # So put this worktree's own versions back over the staged ones — committed

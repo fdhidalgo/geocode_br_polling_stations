@@ -434,19 +434,14 @@ to_geocoded_export_schema <- function(geocoded_locais) {
   )]
 }
 
-# Directory the pipeline writes a given kind of output to, created if absent.
-# Dev runs cover only AC/RR, so they write to a dev/ subdirectory and can never
-# replace a released file. Nested inside the production directory because the
-# worktree seed script clones output/ and reports/ whole.
-run_output_dir <- function(base, dev_mode) {
-  dir <- if (dev_mode) file.path(base, "dev") else base
-  dir.create(dir, showWarnings = FALSE, recursive = TRUE)
-  dir
-}
-
-# Destination for one written output file.
+# Destination for one written output file, directory created if absent. Dev runs
+# cover only AC/RR, so they write to output/dev/ and can never replace a released
+# file. Nested inside the production directory because the worktree seed script
+# clones output/ whole.
 export_path <- function(filename, dev_mode) {
-  file.path(run_output_dir("output", dev_mode), filename)
+  dir <- if (dev_mode) "output/dev" else "output"
+  dir.create(dir, showWarnings = FALSE, recursive = TRUE)
+  file.path(dir, filename)
 }
 
 # Write the published geocoded file and return its path. gates is a

@@ -84,9 +84,6 @@ output/**/*.R
 # Large data mapping files
 data/secao_local_2006_*_mapping.csv.gz
 
-# Generated reports (reports/dev/ holds the dev-mode renders)
-reports/**/*.html
-reports/**/*_files/
 
 # Project backup folder
 project_backup/

@@ -4,9 +4,16 @@ library(data.table)
 library(stringr)
 library(stringdist)
 
-# Nearest target string for each query, by Jaro-Winkler distance, considering only targets
-# that share at least one whitespace-delimited word with the query. A query with no such
-# target gets min_dist = Inf and an NA match. Ties go to the lowest target index.
+# Nearest target string for each query, by Jaccard distance over character trigrams,
+# considering only targets that share at least one whitespace-delimited word with the
+# query. A query with no such target gets min_dist = Inf and an NA match. Ties go to the
+# lowest target index.
+#
+# Trigrams rather than Jaro-Winkler because these are multi-word strings of unequal
+# length, which is the case JW handles worst: it dilutes a matching name with a
+# mismatched prefix, so a wrong candidate sharing the prefix can outrank the right one.
+# Measured against TSE ground truth on AC/RR, holding the candidate set fixed, trigrams
+# beat JW on every reference (+0.7 to +6.8 pp within 500 m) and on every p90 error.
 match_strings <- function(query_strings, target_strings) {
   # An inverted word -> target index makes each query's candidate set a lookup, so no
   # query x target matrix is ever built.
@@ -28,6 +35,13 @@ match_strings <- function(query_strings, target_strings) {
   best_index <- rep(NA_integer_, n)
 
   for (i in seq_len(n)) {
+    # A query too short to hold a trigram is incomparable: every candidate scores the
+    # maximum distance, so the winner would be whichever one sorted first. Decline it the
+    # same way as a query no target shares a word with.
+    if (is.na(queries[i]) || nchar(queries[i]) < 3L) {
+      next
+    }
+
     candidates <- sort(unique(unlist(
       word_index[unique(query_words[[i]])],
       use.names = FALSE
@@ -36,7 +50,12 @@ match_strings <- function(query_strings, target_strings) {
       next
     }
 
-    dists <- stringdist::stringdist(queries[i], target_strings[candidates], method = "jw")
+    dists <- stringdist::stringdist(
+      queries[i],
+      target_strings[candidates],
+      method = "jaccard",
+      q = 3
+    )
     best <- which.min(dists)
     min_dist[i] <- dists[best]
     best_index[i] <- candidates[best]
@@ -51,10 +70,17 @@ match_strings <- function(query_strings, target_strings) {
   )
 }
 
-# Unnormalized Jaro-Winkler between paired strings, for the model's per-field similarity
-# features. NA on either side -- no match, or a reference table without that field -- gives NA.
+# Jaccard distance over character trigrams between paired strings, for the model's
+# per-field similarity features. NA on either side -- no match, or a reference table
+# without that field -- gives NA.
+#
+# A string shorter than a trigram has no trigrams, and stringdist scores two such strings
+# as identical whatever they say. Unlike match_strings(), these pairs are not gated on a
+# shared word, so that case can reach here; an incomparable pair is missing, not perfect.
 field_distance <- function(x, y) {
-  stringdist::stringdist(x, y, method = "jw")
+  d <- stringdist::stringdist(x, y, method = "jaccard", q = 3)
+  d[nchar(x) < 3L | nchar(y) < 3L] <- NA_real_
+  d
 }
 
 match_inep_muni <- function(locais_muni, inep_muni) {
@@ -159,8 +185,8 @@ match_stbairro_muni <- function(locais_muni, st_muni, bairro_muni) {
 
   # These two references are coordinate medians over a whole street or neighborhood, so each
   # knows exactly one field; the other three similarities are NA. The one similarity each does
-  # carry repeats its own mindist, since both are now plain Jaro-Winkler on the field the match
-  # was made on. The NA columns are still emitted -- melt_match_candidates() explains why.
+  # carry repeats its own mindist, since both are the same trigram distance on the field the
+  # match was made on. The NA columns are still emitted -- melt_match_candidates() explains why.
   data.table(
     local_id = locais_muni$local_id,
     match_st = st_results$best_match,

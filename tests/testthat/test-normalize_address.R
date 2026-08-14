@@ -33,6 +33,17 @@ test_that("normalize_address is vectorized and preserves order", {
   expect_equal(out, c("avenida brasil", "rua onze", "sn"))
 })
 
+test_that("normalize_address returns NA when every token was a generic descriptor", {
+  # "ZONA RURAL" is a whole sixth of ds_bairro nationally. Emptied to "", it would
+  # compare equal to every other emptied field under a trigram distance; the field is
+  # missing, not blank.
+  expect_true(is.na(normalize_address("ZONA RURAL")))
+  expect_true(is.na(normalize_address("Povoado")))
+  expect_true(is.na(normalize_address("...")))
+  expect_true(is.na(normalize_address("")))
+  expect_true(is.na(normalize_address(NA_character_)))
+})
+
 test_that("normalize_address matches the curated real-string fixture", {
   fx <- data.table::fread(
     testthat::test_path("fixtures", "normalize_strings.csv"),

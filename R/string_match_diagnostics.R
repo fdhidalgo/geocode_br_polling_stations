@@ -20,6 +20,8 @@ string_match_coord_cols <- function(match_name) {
 }
 
 # NA-coordinate, no-match, perfect-match and distance-quartile metrics for one match table.
+# "Perfect" is distance 0, which under a trigram distance means the two strings have the
+# same set of trigrams -- string equality in every practical case, but not by definition.
 calculate_string_match_diagnostics <- function(match_data, match_name, long_col, lat_col) {
   missing_cols <- setdiff(c(long_col, lat_col), names(match_data))
   if (length(missing_cols) > 0) {

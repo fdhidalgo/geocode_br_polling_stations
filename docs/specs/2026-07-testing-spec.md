@@ -71,7 +71,7 @@ fail loud). Snapshotting current output would lock in the wrong thing.
   - Data.table-in/data.table-out functions (`match_*_muni`, panel functions, `clean_inep`): build the
     smallest input with `data.table(...)` inline — e.g. a 3-row `locais_muni` + 3-row `inep_muni` with
     one obvious name-match, one address-match, one non-match. These functions are deterministic
-    (Jaro-Winkler via `stringdist`), so hand-built cases are stable.
+    (trigram Jaccard via `stringdist`), so hand-built cases are stable.
 - **Single exception — one curated real-string CSV.** For `normalize_address` / `normalize_school`,
   where real-world CNEFE messiness (diacritics, abbreviations, inconsistent spacing) is the point,
   commit **one** small CSV at `tests/testthat/fixtures/` — a couple dozen real, public, hand-picked

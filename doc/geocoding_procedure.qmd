@@ -82,7 +82,7 @@ The general approach is a follows:
 
 3.  Find the "medioid" (i.e. the median point) for all unique streets and neighborhoods in the CNEFE datasets.
 
-4.  Compute the length-normalized Jaro-Winkler string distance between polling station name and the names of schools in the INEP and  CNEFE data in the same municipality as the polling station.
+4.  Compute the Jaccard string distance over character trigrams between polling station name and the names of schools in the INEP and  CNEFE data in the same municipality as the polling station.
 
 5.  Compute the string distance between the address of polling stations and address of schools in INPE and  CNEFE data.
 
@@ -104,7 +104,7 @@ The *selection* model estimates a candidate's expected error and is what ranks c
 Using the bound to also do the picking --- as earlier versions of this pipeline did --- favors candidates whose error is predictable over candidates whose error is small, and measurably costs accuracy.
 Both models are fit on the following set of covariates:
 
--   Length-normalized Jaro-Winkler string distance of the match that produced the candidate (string-matched sources only).
+-   Trigram string distance of the match that produced the candidate (string-matched sources only).
 -   `geocodebr`'s uncertainty radius, as a separate covariate. It is a distance in kilometers rather than a normalized string distance, so the two do not share a scale and cannot share a column: a six-metre radius would otherwise sort below every possible string distance, and a coarse one above every possible string distance. Each is missing for the candidates the other describes.
 -   Four per-component string distances between the polling station and the matched reference record: school name, street, neighborhood, and whole address line (step 7 above). Each is missing when the source carries no such field.
 -   Coordinate data source
@@ -141,7 +141,7 @@ geocoded_locais <- as.data.table(geocoded_locais)
 ```
 
 To illustrate the string matching procedure, the table below shows the string matching procedure for one polling station where the coordinates are known.
-"String distance" is the length-normalized Jaro-Winkler string distance between the address component and its potential match.
+"String distance" is the Jaccard distance over character trigrams between the address component and its potential match.
 "Expected error" is the error the selection model predicts for that candidate, and "Error bound" is the calibrated 90% upper bound the bound model produces for it.
 The blue row shows the selected match, which is the candidate with the smallest expected error.
 Its error bound is the `conf_dist_km` published for the station, and it is not necessarily the smallest bound in the table --- the two models are ranking on different quantities.

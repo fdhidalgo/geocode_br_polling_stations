@@ -1,7 +1,7 @@
 ## Spec tests for match_strings() (R/string_matching.R).
-## For each query string it returns the nearest target (Jaro-Winkler), but only among
-## targets that share at least one whitespace-delimited word with the query. A query
-## sharing no word with any target gets no candidate:
+## For each query string it returns the nearest target (Jaccard distance over character
+## trigrams), but only among targets that share at least one whitespace-delimited word
+## with the query. A query sharing no word with any target gets no candidate:
 ## min_dist stays Inf and best_match/best_index are NA. Returns a list of three
 ## parallel vectors: min_dist, best_match, best_index.
 
@@ -37,9 +37,9 @@ test_that("match_strings returns NA/Inf when no target shares a word", {
 })
 
 test_that("match_strings ranks by similarity alone, not string length", {
-  # Jaro-Winkler is already normalized to 0-1, so candidate length must not enter the
-  # ranking. Here the sprawling name is the worse match (JW 0.43 vs 0.30), but dividing
-  # by max(nchar) made its extra 64 characters win the comparison.
+  # The distance is already normalized to 0-1, so candidate length must not enter the
+  # ranking. Here the sprawling name is the worse match, but dividing by max(nchar) made
+  # its extra 64 characters win the comparison.
   res <- match_strings(
     query_strings = "jose joaquim",
     target_strings = c(
@@ -48,7 +48,21 @@ test_that("match_strings ranks by similarity alone, not string length", {
     )
   )
   expect_equal(res$best_index, 2L)
-  expect_equal(res$min_dist, stringdist::stringdist("jose joaquim", "indigena jose joaquim", method = "jw"))
+  expect_equal(
+    res$min_dist,
+    stringdist::stringdist("jose joaquim", "indigena jose joaquim", method = "jaccard", q = 3)
+  )
+})
+
+test_that("match_strings ranks on the whole name, not a shared leading word", {
+  # A real AC/RR case. Jaro-Winkler weights the common prefix and picks the first
+  # candidate, whose coordinate is 105 km from the TSE truth; the second is 34 m away.
+  # Sharing "manoel" is not evidence when the rest of the name disagrees.
+  res <- match_strings(
+    query_strings = "manoel machado",
+    target_strings = c("manoel da cunha neto", "rural manoel machado")
+  )
+  expect_equal(res$best_index, 2L)
 })
 
 test_that("match_strings is case-insensitive when gating candidates", {
@@ -75,4 +89,20 @@ test_that("match_strings handles an empty target set and NA queries", {
 
   res_na <- match_strings(NA_character_, "escola norte")
   expect_true(is.na(res_na$best_index))
+})
+
+test_that("match_strings declines a query too short to hold a trigram", {
+  # "sn" ("sem numero") is a real normalized street value. Every candidate sharing the
+  # token scores the maximum distance, so a match here would be the first candidate by
+  # sort order, not the nearest one.
+  res <- match_strings("sn", c("rua sn a", "avenida sn b", "travessa sn c"))
+  expect_true(is.infinite(res$min_dist))
+  expect_true(is.na(res$best_index))
+  expect_true(is.na(res$best_match))
+})
+
+test_that("match_strings never selects an NA target", {
+  # An NA target carries no word, so it cannot enter a candidate set at all.
+  res <- match_strings("escola norte", c(NA_character_, "escola norte"))
+  expect_equal(res$best_index, 2L)
 })

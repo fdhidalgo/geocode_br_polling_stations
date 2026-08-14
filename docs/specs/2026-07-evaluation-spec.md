@@ -250,7 +250,7 @@ same reference share a rank — they are the same kind of reference differing on
 so `mindist` decides between them rather than an invented vintage preference.
 
 **Why the tie-break stays inside a rank.** `mindist` is not comparable across ranks — it
-is Jaro-Winkler computed over different fields (name / street / neighborhood / address
+is a trigram distance computed over different fields (name / street / neighborhood / address
 line), and absent for `geocodebr`. A 0.2 name distance and a 0.2 street distance are not
 the same evidence. Within a rank it *is* like-for-like (same matcher, same field), so the
 "smallest `mindist` wins" variant from the assessment is not implemented.

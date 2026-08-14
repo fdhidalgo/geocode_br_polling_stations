@@ -464,6 +464,14 @@ make_tract_centroids <- function(tracts) {
   return(tracts)
 }
 
+# A field every one of whose tokens was stripped is missing, not empty. The string
+# distances compare character trigrams, and two empty strings share a trigram set, so ""
+# would score as a perfect match between any two fields that normalized away to nothing.
+blank_to_na <- function(x) {
+  x[!nzchar(x)] <- NA_character_
+  x
+}
+
 # Normalizes an address string for cross-dataset matching.
 normalize_address <- function(x) {
   # normalize_name() squishes whitespace first, so the single-space patterns below
@@ -477,7 +485,7 @@ normalize_address <- function(x) {
   result <- str_replace_all(result, "^r\\b", "rua")
   result <- str_replace_all(result, "\\bs n\\b", "sn")
   # Squish again: the descriptor removals leave a doubled space behind.
-  str_squish(result)
+  blank_to_na(str_squish(result))
 }
 
 ## Generic school terms stripped by normalize_school() and used as a school-detection feature
@@ -543,7 +551,7 @@ normalize_name <- function(x) {
   result <- stringi::stri_trans_general(x, "Latin-ASCII")
   result <- str_to_lower(result)
   result <- str_remove_all(result, "[[:punct:]]")
-  str_squish(result)
+  blank_to_na(str_squish(result))
 }
 
 # normalize_name() plus removal of the generic school terms, so two records for the same
@@ -551,7 +559,7 @@ normalize_name <- function(x) {
 SCHOOL_SYNONYM_PATTERN <- paste0("\\b", school_synonyms, "\\b", collapse = "|")
 
 normalize_school <- function(x) {
-  str_squish(str_remove_all(normalize_name(x), SCHOOL_SYNONYM_PATTERN))
+  blank_to_na(str_squish(str_remove_all(normalize_name(x), SCHOOL_SYNONYM_PATTERN)))
 }
 
 # Cleans the INEP school census and normalizes its school names and addresses.
@@ -600,12 +608,12 @@ calc_muni_area <- function(muni_shp) {
   muni_shp[, .(cod_localidade_ibge = code_muni, area)]
 }
 
-# School rows of a cleaned CNEFE table (either year). An empty norm_desc has no name
+# School rows of a cleaned CNEFE table (either year). A missing norm_desc has no name
 # to match on, so those rows are dropped.
 get_cnefe_schools <- function(cnefe) {
   schools <- cnefe[especie_lab == "estabelecimento de ensino"]
   schools[, norm_desc := normalize_school(desc)]
-  schools[norm_desc != ""]
+  schools[!is.na(norm_desc)]
 }
 
 convert_coords_dms <- function(coord_strings) {

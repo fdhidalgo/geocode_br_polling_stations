@@ -51,6 +51,40 @@ test_that("local_id is invariant to input row order", {
   expect_setequal(a$local_id, seq_len(nrow(rows)))
 })
 
+test_that("import_locais stops loudly when a TSE municipality has no IBGE code", {
+  # A TSE code absent from the crosswalk used to leave cod_localidade_ibge NA, which
+  # fwrite published as "" -- a key that joins to nothing instead of erroring (#122).
+  rows <- station_rows()
+  rows[1L, CD_LOCALIDADE_TSE := 73709L] # newly created municipality, not in muni_fixture
+  expect_error(
+    import_locais(write_locais_csv(rows), muni_fixture),
+    "no 7-digit cod_localidade_ibge"
+  )
+})
+
+test_that("import_locais keeps stations abroad out of the IBGE-code check", {
+  # sg_uf == "ZZ" stations have no IBGE municipality by construction; they are dropped
+  # before the check rather than tripping it.
+  rows <- rbind(
+    station_rows(),
+    data.table::data.table(
+      ANO = 2024L,
+      CD_LOCALIDADE_TSE = 30449L,
+      NR_ZONA = 1L,
+      NR_LOCVOT = 1031L,
+      NR_CEP = NA_integer_,
+      SG_UF = "ZZ",
+      NM_LOCALIDADE = "ROMA",
+      NM_LOCVOT = "CONSULADO",
+      DS_ENDERECO = "VIA X 1",
+      DS_BAIRRO = "CENTRO"
+    )
+  )
+  result <- import_locais(write_locais_csv(rows), muni_fixture)
+  expect_equal(nrow(result), nrow(station_rows()))
+  expect_false(any(result$sg_uf == "ZZ"))
+})
+
 test_that("import_locais stops loudly on a duplicated station-year key", {
   rows <- station_rows()
   dup <- rbind(rows, rows[1L]) # exact duplicate natural key

@@ -198,8 +198,7 @@ combine_state_panel_ids <- function(panel_ids_list) {
 # Group municipalities into batches of roughly equal polling-station count, so workers
 # get balanced workloads and the largest cities are not batched with anything else.
 create_panel_municipality_batches <- function(locais, target_batch_size = 5000) {
-  muni_counts <- locais[
-    !is.na(cod_localidade_ibge),
+  muni_counts <- locais[,
     .(n_stations = uniqueN(local_id)),
     by = .(cod_localidade_ibge, sg_uf)
   ][order(-n_stations)]

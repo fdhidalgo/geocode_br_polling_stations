@@ -375,6 +375,32 @@ import_locais <- function(locais_file, muni_ids) {
   # Remove polling stations abroad
   locais_data <- locais_data[sg_uf != "ZZ"]
 
+  # Every domestic station must carry a 7-digit IBGE code: it is the published municipality
+  # key, the blocking key for matching, and part of the local_id sort key. A TSE code the
+  # crosswalk does not know usually means a municipality created after the crosswalk's
+  # vintage -- add it to data/muni_identifiers.csv rather than shipping an empty code.
+  bad_muni <- locais_data[
+    is.na(cod_localidade_ibge) | nchar(as.character(cod_localidade_ibge)) != 7L,
+    .N,
+    by = .(cd_localidade_tse, nm_localidade, sg_uf, cod_localidade_ibge)
+  ]
+  if (nrow(bad_muni) > 0L) {
+    stop(sprintf(
+      "import_locais(): %d station-years have no 7-digit cod_localidade_ibge. Offending municipalities: %s",
+      sum(bad_muni$N),
+      paste(
+        sprintf(
+          "%s/%s (cd_localidade_tse %s -> %s)",
+          bad_muni$sg_uf,
+          bad_muni$nm_localidade,
+          bad_muni$cd_localidade_tse,
+          bad_muni$cod_localidade_ibge
+        ),
+        collapse = "; "
+      )
+    ))
+  }
+
   # local_id is assigned after ordering by the natural station-year key, so it does not depend
   # on input row order. Values are reproducible within a release, not across releases.
   id_keys <- c("ano", "cod_localidade_ibge", "nr_zona", "nr_locvot")

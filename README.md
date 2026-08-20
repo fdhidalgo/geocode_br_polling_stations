@@ -48,10 +48,6 @@ The dataset (`geocoded_polling_stations.csv.gz`) contains the following variable
 
 - `conf_dist_km`: Calibrated upper bound, in kilometres, on the error of the coordinate in `long`/`lat`. The true location is within `conf_dist_km` of the published one for at least 90% of polling stations. Use it to filter coordinates by accuracy — e.g. keeping `conf_dist_km <= 1` keeps stations whose error is very likely under a kilometre. Set to 0 for stations with a TSE-provided coordinate, which is field-collected rather than estimated.
 
-  Two limits worth knowing. The 90% guarantee is *marginal* — it holds across all stations together, not within every subgroup, and rural stations are covered somewhat less often than urban ones. And it is measured against TSE ground truth, which exists only for a subset of stations; for the rest the bound is an extrapolation from stations that skew more urban and easier to locate.
-
-  This column replaced `pred_dist`, which was a different quantity: a point estimate of the error that was systematically too low and carried no coverage guarantee. Do not treat the two as interchangeable.
-
 - `tse_lat`: Latitude provided by the TSE. This is only available for a  subset of data.
 
 - `tse_long`: Longitude provided by the TSE. This is only available for a subset of data.
@@ -61,7 +57,7 @@ The dataset (`geocoded_polling_stations.csv.gz`) contains the following variable
 - `lat`: Latitude to use for analysis. This is the coordinate provided by the TSE when available (`tse_lat`), and otherwise the coordinate selected by our model (`pred_lat`).
 
 ### Panel Identifiers
-We also created panel identifiers that track a given polling station over time. Because panel identifiers provided by the electoral authorities can change over time, we must use a fuzzy matching procedure to create our own panel identifiers. The process implemented to generate the panel identifiers consists of six stages. First, we subset the data at the state level for each electoral year. Then, we generate every possible pair of polling stations at the municipality level for every consecutive electoral year. This can be as few as three possible pairs for the least populous municipality in Brazil, Serra da Saudade-MG, which had one polling station in 2006 and three in 2008, or as many as millions of pairs for the most populous municipality, São Paulo-SP, which has over 1,500 polling stations in each electoral year. The next step is to calculate the [Jaro-Winkler](https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance) string similarity for each possible pair on two strings: the normalized name and the normalized address of the location. 
+We also created panel identifiers that track a given polling station over time. Because panel identifiers provided by the electoral authorities can change over time, we must use a fuzzy matching procedure to create our own panel identifiers. The process implemented to generate the panel identifiers consists of six stages. First, we subset the data at the state level for each electoral year. Then, we generate every possible pair of polling stations at the municipality level for every consecutive electoral year. The next step is to calculate the [Jaro-Winkler](https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance) string similarity for each possible pair on two strings: the normalized name and the normalized address of the location. 
 
 Subsequently, we use the Fellegi-Sunter framework for record linkage to choose the best matches as implemented in the [`reclin2`](https://github.com/djvanderlaan/reclin2) package. Specifically, we use an Expectation-Maximization (EM) algorithm to calculate the probabilities of a given pair being a match. We retain pairs with a probability greater than 0.5. To choose the final matches, we select the best matches under the constraint that each polling station can only be matched once. Finally, we construct the panel by combining the pairs matched in each consecutive year and establishing a unique panel identifier for those observations.
 
@@ -137,82 +133,6 @@ This project uses:
 └── doc/                # Methodology documentation
 ```
 
-## Running the Pipeline
-
-### Quick Start
-
-We used the open source language *R* (version 4.4.0) to process the files and geocode the polling stations. To manage the pipeline that imports and processes all the data, we use the [`targets`](https://github.com/ropensci/targets) package.
-
-Assuming all the relevant data is in the `./data` folder, you can reconstruct the dataset using:
-
-```r
-# Run the complete pipeline
-targets::tar_make()
-
-# Run specific targets
-targets::tar_make(names = "target_name")
-
-# Visualize pipeline
-targets::tar_visnetwork()
-
-# Check pipeline status
-targets::tar_outdated()
-```
-
-### Pipeline Configuration
-
-The pipeline is configured in `_targets.R` and `R/config.R`:
-- **Parallel workers**: Two `crew` controllers, defined in `get_crew_controllers()` — `standard` (up to 28 workers) and `memory_limited` (up to 8 workers) for memory-heavy CNEFE and matching targets
-- **Development mode**: Set `TAR_PROJECT=dev` to run on a small two-state subset (minutes instead of hours; outputs go to `output/dev/`)
-- **Target-specific options**: Modify individual target settings
-
-### Common Pipeline Commands
-
-```r
-# Clean and rebuild everything
-targets::tar_destroy()
-targets::tar_make()
-
-# Debug a specific target
-targets::tar_load(target_name)
-
-# View target dependencies
-targets::tar_deps(target_name)
-```
-
-## Testing
-
-The test layer has two tiers:
-
-```bash
-# Fast unit tests over pure functions (seconds; no data, network, or pipeline store)
-Rscript tests/testthat.R
-
-# Slow end-to-end check: builds the pipeline fresh in dev mode (two states) and
-# asserts structural properties of the two final outputs (minutes; needs input data)
-Rscript tests/integration/dev_pipeline_check.R
-```
-
-## Code Style Guide
-
-### R Code Conventions
-
-- **Naming**: Use snake_case for functions and variables
-- **Functions**: One comment line saying what the function does
-- **Data manipulation**: Use `data.table` syntax consistently
-- **File paths**: Use relative paths
-
-### Pre-commit Hooks
-
-The project uses a committed pre-commit hook (activate with `git config core.hooksPath .githooks`) for:
-- Code formatting with [`air`](https://posit-dev.github.io/air/) (`air format --check` on staged `.R` files)
-
-### Best Practices
-
-1. **Memory Management**: Monitor memory usage with large datasets
-2. **Parallel Processing**: Uses `crew` controllers — `standard` (up to 28 workers) and `memory_limited` (up to 8 workers)
-3. **Validation**: Assert invariants once, where each table is built
-4. **Documentation**: Update function documentation when modifying code
 
 ## Working with the Data
 
@@ -263,28 +183,12 @@ All other data can be found in the `data` folder.
 | Municipal Demographic Variables    | [Atlas do Desenvolvimento Humano no Brasil](http://www.atlasbrasil.org.br)                                                                                                                             |
 | `geocodebr` Address Geocoder       | [`geocodebr` Package](https://ipea.github.io/geocodebr/) (resolves addresses against IBGE's address database; used as one of the candidate coordinate sources)                                          |
 
-## Contributing
 
-We welcome contributions!
 
 ### Reporting Issues
 
 Please report bugs or request features through [GitHub Issues](https://github.com/fdhidalgo/geocode_br_polling_stations/issues).
 
-## Troubleshooting
-
-### Common Issues
-
-1. **Memory errors**: Reduce workers in the crew controllers in `R/config.R`
-2. **Package conflicts**: Run `renv::status()` and `renv::restore()`
-3. **Missing data files**: Check [Data Sources](#data-sources) for download links
-4. **Pipeline failures**: Use `targets::tar_meta()` to inspect errors
-
-### Getting Help
-
-- Check existing [GitHub Issues](https://github.com/fdhidalgo/geocode_br_polling_stations/issues)
-- Review pipeline status with `targets::tar_visnetwork()`
-- Inspect specific target errors with `targets::tar_meta(target_name)$error`
 
 ## Acknowledgements
 

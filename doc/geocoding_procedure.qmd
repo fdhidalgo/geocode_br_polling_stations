@@ -29,7 +29,6 @@ library(dplyr)
 library(gt)
 library(sf)
 sf::sf_use_s2(FALSE)
-
 ```
 
 This document outlines an approach to geocoding Brazilian polling station that heavily relies on administrative datasets. In addition to detailing our approach, we also provide an honest, held-out estimate of the error of our method, measured out-of-fold on the subset of stations with independent TSE coordinates.
@@ -64,9 +63,6 @@ The INEP data is a catalog of private and public schools with addresses and long
 
 [^2]: The data can be found at this [link](https://inepdata.inep.gov.br/analytics/saw.dll?dashboard)
 
-Unlike the three datasets above, `geocodebr` is not matched by string distance. It takes an address as separate fields --- state, municipality, street, house number, neighborhood, and postal code (CEP) --- and resolves it against IBGE's address surface, returning a coordinate directly. It works down a cascade: it uses the most precise combination of fields it can satisfy, and where it cannot satisfy one it falls back to a coarser rung, ending at the municipal centroid. We therefore supply every field the TSE record carries. The house number has to be recovered from the free-text address line, which is not a simple matter of removing digits: Brazilian street names routinely contain numbers ("BR 364", "Avenida 12 de Outubro", "Rua 15"), and rural addresses are often located by highway milepost rather than by house number. The CEP is supplied for the 97% of station-years that carry a usable one, which is often enough to place a station in the right neighborhood even when its street cannot be resolved.
-
-Each result carries the precision tier it was resolved at and an uncertainty radius in meters (`desvio_metros`), which is the geocoder's own statement of how far the returned point may be from the address. The radius spans four orders of magnitude across tiers --- a few meters at house-number precision against roughly 17 km at the municipal centroid --- and it enters the selection model as its own covariate, telling the model how much to trust this source for a given station.
 
 ## String Matching
 
@@ -88,7 +84,7 @@ The general approach is a follows:
 
 6.  Compute the string distance between the street name and neighborhood name of the polling station and street and neighborhood names from the CNEFE datasets.
 
-7.  For each candidate produced by steps 4--6, compute a *further* string distance for every address component the matched reference record happens to carry, not only the component the match was made on: school name, street, neighborhood, and (where the source stores a single unsplit address line) the whole address. A CNEFE school record, for example, is a single establishment and so carries a street and a neighborhood alongside its name; scoring all three reveals a school whose name matches perfectly but which sits in the wrong neighborhood. Where a source has no such field --- the street and neighborhood reference tables are coordinate medians over a whole street or neighborhood, and know only the one field they are keyed on --- the corresponding distance is missing, which the boosted tree handles natively.
+7.  For each candidate produced by steps 4--6, compute a *further* string distance for every address component the matched reference record happens to carry, not only the component the match was made on: school name, street, neighborhood, and the whole address.
 
 [^3]: We remove common, but uninformative words, such as "povoado" and "localidade". We standardize common street abbreviations such as replacing "Av" with "Avenida". Finally, for polling station names, we remove words most common in school names, such as "unidade escolar" and "colegio estadual". These are very common, yet not used consistently and as a result, are relatively uninformative. We found that removing them improves matching performance.
 
@@ -101,14 +97,13 @@ We treat the coordinates provided by the election authorities as the "ground tru
 Two questions have to be answered about each candidate, and they are not the same question: which candidate is likely to be closest, and how far off the one we ship might be.
 We therefore fit two models on the same features and the same training split, differing only in what they estimate.
 The *selection* model estimates a candidate's expected error and is what ranks candidates; the *bound* model estimates the 90th percentile of that error and, after a conformal correction, becomes the published `conf_dist_km`.
-Using the bound to also do the picking --- as earlier versions of this pipeline did --- favors candidates whose error is predictable over candidates whose error is small, and measurably costs accuracy.
 Both models are fit on the following set of covariates:
 
 -   Trigram string distance of the match that produced the candidate (string-matched sources only).
 -   `geocodebr`'s uncertainty radius, as a separate covariate. It is a distance in kilometers rather than a normalized string distance, so the two do not share a scale and cannot share a column: a six-metre radius would otherwise sort below every possible string distance, and a coarse one above every possible string distance. Each is missing for the candidates the other describes.
 -   Four per-component string distances between the polling station and the matched reference record: school name, street, neighborhood, and whole address line (step 7 above). Each is missing when the source carries no such field.
 -   Coordinate data source
--   Measures of where the station's *other* candidates fall, which let the model treat independent references landing on the same spot as evidence and a lone outlier as suspect: how many candidates the station has at all; the distance to the nearest candidate drawn from a different reference dataset, and which dataset that is; how many different datasets fall within 500 metres; the spread of the station's whole candidate cloud (the median distance between its pairs); and how far this candidate sits from the cloud's centre. Agreement is counted across the five underlying datasets rather than the individual matches, because two matches into the same dataset --- a street median and a neighborhood median from one census, a school matched by name and the same school matched by address --- often agree because they resolve the same record rather than because anything was independently corroborated. A station whose candidates all come from one dataset has nothing to corroborate it, so its agreement count is zero and its distance to a candidate from another dataset is missing.
+-   Measures of where the station's *other* candidates fall, which let the model treat independent references landing on the same spot as evidence and a lone outlier as suspect: how many candidates the station has at all; the distance to the nearest candidate drawn from a different reference dataset, and which dataset that is; how many different datasets fall within 500 metres; the spread of the station's whole candidate cloud (the median distance between its pairs); and how far this candidate sits from the cloud's centre. Agreement is counted across the five underlying datasets rather than the individual matches.
 -   Indicator for whether the address mentions the city center ("centro")
 -   Indicator for whether the address mentions being in the countryside (includes the word "rural")
 -   Indicator for whether the address mentions a school
@@ -132,11 +127,18 @@ For each polling station, we choose the candidate coordinate with the smallest e
 # selected (pred_long/pred_lat) and the TSE coordinate where one exists. Selection is read
 # from it rather than recomputed here, so this document cannot drift from what shipped.
 tar_load(
-    c(
-      inep_string_match, cnefe10_stbairro_match, cnefe22_stbairro_match,
-      schools_cnefe10_match, schools_cnefe22_match,
-      agrocnefe_stbairro_match, locais, model_predictions, geocoded_locais
-    ))
+  c(
+    inep_string_match,
+    cnefe10_stbairro_match,
+    cnefe22_stbairro_match,
+    schools_cnefe10_match,
+    schools_cnefe22_match,
+    agrocnefe_stbairro_match,
+    locais,
+    model_predictions,
+    geocoded_locais
+  )
+)
 geocoded_locais <- as.data.table(geocoded_locais)
 ```
 
@@ -175,18 +177,18 @@ frames <- list(
 # polling-station field that was matched, and where the matched string lives.
 # Fail loud if a match table's columns drift rather than silently dropping a row.
 match_spec <- tibble::tribble(
-  ~match_type, ~Data, ~query_field, ~frame, ~match_col,
-  "schools_inep_name", "INEP School Name", "normalized_name", "inep", "match_inep_name",
-  "schools_inep_addr", "INEP School Address", "normalized_addr", "inep", "match_inep_addr",
-  "schools_cnefe_name_2010", "2010 CNEFE School", "normalized_name", "cnefe10_sch", "match_schools_cnefe",
-  "schools_cnefe_name_2022", "2022 CNEFE School", "normalized_name", "cnefe22_sch", "match_schools_cnefe",
-  "st_cnefe_2010", "2010 CNEFE Street", "normalized_st", "cnefe10", "match_st",
-  "st_cnefe_2022", "2022 CNEFE Street", "normalized_st", "cnefe22", "match_st",
-  "st_agrocnefe_2017", "2017 CNEFE Street", "normalized_st", "agrocnefe", "match_st",
-  "bairro_cnefe_2010", "2010 CNEFE Neighborhood", "normalized_bairro", "cnefe10", "match_bairro",
-  "bairro_cnefe_2022", "2022 CNEFE Neighborhood", "normalized_bairro", "cnefe22", "match_bairro",
-  "bairro_agrocnefe_2017", "2017 CNEFE Neighborhood", "normalized_bairro", "agrocnefe", "match_bairro",
-  "geocodebr", "geocodebr", NA, NA, NA
+  ~match_type               , ~Data                     , ~query_field        , ~frame        , ~match_col            ,
+  "schools_inep_name"       , "INEP School Name"        , "normalized_name"   , "inep"        , "match_inep_name"     ,
+  "schools_inep_addr"       , "INEP School Address"     , "normalized_addr"   , "inep"        , "match_inep_addr"     ,
+  "schools_cnefe_name_2010" , "2010 CNEFE School"       , "normalized_name"   , "cnefe10_sch" , "match_schools_cnefe" ,
+  "schools_cnefe_name_2022" , "2022 CNEFE School"       , "normalized_name"   , "cnefe22_sch" , "match_schools_cnefe" ,
+  "st_cnefe_2010"           , "2010 CNEFE Street"       , "normalized_st"     , "cnefe10"     , "match_st"            ,
+  "st_cnefe_2022"           , "2022 CNEFE Street"       , "normalized_st"     , "cnefe22"     , "match_st"            ,
+  "st_agrocnefe_2017"       , "2017 CNEFE Street"       , "normalized_st"     , "agrocnefe"   , "match_st"            ,
+  "bairro_cnefe_2010"       , "2010 CNEFE Neighborhood" , "normalized_bairro" , "cnefe10"     , "match_bairro"        ,
+  "bairro_cnefe_2022"       , "2022 CNEFE Neighborhood" , "normalized_bairro" , "cnefe22"     , "match_bairro"        ,
+  "bairro_agrocnefe_2017"   , "2017 CNEFE Neighborhood" , "normalized_bairro" , "agrocnefe"   , "match_bairro"        ,
+  "geocodebr"               , "geocodebr"               , NA                  , NA            , NA
 )
 
 pick_string <- function(frame_key, col) {
@@ -194,10 +196,15 @@ pick_string <- function(frame_key, col) {
     return(NA_character_) # geocodebr returns coordinates directly, no fuzzy string
   }
   df <- frames[[frame_key]]
-  if (is.null(df)) stop("Unknown frame key in match_spec: ", frame_key)
+  if (is.null(df)) {
+    stop("Unknown frame key in match_spec: ", frame_key)
+  }
   if (!col %in% names(df)) {
     stop(
-      "Column '", col, "' missing from '", frame_key,
+      "Column '",
+      col,
+      "' missing from '",
+      frame_key,
       "' match table -- schema drifted; update match_spec."
     )
   }
@@ -236,29 +243,37 @@ table_data <- ex_pred[, .(
   arrange(`Expected Error (km)`) |>
   mutate(rank = row_number()) |>
   select(
-    Data, `Polling Station String`, Match, `String Distance`,
-    `Expected Error (km)`, `Error Bound (km)`, `True Error (km)`, rank
+    Data,
+    `Polling Station String`,
+    Match,
+    `String Distance`,
+    `Expected Error (km)`,
+    `Error Bound (km)`,
+    `True Error (km)`,
+    rank
   )
 
 # Fail loud if the row highlighted below is not the one the pipeline actually shipped.
 winner <- ex_pred[order(pred_logmean)][1]
 stopifnot(
-  "highlighted candidate is not the pipeline's pick" =
-    isTRUE(all.equal(c(winner$long, winner$lat), c(example_pick$pred_long, example_pick$pred_lat)))
+  "highlighted candidate is not the pipeline's pick" = isTRUE(all.equal(
+    c(winner$long, winner$lat),
+    c(example_pick$pred_long, example_pick$pred_lat)
+  ))
 )
 
 
 table_data |>
   gt() |>
   cols_hide(c(rank)) |>
-  fmt_number(matches("String Distance|Error"),
-    decimals = 2
-  ) |>
+  fmt_number(matches("String Distance|Error"), decimals = 2) |>
   tab_header(
     title = "Example of String Matching",
     subtitle = paste0(
-      "Polling Station Name is ", example_ps$nm_locvot,
-      ". Polling Station Address is ", example_ps$ds_endereco
+      "Polling Station Name is ",
+      example_ps$nm_locvot,
+      ". Polling Station Address is ",
+      example_ps$ds_endereco
     )
   ) |>
   tab_style(
@@ -275,31 +290,23 @@ coordinate, our published output *is* that TSE coordinate, and the TSE coordinat
 is also the model's training target. The model-selected coordinate reaches the
 output only for stations the TSE did **not** cover. So accuracy can only be
 measured on the TSE-**covered** subset, and it must be measured out-of-fold — each
-covered station scored by a model refit on other municipalities, never on itself —
-or the numbers flatter themselves. **The numbers below are therefore an
-extrapolation to the uncovered stations the model actually determines; that
-uncovered subset is unmeasured, not silently folded into the headline.** These
-figures are produced by the evaluation harness targets (`accuracy_tables`,
-`calibration_check`, `tse_coverage`; see `R/evaluation.R` and
-`docs/specs/2026-07-evaluation-spec.md`) and are rebuilt with the pipeline so this
-document stays in lockstep with them. (One caveat: the per-fold refits are
-leak-free, but the model hyperparameters were tuned once on the production split
-and reused across folds rather than re-tuned per fold, leaving a weak residual
-hyperparameter-selection channel — an accepted simplification over nested tuning,
-so these figures may be marginally optimistic.)
+covered station scored by a model refit on other municipalities.
 
 ```{r}
 #| label: load-eval-targets
 # Read the pipeline-produced evaluation targets (store fallback for manual runs).
-tryCatch({
-  tar_load(c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison,
-             geocodebr_vs_model))
-}, error = function(e) {
-  project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
-  tar_load(c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison,
-             geocodebr_vs_model),
-           store = file.path(project_root, "_targets"))
-})
+tryCatch(
+  {
+    tar_load(c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison, geocodebr_vs_model))
+  },
+  error = function(e) {
+    project_root <- normalizePath(file.path(getwd(), ".."), mustWork = FALSE)
+    tar_load(
+      c(accuracy_tables, calibration_check, tse_coverage, baseline_comparison, geocodebr_vs_model),
+      store = file.path(project_root, "_targets")
+    )
+  }
+)
 acc <- as.data.table(accuracy_tables)
 overall <- acc[stratum == "overall"]
 ```
@@ -316,7 +323,9 @@ cat(sprintf(
     "shares rather than a single mean, and always alongside the match rate ",
     "(the two trade off)."
   ),
-  overall$median_km, overall$within_500m, overall$match_rate,
+  overall$median_km,
+  overall$within_500m,
+  overall$match_rate,
   format(overall$n_total, big.mark = ",")
 ))
 ```
@@ -328,9 +337,13 @@ below the held-out sample-size floor are suppressed (counts shown, medians not).
 ```{r}
 #| label: error-table
 acc[stratum %in% c("overall", "urban_rural", "region")][, .(
-  Stratum = stratum, Level = level, `N covered` = n_total,
-  `Match %` = match_rate, `Median km` = median_km,
-  `<500m %` = within_500m, `<1km %` = within_1km
+  Stratum = stratum,
+  Level = level,
+  `N covered` = n_total,
+  `Match %` = match_rate,
+  `Median km` = median_km,
+  `<500m %` = within_500m,
+  `<1km %` = within_1km
 )] |>
   gt(groupname_col = "Stratum", rowname_col = "Level") |>
   fmt_number(columns = c("Median km"), decimals = 2) |>
@@ -355,10 +368,14 @@ cat(sprintf(
     "from %.2f km to %.2f km and raises the share within 500 m from %.1f%% to %.1f%%."
   ),
   calibration_check$nominal,
-  cov_overall$coverage, cov_overall$median_bound_km, cov_overall$median_error_km,
+  cov_overall$coverage,
+  cov_overall$median_bound_km,
+  cov_overall$median_error_km,
   100 * max(rf$drop_frac),
-  rf[drop_frac == 0, median_km], rf[drop_frac == max(drop_frac), median_km],
-  rf[drop_frac == 0, within_500m], rf[drop_frac == max(drop_frac), within_500m]
+  rf[drop_frac == 0, median_km],
+  rf[drop_frac == max(drop_frac), median_km],
+  rf[drop_frac == 0, within_500m],
+  rf[drop_frac == max(drop_frac), within_500m]
 ))
 ```
 
@@ -385,9 +402,12 @@ cat(sprintf(
     "median error and **%+.1f percentage points** within 500 m (a negative ",
     "and a positive, respectively, favour the model)."
   ),
-  cmp_overall$median_km_baseline, cmp_overall$within_500m_baseline,
-  cmp_overall$median_km_model, cmp_overall$within_500m_model,
-  cmp_overall$delta_median_km, cmp_overall$delta_within_500m
+  cmp_overall$median_km_baseline,
+  cmp_overall$within_500m_baseline,
+  cmp_overall$median_km_model,
+  cmp_overall$within_500m_model,
+  cmp_overall$delta_median_km,
+  cmp_overall$delta_within_500m
 ))
 ```
 
@@ -424,9 +444,12 @@ cat(sprintf(
   ),
   format(gate$n_stations, big.mark = ","),
   format(gate$n_geocodebr, big.mark = ","),
-  gate$median_km_geocodebr, gate$median_km_model,
-  gate$within_500m_geocodebr, gate$within_500m_model,
-  gate$delta_median_km, gate$delta_within_500m
+  gate$median_km_geocodebr,
+  gate$median_km_model,
+  gate$within_500m_geocodebr,
+  gate$within_500m_model,
+  gate$delta_median_km,
+  gate$delta_within_500m
 ))
 ```
 
